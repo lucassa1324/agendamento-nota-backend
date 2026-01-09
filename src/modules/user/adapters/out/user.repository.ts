@@ -26,4 +26,8 @@ export class UserRepository {
 
     return record ?? null;
   }
+
+  async findAll() {
+    return await db.select().from(user);
+  }
 }

@@ -100,3 +100,42 @@ export const accountRelations = relations(account, ({ one }) => ({
     references: [user.id],
   }),
 }));
+
+export const appointment = pgTable("appointment", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  date: timestamp("date").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const report = pgTable("report", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  data: text("data").notNull(), // Pode ser um JSON stringificado
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const appointmentRelations = relations(appointment, ({ one }) => ({
+  user: one(user, {
+    fields: [appointment.userId],
+    references: [user.id],
+  }),
+}));
+
+export const reportRelations = relations(report, ({ one }) => ({
+  user: one(user, {
+    fields: [report.userId],
+    references: [user.id],
+  }),
+}));
