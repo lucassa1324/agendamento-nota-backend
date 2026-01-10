@@ -1,22 +1,21 @@
 import { db } from "../../../infrastructure/drizzle/database";
-import { studios, business } from "../../../../db/schema";
+import { business } from "../../../../db/schema";
 import { eq } from "drizzle-orm";
 
 export class StudiosRepository {
   async findBySlug(slug: string) {
     const [record] = await db
       .select({
-        id: studios.id,
-        name: studios.name,
-        slug: studios.slug,
-        ownerId: studios.ownerId,
+        id: business.id,
+        name: business.name,
+        slug: business.slug,
+        ownerId: business.userId,
         config: business.config,
-        createdAt: studios.createdAt,
-        updatedAt: studios.updatedAt,
+        createdAt: business.createdAt,
+        updatedAt: business.updatedAt,
       })
-      .from(studios)
-      .leftJoin(business, eq(studios.slug, business.slug))
-      .where(eq(studios.slug, slug))
+      .from(business)
+      .where(eq(business.slug, slug))
       .limit(1);
     return record ?? null;
   }
@@ -24,8 +23,8 @@ export class StudiosRepository {
   async findById(id: string) {
     const [record] = await db
       .select()
-      .from(studios)
-      .where(eq(studios.id, id))
+      .from(business)
+      .where(eq(business.id, id))
       .limit(1);
     return record ?? null;
   }

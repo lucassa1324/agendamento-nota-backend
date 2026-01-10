@@ -33,26 +33,77 @@ export const auth = betterAuth({
     schema: schema,
   }),
   hooks: {
+    before: async (context: any) => {
+      const path = context.path || "";
+      if (path.startsWith("/sign-in")) {
+        const body = context.body || {};
+        console.log(`\n[AUTH_DEBUG] Tentativa de login iniciada:`);
+        console.log(`> E-mail: ${body.email}`);
+        console.log(`> Path: ${path}`);
+
+        // Verificar se o usuário existe no banco
+        if (body.email) {
+          const existingUser = await db
+            .select()
+            .from(schema.user)
+            .where(eq(schema.user.email, body.email))
+            .limit(1);
+
+          if (existingUser.length === 0) {
+            console.warn(`[AUTH_DEBUG] AVISO: Usuário com e-mail ${body.email} NÃO encontrado no banco.`);
+          } else {
+            console.log(`[AUTH_DEBUG] Usuário encontrado no banco. ID: ${existingUser[0].id}`);
+
+            // Verificar se tem conta vinculada
+            const userAccount = await db
+              .select()
+              .from(schema.account)
+              .where(eq(schema.account.userId, existingUser[0].id))
+              .limit(1);
+
+            if (userAccount.length === 0) {
+              console.warn(`[AUTH_DEBUG] AVISO: Usuário encontrado, mas NÃO possui conta vinculada na tabela 'account'.`);
+            } else {
+              console.log(`[AUTH_DEBUG] Conta encontrada para o usuário. Provedor: ${userAccount[0].providerId}`);
+            }
+          }
+        }
+      }
+      return;
+    },
     after: async (context: any) => {
       const path = context.path || "";
+
+      // No Better-Auth v1 + Elysia, o objeto retornado (user, session, etc) 
+      // fica em context.context.returned
+      const response = context.response || context.context?.returned || {};
+
       const isAuthPath =
         path.startsWith("/sign-in") ||
         path.startsWith("/sign-up") ||
         path.startsWith("/get-session");
 
       if (!isAuthPath) {
-        return;
+        return response;
       }
 
-      // Se não houver resposta ou for erro, não faz nada
-      if (!context.response || context.response.error) {
-        return;
+      // Log de resultado para sign-in
+      if (path.startsWith("/sign-in")) {
+        if (response.error) {
+          console.error(`[AUTH_DEBUG] Falha no login:`, response.error);
+        } else {
+          const user = response.user || response.session?.user;
+          if (user) {
+            console.log(`[AUTH_DEBUG] Login bem-sucedido para: ${user.email}`);
+          }
+        }
       }
 
-      const responseData = context.response;
-      const user =
-        responseData.user ||
-        (responseData.session ? responseData.session.user : null);
+      if (response.error) {
+        return response;
+      }
+
+      const user = response.user || response.session?.user;
 
       if (user && user.id) {
         const [userBusiness] = await db
@@ -63,18 +114,18 @@ export const auth = betterAuth({
 
         if (userBusiness) {
           // Injeta os dados do negócio no JSON de resposta
-          if (responseData.user) {
-            responseData.user.business = userBusiness;
-            responseData.user.slug = userBusiness.slug;
+          if (response.user) {
+            response.user.business = userBusiness;
+            response.user.slug = userBusiness.slug;
           }
-          if (responseData.session && responseData.session.user) {
-            responseData.session.user.business = userBusiness;
-            responseData.session.user.slug = userBusiness.slug;
+          if (response.session && response.session.user) {
+            response.session.user.business = userBusiness;
+            response.session.user.slug = userBusiness.slug;
           }
         }
       }
 
-      return context.response;
+      return response;
     },
   },
   plugins: [

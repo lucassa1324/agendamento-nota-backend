@@ -3,7 +3,7 @@ import { UserRepository } from "../../adapters/out/user.repository";
 import { UserAlreadyExistsError } from "../../domain/error/user-already-exists.error";
 import { auth } from "../../../infrastructure/auth/auth";
 import { db } from "../../../infrastructure/drizzle/database";
-import { business, studios } from "../../../../db/schema";
+import { business } from "../../../../db/schema";
 import { generateUniqueSlug } from "../../../../shared/utils/slug";
 import { eq } from "drizzle-orm";
 
@@ -44,13 +44,6 @@ export class CreateUserUseCase {
         },
       }).returning();
 
-      await db.insert(studios).values({
-        id: crypto.randomUUID(),
-        name: data.studioName,
-        slug: slug,
-        ownerId: alreadyExists.id,
-      });
-
       return {
         user: alreadyExists,
         session: null,
@@ -59,6 +52,7 @@ export class CreateUserUseCase {
       };
     }
 
+    console.log(`[USER_REGISTER_USE_CASE] Iniciando signUpEmail para: ${data.email}`);
     const response = await auth.api.signUpEmail({
       body: {
         email: data.email,
@@ -68,8 +62,10 @@ export class CreateUserUseCase {
     });
 
     if (!response || !response.user) {
+      console.error(`[USER_REGISTER_USE_CASE] Falha no signUpEmail:`, response);
       throw new Error("Failed to create user");
     }
+    console.log(`[USER_REGISTER_USE_CASE] signUpEmail concluído com sucesso para: ${response.user.email}`);
 
     const slug = await generateUniqueSlug(data.studioName);
 
@@ -84,13 +80,6 @@ export class CreateUserUseCase {
         services: [],
       },
     }).returning();
-
-    await db.insert(studios).values({
-      id: crypto.randomUUID(),
-      name: data.studioName,
-      slug: slug,
-      ownerId: response.user.id,
-    });
 
     return {
       ...response,
