@@ -18,54 +18,52 @@ const listUsersUseCase = new ListUsersUseCase(userRepository);
 const userController = new UserController(createUserUseCase, listUsersUseCase);
 
 const app = new Elysia()
-  .onRequest(({ request }) => {
-    const url = new URL(request.url);
-    if (url.pathname !== "/health") { // Evitar flood de logs se houver healthcheck
-      console.log(`\n[${new Date().toISOString()}] ${request.method} ${url.pathname}`);
-      console.log(`> Origin: ${request.headers.get("origin") || "N/A"}`);
-      console.log(`> Cookie: ${request.headers.get("cookie") ? "Presente" : "AUSENTE"}`);
-      if (request.headers.get("cookie")) {
-        console.log(`> Cookie Detail: ${request.headers.get("cookie")?.substring(0, 50)}...`);
-      }
-    }
-  })
   .use(
     cors({
-      origin: (request) => {
-        const origin = request.headers.get("origin");
-        if (!origin) return true;
-
-        try {
-          const url = new URL(origin);
-          // Permite localhost e qualquer subdomínio de localhost
-          if (url.hostname === "localhost" || url.hostname.endsWith(".localhost")) {
-            return true;
-          }
-
-          // Permitir URLs de produção do .env
-          if (
-            (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) ||
-            (process.env.PLATFORM_URL && origin === process.env.PLATFORM_URL)
-          ) {
-            return true;
-          }
-        } catch (e) {
-          return false;
-        }
-
-        return false;
-      },
+      origin: [
+        "http://localhost:3000",
+        "http://localhost:3002",
+        "http://lucas-studio.localhost:3000",
+        ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+        ...(process.env.PLATFORM_URL ? [process.env.PLATFORM_URL] : []),
+      ],
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
       credentials: true,
-      allowedHeaders: ["Content-Type", "Authorization"],
+      allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
+      exposeHeaders: ["Set-Cookie"],
     })
   )
   .mount(auth.handler)
+  .onRequest(({ request }) => {
+    const url = new URL(request.url);
+    if (url.pathname !== "/health") {
+      // Evitar flood de logs se houver healthcheck
+      console.log(
+        `\n[${new Date().toISOString()}] ${request.method} ${url.pathname}`
+      );
+      console.log(`> Origin: ${request.headers.get("origin") || "N/A"}`);
+      console.log(
+        `> Cookie: ${request.headers.get("cookie") ? "Presente" : "AUSENTE"}`
+      );
+      if (request.headers.get("cookie")) {
+        console.log(
+          `> Cookie Detail: ${request.headers.get("cookie")?.substring(0, 50)}...`
+        );
+      }
+    }
+  })
   .use(studiosController)
   .use(userController.registerRoutes())
   .use(appointmentController)
   .use(reportController)
   .use(businessController)
+  .onError(({ code, error, set }) => {
+    console.error(`\n[ERROR] ${code}:`, error);
+    return {
+      error: error instanceof Error ? error.message : "Unknown error",
+      code,
+    };
+  })
   .get("/user", async ({ request, set }) => {
     // Para a rota /user, precisamos validar a sessão manualmente ou usar o plugin localmente
     const session = await auth.api.getSession({

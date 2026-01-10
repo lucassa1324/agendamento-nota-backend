@@ -14,17 +14,27 @@ export class UserController {
       .post(
         "/",
         async ({ body, set }) => {
+          console.log(`\n[${new Date().toISOString()}] [USER_REGISTER] Nova requisição de cadastro recebida:`);
+          console.log(`> Body:`, JSON.stringify(body, null, 2));
+
           try {
             const user = await this.createUserUseCase.execute(body);
+            console.log(`> [USER_REGISTER] Sucesso ao criar usuário: ${user.user?.id || 'N/A'}`);
             set.status = 201;
             return user;
-          } catch (error: any) {
+          } catch (err: any) {
+            console.error(`> [USER_REGISTER] Erro ao processar cadastro:`, err.message);
             set.status = 400;
-            return { error: error.message };
+            return { error: err.message };
           }
         },
         {
           body: signinDTO,
+          onError({ error, body }: { error: any, body: any }) {
+            console.error("\n[USER_REGISTER_VALIDATION_ERROR]");
+            console.error("> Body enviado:", JSON.stringify(body, null, 2));
+            console.error("> Erro de validação:", error);
+          }
         }
       )
       .get("/", async () => {
