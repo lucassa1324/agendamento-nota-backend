@@ -79,7 +79,3 @@ const app = new Elysia()
   });
 
 export default app;
-
-console.log(
-  `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
-);

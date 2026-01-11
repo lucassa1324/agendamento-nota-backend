@@ -4,8 +4,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "bun run --watch src/local.ts",
-    "db:studio": "bunx drizzle-kit studio",
-    "build": "tsdown src/index.ts -d build --dts"
+    "db:studio": "bunx drizzle-kit studio"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
