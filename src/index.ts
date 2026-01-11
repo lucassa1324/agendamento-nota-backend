@@ -66,6 +66,7 @@ const app = new Elysia()
       code,
     };
   })
+  .get("/", () => "Elysia funcionando!")
   .get("/user", async ({ request, set }) => {
     // Para a rota /user, precisamos validar a sessão manualmente ou usar o plugin localmente
     const session = await auth.api.getSession({
