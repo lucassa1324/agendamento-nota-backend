@@ -47,25 +47,25 @@ export const auth = betterAuth({
     after: async (context: any) => {
       const path = context.path || "";
 
-      // Se for sign-out, retornamos a resposta original ou um objeto vazio para evitar erro 500
+      // Tenta pegar a resposta do contexto original do Better-Auth
+      // O Better-Auth v1+ espera que retornemos o objeto de resposta modificado ou o original.
+      // Se retornarmos undefined, o middleware do Better-Auth pode crashar ao tentar acessar result.headers.
+      let response = context.response || context.context?.returned;
+
+      // Se for sign-out, retornamos a resposta original ou um objeto vazio seguro
       if (path.includes("/sign-out")) {
         console.log(`[AUTH_AFTER_HOOK] Processando sign-out para ${path}`);
-        // No Better-Auth + Elysia, as vezes a resposta de sign-out é apenas o redirecionamento ou limpeza de cookie
-        return context.response || context.context?.returned || {};
+        return response || context.response || {};
       }
-
-      // Tenta pegar a resposta do contexto
-      let response = context.response || context.context?.returned;
 
       const isAuthPath =
         path.startsWith("/sign-in") ||
         path.startsWith("/sign-up") ||
         path.startsWith("/get-session");
 
-      // Se não for um dos paths que queremos injetar dados ou se não houver resposta
-      // Retornamos a resposta original ou um objeto vazio para evitar crash no Better-Auth
-      if (!isAuthPath || !response) {
-        return context.response || response || {};
+      // Se não houver resposta ou não for um path de auth, retornamos o que temos
+      if (!response || !isAuthPath) {
+        return response || context.response || {};
       }
 
       // Se for um erro, não tentamos injetar dados de negócio
@@ -102,7 +102,8 @@ export const auth = betterAuth({
         }
       }
 
-      return response;
+      // SEMPRE retornar um objeto, nunca undefined
+      return response || {};
     },
   },
   plugins: [

@@ -10,7 +10,7 @@ import { UserRepository } from "./modules/user/adapters/out/user.repository";
 import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
 import { reportController } from "./modules/reports/adapters/in/http/report.controller";
 import { businessController } from "./modules/business/adapters/in/http/business.controller";
-import { studiosController } from "./modules/studios/adapters/in/http/studios.controller";
+import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
 
 const userRepository = new UserRepository();
 const createUserUseCase = new CreateUserUseCase(userRepository);
@@ -56,7 +56,7 @@ const app = new Elysia()
       }
     }
   })
-  .use(studiosController)
+  .use(publicBusinessController)
   .use(userController.registerRoutes())
   .use(appointmentController)
   .use(reportController)
