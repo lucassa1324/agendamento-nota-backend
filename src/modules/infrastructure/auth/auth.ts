@@ -30,13 +30,6 @@ export const auth = betterAuth({
       enabled: true,
       maxAge: 5 * 60,
     },
-    // Garantir que os cookies funcionem entre domínios diferentes no Vercel
-    cookie: {
-      attributes: {
-        sameSite: "None",
-        secure: true,
-      }
-    }
   },
   database: drizzleAdapter(db, {
     provider: "pg",
@@ -54,10 +47,11 @@ export const auth = betterAuth({
     after: async (context: any) => {
       const path = context.path || "";
 
-      // Se for sign-out, retornamos o objeto original para não quebrar os headers de Set-Cookie
+      // Se for sign-out, retornamos a resposta original ou um objeto vazio para evitar erro 500
       if (path.includes("/sign-out")) {
-        console.log(`[AUTH_AFTER_HOOK] Processando sign-out`);
-        return context.response;
+        console.log(`[AUTH_AFTER_HOOK] Processando sign-out para ${path}`);
+        // No Better-Auth + Elysia, as vezes a resposta de sign-out é apenas o redirecionamento ou limpeza de cookie
+        return context.response || context.context?.returned || {};
       }
 
       // Tenta pegar a resposta do contexto
