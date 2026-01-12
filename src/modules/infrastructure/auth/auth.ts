@@ -53,24 +53,7 @@ export const auth = betterAuth({
       // Log de depuração para tokens recebidos
       if (path.includes("/get-session")) {
         const token = authHeader || "AUSENTE";
-        const cookieHeader = context.headers?.get("cookie") || "AUSENTE";
-        console.log(`[AUTH_DEBUG] get-session - Token bruto: ${token.substring(0, 30)}...`);
-        console.log(`[AUTH_DEBUG] get-session - Cookie: ${cookieHeader.substring(0, 30)}...`);
-
-        // Tenta validar a sessão manualmente para logar o resultado
-        try {
-          const session = await auth.api.getSession({
-            headers: context.headers,
-          });
-          console.log('>>> [DEBUG] Resultado da validação da sessão:', session ? 'Sessão encontrada' : 'Sessão NULA');
-
-          if (!session && authHeader?.startsWith("Bearer ")) {
-            console.log('>>> [DEBUG] Tentando remover prefixo Bearer para teste...');
-            // O Better-Auth costuma lidar com isso, mas se falhar, o log ajudará a identificar
-          }
-        } catch (e) {
-          console.error('>>> [DEBUG] Erro ao tentar validar sessão no log:', e);
-        }
+        console.log(`[AUTH_DEBUG] get-session iniciado - Token bruto: ${token.substring(0, 30)}...`);
       }
 
       // Proteção contra 500 no sign-out se não houver sessão
@@ -102,11 +85,17 @@ export const auth = betterAuth({
     },
     after: async (context: any) => {
       const path = context.path || "";
+      const startTime = Date.now();
       let response;
 
       try {
         // Tenta capturar a resposta de forma segura
         response = context.response || context.context?.returned;
+
+        // Log de início do processamento after
+        if (path.includes("/get-session")) {
+          console.log(`[AUTH_AFTER_HOOK] Processando resposta para ${path}...`);
+        }
 
         // Se for um erro de autenticação (ex: senha errada), o Better-Auth pode retornar status 401 ou 403
         // Capturamos isso para evitar que o servidor quebre ao tentar processar o JSON
@@ -150,6 +139,8 @@ export const auth = betterAuth({
 
         if (user && user.id) {
           try {
+            if (path.includes("/get-session")) console.log(`[AUTH_AFTER_HOOK] Buscando business para usuário ${user.id}...`);
+
             const [userBusiness] = await db
               .select()
               .from(schema.business)
@@ -157,7 +148,7 @@ export const auth = betterAuth({
               .limit(1);
 
             if (userBusiness) {
-              console.log(`[AUTH_AFTER_HOOK] Sucesso! Injetando business para ${user.id}`);
+              if (path.includes("/get-session")) console.log(`[AUTH_AFTER_HOOK] Business encontrado: ${userBusiness.slug}`);
 
               const businessData = {
                 ...userBusiness,
@@ -176,6 +167,11 @@ export const auth = betterAuth({
           } catch (dbError) {
             console.error(`[AUTH_AFTER_HOOK] Erro ao buscar business no banco:`, dbError);
           }
+        }
+
+        if (path.includes("/get-session")) {
+          const duration = Date.now() - startTime;
+          console.log(`>>> [BACKEND] Sessão enviada com sucesso para o Front (Duração: ${duration}ms)`);
         }
 
         return response;
