@@ -43,14 +43,34 @@ export const auth = betterAuth({
       const path = context.path || "";
 
       // Log de depuração de entrada conforme solicitado
-      console.log(`>>> [BACKEND] Requisição em ${path} | Header Authorization recebido:`, context.headers?.get("authorization") ? "SIM" : "NÃO");
+      const authHeader = context.headers?.get("authorization");
+      console.log(`>>> [BACKEND] Requisição em ${path} | Header Authorization recebido:`, authHeader ? "SIM" : "NÃO");
+
+      // Log mascarado do segredo para conferência (apenas os 4 primeiros caracteres)
+      const secret = process.env.BETTER_AUTH_SECRET || "";
+      console.log(`>>> [DEBUG] BETTER_AUTH_SECRET (prefixo): ${secret.substring(0, 4)}****`);
 
       // Log de depuração para tokens recebidos
       if (path.includes("/get-session")) {
-        const authHeader = context.headers?.get("authorization") || "AUSENTE";
+        const token = authHeader || "AUSENTE";
         const cookieHeader = context.headers?.get("cookie") || "AUSENTE";
-        console.log(`[AUTH_DEBUG] get-session - Token (Header): ${authHeader.substring(0, 30)}...`);
+        console.log(`[AUTH_DEBUG] get-session - Token bruto: ${token.substring(0, 30)}...`);
         console.log(`[AUTH_DEBUG] get-session - Cookie: ${cookieHeader.substring(0, 30)}...`);
+
+        // Tenta validar a sessão manualmente para logar o resultado
+        try {
+          const session = await auth.api.getSession({
+            headers: context.headers,
+          });
+          console.log('>>> [DEBUG] Resultado da validação da sessão:', session ? 'Sessão encontrada' : 'Sessão NULA');
+
+          if (!session && authHeader?.startsWith("Bearer ")) {
+            console.log('>>> [DEBUG] Tentando remover prefixo Bearer para teste...');
+            // O Better-Auth costuma lidar com isso, mas se falhar, o log ajudará a identificar
+          }
+        } catch (e) {
+          console.error('>>> [DEBUG] Erro ao tentar validar sessão no log:', e);
+        }
       }
 
       // Proteção contra 500 no sign-out se não houver sessão
