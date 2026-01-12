@@ -1,20 +1,15 @@
-import type { Config } from "drizzle-kit";
+import { defineConfig } from "drizzle-kit";
+import * as dotenv from "dotenv";
 
-const url = new URL(process.env.DATABASE_URL!);
+// Carrega o .env.local se existir, senão carrega o .env
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 
-const dbCredentials = {
-  protocol: url.protocol.replace(":", ""),
-  host: url.hostname,
-  port: url.port ? Number(url.port) : 5432,
-  database: url.pathname.replace("/", ""),
-  user: decodeURIComponent(url.username),
-  password: decodeURIComponent(url.password),
-  params: Object.fromEntries(url.searchParams.entries()),
-};
-
-export default {
-  schema: "./src/db/*schema.ts",
+export default defineConfig({
+  schema: "./src/db/schema.ts",
   out: "./drizzle",
   dialect: "postgresql",
-  dbCredentials,
-} satisfies Config;
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+});
