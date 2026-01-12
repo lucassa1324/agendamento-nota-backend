@@ -9,11 +9,11 @@ export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET!,
   baseURL: process.env.BETTER_AUTH_URL!,
   trustedOrigins: [
+    "https://agendamento-nota-front.vercel.app",
     "http://localhost:3000",
     "http://localhost:3002",
     "http://lucas-studio.localhost:3000",
     "http://*.localhost:3000",
-    "https://agendamento-nota-front.vercel.app",
     "https://agendamento-nota-backend.vercel.app",
     "https://*.vercel.app",
     ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
@@ -46,14 +46,21 @@ export const auth = betterAuth({
       const authHeader = context.headers?.get("authorization");
       console.log(`>>> [BACKEND] Requisição em ${path} | Header Authorization recebido:`, authHeader ? "SIM" : "NÃO");
 
-      // Log mascarado do segredo para conferência (apenas os 4 primeiros caracteres)
+      // Verificação crítica de segredo e banco de dados
       const secret = process.env.BETTER_AUTH_SECRET || "";
-      console.log(`>>> [DEBUG] BETTER_AUTH_SECRET (prefixo): ${secret.substring(0, 4)}****`);
+      const dbUrl = process.env.DATABASE_URL || "";
+
+      console.log(`>>> [CRITICAL_DEBUG] BETTER_AUTH_SECRET (prefixo): ${secret.substring(0, 4)}**** (Tamanho: ${secret.length})`);
+      console.log(`>>> [CRITICAL_DEBUG] DATABASE_URL (destino): ${dbUrl.includes("supabase") ? "SUPABASE DETECTADO" : "OUTRO BANCO"} | Prefixo: ${dbUrl.substring(0, 15)}...`);
 
       // Log de depuração para tokens recebidos
       if (path.includes("/get-session")) {
         const token = authHeader || "AUSENTE";
         console.log(`[AUTH_DEBUG] get-session iniciado - Token bruto: ${token.substring(0, 30)}...`);
+
+        if (!authHeader) {
+          console.warn(">>> [AUTH_DEBUG] AVISO: Header Authorization está faltando na requisição do Front-end!");
+        }
       }
 
       // Proteção contra 500 no sign-out se não houver sessão
