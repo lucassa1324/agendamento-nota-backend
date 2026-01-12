@@ -28,6 +28,15 @@ export const auth = betterAuth({
     // No Vercel/Produção, useSecureCookies deve ser true para permitir SameSite=None
     useSecureCookies: process.env.NODE_ENV === "production",
   },
+  cookies: {
+    sessionToken: {
+      options: {
+        sameSite: "none",
+        secure: true,
+        httpOnly: true,
+      },
+    },
+  },
   session: {
     cookieCache: {
       enabled: false, // Desabilitado em produção serverless para evitar inconsistências
@@ -161,6 +170,16 @@ export const auth = betterAuth({
         const user = response.user || response.session?.user;
 
         if (user && user.id) {
+          // Log de depuração do Drizzle para verificar persistência do usuário
+          if (path.includes("/get-session")) {
+            try {
+              const dbUser = await db.select().from(schema.user).where(eq(schema.user.id, user.id)).limit(1);
+              console.log(`>>> [DRIZZLE_DEBUG] Usuário vinculado à sessão (${user.id}):`, dbUser.length > 0 ? 'Encontrado no banco' : 'NÃO ENCONTRADO no banco');
+            } catch (drizzleErr) {
+              console.error(`>>> [DRIZZLE_DEBUG] Erro ao buscar usuário:`, drizzleErr);
+            }
+          }
+
           try {
             if (path.includes("/get-session")) console.log(`[AUTH_AFTER_HOOK] Buscando business para usuário ${user.id}...`);
 
