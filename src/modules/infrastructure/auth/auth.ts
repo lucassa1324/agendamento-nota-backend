@@ -50,17 +50,10 @@ export const auth = betterAuth({
     before: async (context: any) => {
       const path = context.path || "";
 
-      // Log de depuração de entrada conforme solicitado
-      const authHeader = context.headers?.get("authorization");
-      console.log(`>>> [BACKEND] Requisição em ${path} | Header Authorization recebido:`, authHeader ? "SIM" : "NÃO");
-
-      // Tratamento de prefixo Bearer solicitado pelo usuário
-      // Se o header contiver Bearer, tentamos garantir que o Better-Auth o processe corretamente
-      if (authHeader?.startsWith("Bearer ")) {
-        const tokenOnly = authHeader.substring(7);
-        // Em alguns contextos, o Better-Auth v1 pode falhar ao processar o Bearer se o useHeader não estiver ativo
-        // Embora tenhamos removido useHeader por erro de tipagem, forçamos o token limpo se necessário
-        console.log(`[AUTH_BEFORE_HOOK] Token com prefixo Bearer detectado. Verificando...`);
+      // Log básico de depuração para cookies
+      const cookieHeader = context.headers?.get("cookie");
+      if (path.includes("/get-session") || path.includes("/sign-in")) {
+        console.log(`>>> [AUTH_BEFORE] Requisição em ${path} | Cookies presentes:`, cookieHeader ? "SIM" : "NÃO");
       }
 
       // Verificação crítica de segredo e banco de dados
@@ -68,52 +61,9 @@ export const auth = betterAuth({
       const dbUrl = process.env.DATABASE_URL || "";
       const authUrl = process.env.BETTER_AUTH_URL || "";
 
-      console.log(`>>> [CRITICAL_DEBUG] BETTER_AUTH_SECRET (prefixo): ${secret.substring(0, 4)}**** (Tamanho: ${secret.length})`);
-      console.log(`>>> [CRITICAL_DEBUG] BETTER_AUTH_URL: ${authUrl}`);
-
-      if (dbUrl.includes(".neon.tech")) {
-        console.error(`>>> [ALERTA_BANCO] O Back-end está conectado ao NEON (postgresql://ne...). Se o Front-end estiver no SUPABASE, a autenticação VAI FALHAR.`);
-      } else if (dbUrl.includes("supabase")) {
-        console.log(`>>> [INFO_BANCO] Conectado ao SUPABASE.`);
-      } else {
-        console.log(`>>> [INFO_BANCO] Banco detectado: ${dbUrl.substring(0, 20)}...`);
-      }
-
-      // Teste rápido de existência de tabela no log de get-session
-      if (path.includes("/get-session")) {
-        const token = authHeader || "AUSENTE";
-        console.log(`[AUTH_DEBUG] get-session iniciado - Token bruto: ${token.substring(0, 30)}...`);
-
-        if (authHeader?.startsWith("Bearer ")) {
-          const tokenValue = authHeader.split(" ")[1];
-          try {
-            const sessionCheck = await db.select().from(schema.session).where(eq(schema.session.token, tokenValue)).limit(1);
-            if (sessionCheck.length > 0) {
-              console.log(`>>> [AUTH_DEBUG] SUCESSO: Token encontrado na tabela 'session'. ID: ${sessionCheck[0].id}`);
-            } else {
-              console.warn(`>>> [AUTH_DEBUG] ERRO: Token '${tokenValue.substring(0, 10)}...' NÃO encontrado na tabela 'session'.`);
-
-              // Verificação extra: existe alguma sessão no banco?
-              const totalSessions = await db.select({ count: schema.session.id }).from(schema.session);
-              console.log(`>>> [AUTH_DEBUG] Total de sessões no banco: ${totalSessions.length}`);
-            }
-          } catch (err: any) {
-            console.error(`>>> [AUTH_DEBUG] Erro ao consultar token no banco:`, err.message);
-          }
-        }
-
-        try {
-          // Tenta um count simples na tabela de usuários para ver se o banco responde
-          const userCount = await db.select({ count: schema.user.id }).from(schema.user).limit(1);
-          console.log(`>>> [DATABASE_HEALTH] Conexão OK. Tabela 'user' acessível.`);
-        } catch (dbError: any) {
-          console.error(`>>> [DATABASE_ERROR] Erro ao acessar tabela 'user':`, dbError.message);
-          console.error(`>>> DICA: Verifique se as migrations foram rodadas no banco ${dbUrl.substring(0, 15)}...`);
-        }
-
-        if (!authHeader) {
-          console.warn(">>> [AUTH_DEBUG] AVISO: Header Authorization está faltando na requisição do Front-end!");
-        }
+      if (path.includes("/get-session") || path.includes("/sign-in")) {
+        console.log(`>>> [CRITICAL_DEBUG] BETTER_AUTH_SECRET (prefixo): ${secret.substring(0, 4)}****`);
+        console.log(`>>> [CRITICAL_DEBUG] BETTER_AUTH_URL: ${authUrl}`);
       }
 
       // Proteção contra 500 no sign-out se não houver sessão
