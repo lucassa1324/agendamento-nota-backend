@@ -11,6 +11,7 @@ import { appointmentController } from "./modules/appointments/adapters/in/http/a
 import { reportController } from "./modules/reports/adapters/in/http/report.controller";
 import { businessController } from "./modules/business/adapters/in/http/business.controller";
 import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
+import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
 
 const userRepository = new UserRepository();
 const createUserUseCase = new CreateUserUseCase(userRepository);
@@ -18,9 +19,11 @@ const listUsersUseCase = new ListUsersUseCase(userRepository);
 const userController = new UserController(createUserUseCase, listUsersUseCase);
 
 const app = new Elysia()
+  .use(repositoriesPlugin)
   .use(
     cors({
       origin: [
+        "http://localhost:3000",
         "https://agendamento-nota-front.vercel.app",
         "https://landingpage-agendamento-front.vercel.app",
         ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
@@ -32,26 +35,6 @@ const app = new Elysia()
     })
   )
   .mount(auth.handler)
-  .onRequest(({ request }) => {
-    const url = new URL(request.url);
-    if (url.pathname !== "/health") {
-      // Evitar flood de logs se houver healthcheck
-      console.log(
-        `\n[${new Date().toISOString()}] ${request.method} ${url.pathname}`
-      );
-      console.log(`> Origin: ${request.headers.get("origin") || "N/A"}`);
-      console.log(
-        `> Cookie: ${request.headers.get("cookie") ? "Presente" : "AUSENTE"}`
-      );
-      if (request.headers.get("cookie")) {
-        console.log(
-          `> Cookie Detail: ${request.headers
-            .get("cookie")
-            ?.substring(0, 50)}...`
-        );
-      }
-    }
-  })
   .use(publicBusinessController)
   .use(userController.registerRoutes())
   .use(appointmentController)

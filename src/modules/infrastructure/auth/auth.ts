@@ -7,11 +7,15 @@ import { eq } from "drizzle-orm";
 
 export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET!,
+  emailAndPassword: {
+    enabled: true,
+  },
   // Prioriza a URL do Front (via Proxy) se disponível, para garantir cookies First-Party
   baseURL: process.env.FRONTEND_URL
     ? `${process.env.FRONTEND_URL}/api/auth`
-    : (process.env.BETTER_AUTH_URL || "http://localhost:3333/api/auth"),
+    : (process.env.BETTER_AUTH_URL || "http://localhost:3000/api/auth"),
   trustedOrigins: [
+    "http://localhost:3000",
     "https://agendamento-nota-front.vercel.app",
     "https://landingpage-agendamento-front.vercel.app",
     ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
@@ -48,21 +52,6 @@ export const auth = betterAuth({
     before: async (context: any) => {
       const path = context.path || "";
 
-      // Log básico de depuração para cookies
-      const cookieHeader = context.headers?.get("cookie");
-      if (path.includes("/get-session") || path.includes("/sign-in")) {
-        console.log(`>>> [AUTH_BEFORE] Requisição em ${path} | Cookies presentes:`, cookieHeader ? "SIM" : "NÃO");
-      }
-
-      // Verificação crítica de segredo e banco de dados
-      const secret = process.env.BETTER_AUTH_SECRET || "";
-      const authUrl = process.env.BETTER_AUTH_URL || "";
-
-      if (path.includes("/get-session") || path.includes("/sign-in")) {
-        console.log(`>>> [CRITICAL_DEBUG] BETTER_AUTH_SECRET (prefixo): ${secret.substring(0, 4)}****`);
-        console.log(`>>> [CRITICAL_DEBUG] BETTER_AUTH_URL: ${authUrl}`);
-      }
-
       // Proteção contra 500 no sign-out se não houver sessão
       if (path.includes("/sign-out")) {
         try {
@@ -71,7 +60,6 @@ export const auth = betterAuth({
           });
 
           if (!session) {
-            console.log(`[AUTH_BEFORE_HOOK] Sign-out ignorado: nenhuma sessão ativa`);
             return {
               response: new Response(JSON.stringify({ success: true }), {
                 status: 200,
@@ -83,88 +71,51 @@ export const auth = betterAuth({
           console.error("[AUTH_BEFORE_HOOK] Erro ao verificar sessão no sign-out:", e);
         }
       }
-
-      if (path.startsWith("/sign-in") || path.startsWith("/sign-up")) {
-        const body = context.body || {};
-        console.log(`\n[AUTH_DEBUG] Tentativa de login/registro em ${path}:`, body.email || "sem email");
-      }
       return;
     },
     after: async (context: any) => {
       const path = context.path || "";
-      const startTime = Date.now();
-      let response;
+      const response = context.response || context.context?.returned;
 
       try {
-        // Tenta capturar a resposta de forma segura
-        response = context.response || context.context?.returned;
-
-        if (path.includes("/get-session") || path.includes("/sign-in")) {
-          console.log(`[AUTH_AFTER_HOOK] Processando resposta para ${path}...`);
-          if (response && response.session) {
-            console.log(`[AUTH_AFTER_HOOK] Sessão encontrada no objeto de resposta. ID: ${response.session.id || 'N/A'}`);
-          } else {
-            console.log(`[AUTH_AFTER_HOOK] Sessão NÃO encontrada no objeto de resposta.`);
-          }
-        }
-
-        // Se for um erro de autenticação (ex: senha errada), o Better-Auth pode retornar status 401 ou 403
-        // Capturamos isso para evitar que o servidor quebre ao tentar processar o JSON
-        if (context.error || (response && (response.error || response.status >= 400))) {
-          const status = response?.status || 401;
-          const errorMsg = response?.error || "Authentication failed";
-          console.log(`[AUTH_AFTER_HOOK] Erro detectado em ${path} (Status ${status}):`, errorMsg);
-
-          // Se for uma falha de login, retornamos um erro formatado em vez de deixar o servidor dar 500
+        // Se houver erro ou status >= 400, tratamos falhas de autenticação
+        if (context.error || (response && response.status >= 400)) {
           if (path.includes("/sign-in")) {
             return new Response(JSON.stringify({
-              error: errorMsg,
+              error: context.error?.message || "Authentication failed",
               message: "Credenciais inválidas ou erro de autenticação"
             }), {
               status: 401,
-              headers: { "Content-Type": "application/json" }
+              headers: new Headers({ "Content-Type": "application/json" })
             });
           }
           return response;
         }
 
-        // Se for sign-out, garantimos um retorno JSON para evitar Unexpected EOF
+        // Se for sign-out, garantimos um retorno JSON para evitar Unexpected EOF no front
         if (path.includes("/sign-out")) {
-          console.log(`[AUTH_AFTER_HOOK] Sign-out processado para ${path}`);
           return new Response(JSON.stringify({ success: true }), {
             status: 200,
-            headers: { "Content-Type": "application/json" }
+            headers: new Headers({ "Content-Type": "application/json" })
           });
         }
 
+        // Apenas processamos sucesso para caminhos de autenticação específicos
         const isAuthPath =
           path.startsWith("/sign-in") ||
           path.startsWith("/sign-up") ||
           path.startsWith("/get-session");
 
-        if (!response || !isAuthPath) {
-          return response || {};
+        if (!isAuthPath || !response) {
+          return response;
         }
 
+        // Se chegamos aqui, é um sucesso em um caminho de auth. 
+        // Vamos enriquecer o objeto user com os dados do business.
         const user = response.user || response.session?.user;
 
         if (user && user.id) {
-          // Log de depuração do Drizzle para verificar persistência do usuário e sessão
-          if (path.includes("/get-session") || path.includes("/sign-in")) {
-            try {
-              const dbUser = await db.select().from(schema.user).where(eq(schema.user.id, user.id)).limit(1);
-              console.log(`>>> [DRIZZLE_DEBUG] Usuário (${user.id}):`, dbUser.length > 0 ? 'Encontrado no banco' : 'NÃO ENCONTRADO no banco');
-
-              const dbSessions = await db.select().from(schema.session).where(eq(schema.session.userId, user.id));
-              console.log(`>>> [DRIZZLE_DEBUG] Sessões no banco para este usuário: ${dbSessions.length}`);
-            } catch (drizzleErr) {
-              console.error(`>>> [DRIZZLE_DEBUG] Erro ao buscar dados no banco:`, drizzleErr);
-            }
-          }
-
           try {
-            if (path.includes("/get-session")) console.log(`[AUTH_AFTER_HOOK] Buscando business para usuário ${user.id}...`);
-
             const [userBusiness] = await db
               .select()
               .from(schema.business)
@@ -172,13 +123,12 @@ export const auth = betterAuth({
               .limit(1);
 
             if (userBusiness) {
-              if (path.includes("/get-session")) console.log(`[AUTH_AFTER_HOOK] Business encontrado: ${userBusiness.slug}`);
-
               const businessData = {
                 ...userBusiness,
                 slug: userBusiness.slug
               };
 
+              // Modifica o objeto response diretamente (se for um objeto plano)
               if (response.user) {
                 response.user.business = businessData;
                 response.user.slug = userBusiness.slug;
@@ -189,20 +139,24 @@ export const auth = betterAuth({
               }
             }
           } catch (dbError) {
-            console.error(`[AUTH_AFTER_HOOK] Erro ao buscar business no banco:`, dbError);
+            console.error(`[AUTH_AFTER_HOOK] Erro ao buscar business:`, dbError);
           }
         }
 
-        if (path.includes("/get-session")) {
-          const duration = Date.now() - startTime;
-          console.log(`>>> [BACKEND] Sessão enviada com sucesso para o Front (Duração: ${duration}ms)`);
+        // Importante: se response tiver headers, garantir que seja um objeto Headers
+        // para evitar o erro "headers.forEach is not a function" no Better Auth interno
+        if (response && response.headers && typeof response.headers.forEach !== 'function') {
+          try {
+            response.headers = new Headers(response.headers);
+          } catch (e) {
+            // Se falhar (ex: response é um Response objeto read-only), ignoramos
+          }
         }
 
         return response;
       } catch (globalError) {
-        console.error(`[AUTH_AFTER_HOOK] CRITICAL ERROR em ${path}:`, globalError);
-        // Fallback para evitar 500 total
-        return response || new Response(JSON.stringify({ error: "Internal Server Error during auth hook" }), { status: 500 });
+        console.error(`[AUTH_AFTER_HOOK] Erro crítico:`, globalError);
+        return response;
       }
     },
   },
@@ -219,21 +173,12 @@ export const auth = betterAuth({
             const session = ctx.context.session;
             if (!session) return ctx.json({ business: null, slug: null });
 
-            console.log(
-              `[AUTH_PLUGIN] getBusiness chamado para usuário: ${session.user.id}`
-            );
             const userId = session.user.id;
             const [userBusiness] = await db
               .select()
               .from(schema.business)
               .where(eq(schema.business.userId, userId))
               .limit(1);
-
-            if (!userBusiness) {
-              console.log(
-                `[AUTH_PLUGIN] Nenhum negócio encontrado para o usuário: ${userId}`
-              );
-            }
 
             return ctx.json({
               business: userBusiness || null,
@@ -244,7 +189,4 @@ export const auth = betterAuth({
       },
     },
   ],
-  emailAndPassword: {
-    enabled: true,
-  },
 });
