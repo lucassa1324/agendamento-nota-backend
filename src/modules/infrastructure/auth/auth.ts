@@ -8,7 +8,10 @@ import { eq } from "drizzle-orm";
 export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET!,
   baseURL: process.env.BETTER_AUTH_URL!,
-  trustedOrigins: ["https://agendamento-nota-front.vercel.app"],
+  trustedOrigins: [
+    "https://agendamento-nota-front.vercel.app",
+    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+  ],
   advanced: {
     cookiePrefix: "better-auth",
     crossSubDomainCookies: {
@@ -19,7 +22,7 @@ export const auth = betterAuth({
     cookies: {
       sessionToken: {
         attributes: {
-          sameSite: "none",
+          sameSite: "lax",
           secure: true,
           httpOnly: true,
         },

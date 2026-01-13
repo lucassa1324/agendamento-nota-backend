@@ -20,7 +20,10 @@ const userController = new UserController(createUserUseCase, listUsersUseCase);
 const app = new Elysia()
   .use(
     cors({
-      origin: "https://agendamento-nota-front.vercel.app",
+      origin: [
+        "https://agendamento-nota-front.vercel.app",
+        ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+      ],
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
       credentials: true,
       allowedHeaders: ["Content-Type", "Authorization", "Cookie", "set-cookie"],
@@ -61,6 +64,23 @@ const app = new Elysia()
     };
   })
   .get("/", () => "Elysia funcionando!")
+  .get("/diagnostics/headers", async ({ request }) => {
+    const origin = request.headers.get("origin") || null;
+    const cookie = request.headers.get("cookie") || null;
+    const authorization = request.headers.get("authorization") || null;
+    const userAgent = request.headers.get("user-agent") || null;
+    const session = await auth.api.getSession({ headers: request.headers });
+    return {
+      method: request.method,
+      origin,
+      cookiePresent: !!cookie,
+      cookiePreview: cookie ? `${cookie.slice(0, 80)}${cookie.length > 80 ? "..." : ""}` : null,
+      authorizationPresent: !!authorization,
+      userAgent,
+      sessionFound: !!session,
+      userId: session?.user?.id || null,
+    };
+  })
   .get("/user", async ({ request, set }) => {
     // Para a rota /user, precisamos validar a sessão manualmente ou usar o plugin localmente
     const session = await auth.api.getSession({
