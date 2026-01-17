@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { db } from "../../../../infrastructure/drizzle/database";
 import { appointments } from "../../../../../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import type { User } from "../../../../infrastructure/auth/auth-plugin";
 
@@ -13,10 +13,12 @@ export const appointmentController = new Elysia({ prefix: "/appointments" })
       return { error: "Unauthorized" };
     }
 
+    // Busca agendamentos onde o usuário é o cliente (customerId)
+    // No futuro, se o usuário for ADMIN, ele poderá ver todos os agendamentos da empresa dele
     const data = await db
       .select()
       .from(appointments)
-      .where(eq(appointments.userId, user.id));
+      .where(eq(appointments.customerId, user.id));
 
     return data;
   }, {
@@ -30,18 +32,31 @@ export const appointmentController = new Elysia({ prefix: "/appointments" })
 
     const newAppointment = await db.insert(appointments).values({
       id: crypto.randomUUID(),
-      title: body.title,
-      description: body.description,
-      date: new Date(body.date),
-      userId: user.id,
+      companyId: body.companyId,
+      serviceId: body.serviceId,
+      customerId: user.id,
+      customerName: user.name || "Cliente",
+      customerEmail: user.email,
+      customerPhone: body.customerPhone || "",
+      serviceNameSnapshot: body.serviceName,
+      servicePriceSnapshot: body.servicePrice,
+      serviceDurationSnapshot: body.serviceDuration,
+      scheduledAt: new Date(body.scheduledAt),
+      status: "PENDING",
+      notes: body.notes,
     }).returning();
 
     return newAppointment[0];
   }, {
     auth: true,
     body: t.Object({
-      title: t.String(),
-      description: t.Optional(t.String()),
-      date: t.String(),
+      companyId: t.String(),
+      serviceId: t.String(),
+      scheduledAt: t.String(),
+      customerPhone: t.Optional(t.String()),
+      serviceName: t.String(),
+      servicePrice: t.String(),
+      serviceDuration: t.String(),
+      notes: t.Optional(t.String()),
     })
   });

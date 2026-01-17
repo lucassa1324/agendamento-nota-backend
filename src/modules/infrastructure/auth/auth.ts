@@ -13,7 +13,7 @@ export const auth = betterAuth({
   // Prioriza a URL do Front (via Proxy) se disponível, para garantir cookies First-Party
   baseURL: process.env.FRONTEND_URL
     ? `${process.env.FRONTEND_URL}/api/auth`
-    : (process.env.BETTER_AUTH_URL || "http://localhost:3000/api/auth"),
+    : (process.env.BETTER_AUTH_URL ? `${process.env.BETTER_AUTH_URL}/api/auth` : "http://localhost:3000/api/auth"),
   trustedOrigins: [
     "http://localhost:3000",
     "https://agendamento-nota-front.vercel.app",
@@ -27,12 +27,13 @@ export const auth = betterAuth({
       enabled: false,
     },
     // No Vercel/Produção, useSecureCookies deve ser true para permitir SameSite=None
-    useSecureCookies: true,
+    // Em localhost, deve ser false a menos que use HTTPS
+    useSecureCookies: process.env.NODE_ENV === "production",
     cookies: {
       sessionToken: {
         attributes: {
           sameSite: "lax",
-          secure: true,
+          secure: process.env.NODE_ENV === "production",
           httpOnly: true,
         },
       },

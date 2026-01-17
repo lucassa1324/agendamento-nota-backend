@@ -33,7 +33,7 @@ const app = new Elysia()
       exposeHeaders: ["Set-Cookie", "set-cookie"],
     })
   )
-  .mount(auth.handler)
+  .group("/api/auth", (group) => group.mount(auth.handler))
   .use(publicBusinessController)
   .use(userController.registerRoutes())
   // .use(appointmentController)
