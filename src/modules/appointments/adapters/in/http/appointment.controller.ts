@@ -16,33 +16,89 @@ export const appointmentController = new Elysia({ prefix: "/api/appointments" })
       return { error: "Unauthorized" };
     }
   })
-  .get("/company/:companyId", async ({ params: { companyId }, appointmentRepository, businessRepository, user, set }) => {
+  .get("/company/:companyId", async ({ params: { companyId }, query, appointmentRepository, businessRepository, user, set }) => {
     try {
+      console.log(`[APPOINTMENT_CONTROLLER] Listando agendamentos para empresa: ${companyId}`);
+      console.log(`[APPOINTMENT_CONTROLLER] Usuário autenticado: ${user?.id} (${user?.email})`);
+
+      const startDate = query.startDate ? new Date(query.startDate as string) : undefined;
+      const endDate = query.endDate ? new Date(query.endDate as string) : undefined;
+
+      // Validação básica de data
+      if (query.startDate && isNaN(startDate!.getTime())) {
+        set.status = 400;
+        return { error: "Invalid startDate format", message: "O formato da data inicial é inválido." };
+      }
+      if (query.endDate && isNaN(endDate!.getTime())) {
+        set.status = 400;
+        return { error: "Invalid endDate format", message: "O formato da data final é inválido." };
+      }
+
       const listAppointmentsUseCase = new ListAppointmentsUseCase(appointmentRepository, businessRepository);
-      return await listAppointmentsUseCase.execute(companyId, user!.id);
+      const results = await listAppointmentsUseCase.execute(companyId, user!.id, startDate, endDate);
+
+      return results || [];
     } catch (error: any) {
-      set.status = 403;
-      return { error: error.message };
+      console.error("[APPOINTMENT_CONTROLLER] Erro ao listar agendamentos:", error);
+
+      if (error.message.includes("Unauthorized access")) {
+        set.status = 403;
+        return {
+          error: "Forbidden",
+          message: "Você não tem permissão para acessar os agendamentos desta empresa."
+        };
+      }
+
+      set.status = 500;
+      return {
+        error: "Internal Server Error",
+        message: error.message || "Erro ao carregar o calendário."
+      };
     }
   })
-  .post("/", async ({ body, appointmentRepository, user, set }) => {
+  .post("/", async ({ body, appointmentRepository, serviceRepository, businessRepository, user, set }) => {
     console.log("\n[APPOINTMENT_CONTROLLER] Recebendo requisição POST /");
     console.log("Body recebido:", JSON.stringify(body, null, 2));
     console.log("Usuário autenticado:", user?.email || "Nenhum");
 
     try {
-      const createAppointmentUseCase = new CreateAppointmentUseCase(appointmentRepository);
+      const scheduledAt = new Date(body.scheduledAt);
+
+      // Validação de data
+      if (isNaN(scheduledAt.getTime())) {
+        set.status = 400;
+        return {
+          error: "Invalid date format",
+          message: "A data de agendamento fornecida é inválida. Use o formato ISO (ex: 2025-12-24T10:00:00Z)"
+        };
+      }
+
+      const createAppointmentUseCase = new CreateAppointmentUseCase(appointmentRepository, serviceRepository, businessRepository);
       const result = await createAppointmentUseCase.execute({
         ...body,
         customerId: body.customerId || user?.id,
-        scheduledAt: new Date(body.scheduledAt),
-      });
+        scheduledAt,
+      }, user!.id);
       return result;
     } catch (error: any) {
       console.error("[APPOINTMENT_CONTROLLER] Erro ao criar agendamento:", error);
-      set.status = 400;
+
+      const errorMessage = error.message || "Erro interno ao criar agendamento";
+
+      if (errorMessage.includes("Unauthorized")) {
+        set.status = 403;
+        return { error: "Permission denied", message: errorMessage };
+      }
+
+      if (errorMessage === "Service not found" || errorMessage === "Service does not belong to this company") {
+        set.status = 400;
+        return { error: "Validation error", message: errorMessage };
+      }
+
+      set.status = 500;
       return {
-        error: error.message || "Erro interno ao criar agendamento",
+        error: "Internal Server Error",
+        message: errorMessage,
         detail: error.detail || error.toString()
       };
     }

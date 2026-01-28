@@ -13,13 +13,20 @@ export const serviceController = new Elysia({ prefix: "/api/services" })
       return { error: "Unauthorized" };
     }
   })
-  .post("/", async ({ body, serviceRepository, set, user }) => {
+  .post("/", async ({ body, serviceRepository, set }) => {
     try {
       console.log(`[SERVICE_CONTROLLER] Iniciando criação/atualização de serviço para empresa: ${body.companyId}`);
       console.log(`[SERVICE_CONTROLLER] Payload recebido:`, JSON.stringify(body, null, 2));
 
+      // Normaliza os dados para garantir que price e duration sejam strings
+      const normalizedBody = {
+        ...body,
+        price: body.price.toString(),
+        duration: body.duration.toString()
+      };
+
       const createServiceUseCase = new CreateServiceUseCase(serviceRepository);
-      const result = await createServiceUseCase.execute(body);
+      const result = await createServiceUseCase.execute(normalizedBody);
 
       console.log(`[SERVICE_CONTROLLER] Serviço processado com sucesso: ${result.id}`);
       return result;
@@ -44,8 +51,15 @@ export const serviceController = new Elysia({ prefix: "/api/services" })
     try {
       console.log(`[SERVICE_CONTROLLER] Atualizando serviço ${id}`);
       
+      // Normaliza os dados para garantir que price e duration sejam strings
+      const normalizedBody = {
+        ...body,
+        price: body.price.toString(),
+        duration: body.duration.toString()
+      };
+
       // O repositório DrizzleServiceRepository já possui um método update que faz o set parcial
-      const updated = await serviceRepository.update(id, body);
+      const updated = await serviceRepository.update(id, normalizedBody);
       
       if (!updated) {
         set.status = 404;
@@ -90,6 +104,21 @@ export const serviceController = new Elysia({ prefix: "/api/services" })
       return services || [];
     } catch (error: any) {
       console.error("\n[SERVICE_CONTROLLER_GET_ERROR]:", error);
+      set.status = 500;
+      return {
+        error: error.message || "Internal Server Error",
+        details: error.detail || error.cause || null
+      };
+    }
+  })
+  .get("/check-exists/:id", async ({ params: { id }, serviceRepository, set }) => {
+    try {
+      console.log(`[SERVICE_CONTROLLER] Verificando existência do serviço com ID: ${id}`);
+      const exists = await serviceRepository.checkServiceExists(id);
+      console.log(`[SERVICE_CONTROLLER] Serviço com ID ${id} existe: ${exists}`);
+      return { id, exists };
+    } catch (error: any) {
+      console.error("\n[SERVICE_CONTROLLER_CHECK_EXISTS_ERROR]:", error);
       set.status = 500;
       return {
         error: error.message || "Internal Server Error",

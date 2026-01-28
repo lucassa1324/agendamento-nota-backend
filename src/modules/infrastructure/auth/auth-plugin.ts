@@ -16,11 +16,19 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             const headers = new Headers(request.headers);
 
             if (authHeader && authHeader.startsWith("Bearer ")) {
-                const token = authHeader.split(" ")[1];
-                // Se temos um Bearer token mas não temos o cookie correspondente, 
-                // podemos injetar o cookie manualmente para o Better Auth processar
-                if (!headers.get("cookie")?.includes("better-auth.sessionToken")) {
-                    headers.append("cookie", `better-auth.sessionToken=${token}`);
+                const token = authHeader.substring(7).trim(); // Remove 'Bearer ' e espaços extras
+                console.log(`[AUTH_PLUGIN] Token extraído (tamanho: ${token.length}): "${token.substring(0, 10)}...${token.substring(token.length - 5)}"`);
+
+                // O Better Auth usa session_token (com underline) por padrão, mesmo que a config use camelCase
+                // Com o cookiePrefix "better-auth", o nome final é better-auth.session_token
+                const cookieName = "better-auth.session_token";
+
+                let cookieString = headers.get("cookie") || "";
+                if (!cookieString.includes(cookieName)) {
+                    cookieString = cookieString
+                        ? `${cookieString}; ${cookieName}=${token}`
+                        : `${cookieName}=${token}`;
+                    headers.set("cookie", cookieString);
                 }
             }
 
@@ -30,6 +38,8 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
             if (session) {
                 console.log(`[AUTH_PLUGIN] Sessão validada para: ${session.user.email} (${authHeader ? 'Header' : 'Cookie'})`);
+            } else if (authHeader) {
+                console.warn(`[AUTH_PLUGIN] Token enviado mas sessão NÃO validada pelo Better Auth`);
             }
 
             return {

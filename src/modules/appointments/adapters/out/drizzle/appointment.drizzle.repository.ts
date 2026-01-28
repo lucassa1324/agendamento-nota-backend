@@ -1,6 +1,6 @@
 import { db } from "../../../../infrastructure/drizzle/database";
 import { appointments } from "../../../../../db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gte, lte } from "drizzle-orm";
 import { IAppointmentRepository } from "../../../domain/ports/appointment.repository";
 import { Appointment, CreateAppointmentInput, AppointmentStatus } from "../../../domain/entities/appointment.entity";
 
@@ -11,16 +11,26 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
       .from(appointments)
       .where(eq(appointments.id, id))
       .limit(1);
-    
+
     return (result as Appointment) || null;
   }
 
-  async findAllByCompanyId(companyId: string): Promise<Appointment[]> {
+  async findAllByCompanyId(companyId: string, startDate?: Date, endDate?: Date): Promise<Appointment[]> {
+    const filters = [eq(appointments.companyId, companyId)];
+
+    if (startDate) {
+      filters.push(gte(appointments.scheduledAt, startDate));
+    }
+
+    if (endDate) {
+      filters.push(lte(appointments.scheduledAt, endDate));
+    }
+
     const results = await db
       .select()
       .from(appointments)
-      .where(eq(appointments.companyId, companyId));
-    
+      .where(and(...filters));
+
     return results as Appointment[];
   }
 
@@ -29,7 +39,7 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
       .select()
       .from(appointments)
       .where(eq(appointments.customerId, customerId));
-    
+
     return results as Appointment[];
   }
 
@@ -41,7 +51,7 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
         ...data,
       })
       .returning();
-    
+
     return newAppointment as Appointment;
   }
 
@@ -51,7 +61,7 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
       .set({ status, updatedAt: new Date() })
       .where(eq(appointments.id, id))
       .returning();
-    
+
     return (updated as Appointment) || null;
   }
 

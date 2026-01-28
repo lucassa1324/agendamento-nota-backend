@@ -7,7 +7,7 @@ export class ListAppointmentsUseCase {
     private businessRepository: IBusinessRepository
   ) { }
 
-  async execute(companyId: string, userId: string) {
+  async execute(companyId: string, userId: string, startDate?: Date, endDate?: Date) {
     // Verifica se a empresa pertence ao usuário (Isolamento Admin)
     const business = await this.businessRepository.findById(companyId);
 
@@ -15,6 +15,6 @@ export class ListAppointmentsUseCase {
       throw new Error("Unauthorized access to this company's appointments");
     }
 
-    return await this.appointmentRepository.findAllByCompanyId(companyId);
+    return await this.appointmentRepository.findAllByCompanyId(companyId, startDate, endDate);
   }
 }
