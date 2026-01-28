@@ -1,5 +1,5 @@
 import { db } from "../../../../infrastructure/drizzle/database";
-import { companies, companySiteCustomizations } from "../../../../../db/schema";
+import { companies, companySiteCustomizations, operatingHours, agendaBlocks } from "../../../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import { IBusinessRepository } from "../../../domain/ports/business.repository";
 import { Business, BusinessSummary, CreateBusinessInput, BusinessSiteCustomization } from "../../../domain/entities/business.entity";
@@ -48,7 +48,7 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
       .leftJoin(companySiteCustomizations, eq(companies.id, companySiteCustomizations.companyId))
       .where(eq(companies.slug, slug))
       .limit(1);
-    
+
     return (result[0] as Business) || null;
   }
 
@@ -125,6 +125,128 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         ...company,
         siteCustomization: updatedCustomization
       } as Business;
+    });
+  }
+
+  async setOperatingHours(
+    companyId: string,
+    userId: string,
+    hours: Array<{
+      dayOfWeek: string;
+      status: string;
+      morningStart?: string | null;
+      morningEnd?: string | null;
+      afternoonStart?: string | null;
+      afternoonEnd?: string | null;
+    }>
+  ): Promise<boolean> {
+    return await db.transaction(async (tx) => {
+      const [company] = await tx
+        .select()
+        .from(companies)
+        .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
+        .limit(1);
+
+      if (!company) return false;
+
+      await tx.delete(operatingHours).where(eq(operatingHours.companyId, companyId));
+
+      for (const h of hours) {
+        await tx.insert(operatingHours).values({
+          id: crypto.randomUUID(),
+          companyId,
+          dayOfWeek: h.dayOfWeek,
+          status: h.status,
+          morningStart: h.morningStart ?? null,
+          morningEnd: h.morningEnd ?? null,
+          afternoonStart: h.afternoonStart ?? null,
+          afternoonEnd: h.afternoonEnd ?? null,
+        });
+      }
+
+      return true;
+    });
+  }
+
+  async getOperatingHours(
+    companyId: string,
+    userId: string
+  ): Promise<
+    Array<{
+      id: string;
+      dayOfWeek: string;
+      status: string;
+      morningStart?: string | null;
+      morningEnd?: string | null;
+      afternoonStart?: string | null;
+      afternoonEnd?: string | null;
+    }>
+  > {
+    const [company] = await db
+      .select()
+      .from(companies)
+      .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
+      .limit(1);
+
+    if (!company) return [];
+
+    const rows = await db
+      .select()
+      .from(operatingHours)
+      .where(eq(operatingHours.companyId, companyId));
+
+    return rows as any;
+  }
+
+  async createAgendaBlock(
+    companyId: string,
+    userId: string,
+    block: {
+      type: "BLOCK_HOUR" | "BLOCK_DAY" | "BLOCK_PERIOD";
+      startDate: string;
+      endDate: string;
+      startTime?: string | null;
+      endTime?: string | null;
+      reason?: string | null;
+    }
+  ): Promise<{
+    id: string;
+    companyId: string;
+    type: string;
+    startDate: string;
+    endDate: string;
+    startTime?: string | null;
+    endTime?: string | null;
+    reason?: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }> {
+    return await db.transaction(async (tx) => {
+      const [company] = await tx
+        .select()
+        .from(companies)
+        .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
+        .limit(1);
+
+      if (!company) {
+        throw new Error("Unauthorized to create agenda block for this company");
+      }
+
+      const [created] = await tx
+        .insert(agendaBlocks)
+        .values({
+          id: crypto.randomUUID(),
+          companyId,
+          type: block.type,
+          startDate: block.startDate,
+          endDate: block.endDate,
+          startTime: block.startTime ?? null,
+          endTime: block.endTime ?? null,
+          reason: block.reason ?? null,
+        })
+        .returning();
+
+      return created as any;
     });
   }
 }
