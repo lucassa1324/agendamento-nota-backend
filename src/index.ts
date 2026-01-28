@@ -23,7 +23,12 @@ const userController = new UserController(createUserUseCase, listUsersUseCase);
 const app = new Elysia()
   .use(
     cors({
-      origin: ["http://localhost:3000", "http://127.0.0.1:3000", "https://localhost:3000"],
+      origin: [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://localhost:3000",
+        "https://agendamento-nota-front.vercel.app"
+      ],
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
       credentials: true,
       allowedHeaders: ["Content-Type", "Authorization", "Cookie", "set-cookie", "X-Requested-With"],
