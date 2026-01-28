@@ -171,8 +171,8 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
   async getOperatingHours(
     companyId: string,
     userId: string
-  ): Promise<
-    Array<{
+  ): Promise<{
+    weekly: Array<{
       id: string;
       dayOfWeek: string;
       status: string;
@@ -180,8 +180,58 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
       morningEnd?: string | null;
       afternoonStart?: string | null;
       afternoonEnd?: string | null;
-    }>
-  > {
+    }>;
+    slotInterval: string;
+  } | null> {
+    const [company] = await db
+      .select({
+        id: companies.id,
+        siteCustomization: {
+          appointmentFlow: companySiteCustomizations.appointmentFlow,
+        }
+      })
+      .from(companies)
+      .leftJoin(companySiteCustomizations, eq(companies.id, companySiteCustomizations.companyId))
+      .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
+      .limit(1);
+
+    if (!company) return null;
+
+    const rows = await db
+      .select()
+      .from(operatingHours)
+      .where(eq(operatingHours.companyId, companyId));
+
+    const weekly = rows.map(row => ({
+      ...row,
+      dayOfWeek: String(row.dayOfWeek)
+    }));
+
+    const appointmentFlow = (company.siteCustomization?.appointmentFlow as any) || {};
+    const step3Time = appointmentFlow.step_3_time || {};
+    const slotInterval = step3Time.slot_interval || step3Time.slotInterval || "00:30";
+
+    return {
+      weekly,
+      slotInterval
+    };
+  }
+
+  async listAgendaBlocks(
+    companyId: string,
+    userId: string
+  ): Promise<Array<{
+    id: string;
+    companyId: string;
+    type: string;
+    startDate: string;
+    endDate: string;
+    startTime?: string | null;
+    endTime?: string | null;
+    reason?: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }>> {
     const [company] = await db
       .select()
       .from(companies)
@@ -190,12 +240,12 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
 
     if (!company) return [];
 
-    const rows = await db
+    const blocks = await db
       .select()
-      .from(operatingHours)
-      .where(eq(operatingHours.companyId, companyId));
+      .from(agendaBlocks)
+      .where(eq(agendaBlocks.companyId, companyId));
 
-    return rows as any;
+    return blocks as any;
   }
 
   async createAgendaBlock(
@@ -247,6 +297,31 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         .returning();
 
       return created as any;
+    });
+  }
+
+  async deleteAgendaBlock(
+    companyId: string,
+    userId: string,
+    blockId: string
+  ): Promise<boolean> {
+    return await db.transaction(async (tx) => {
+      const [company] = await tx
+        .select()
+        .from(companies)
+        .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
+        .limit(1);
+
+      if (!company) {
+        throw new Error("Unauthorized to delete agenda block for this company");
+      }
+
+      const result = await tx
+        .delete(agendaBlocks)
+        .where(and(eq(agendaBlocks.id, blockId), eq(agendaBlocks.companyId, companyId)))
+        .returning();
+
+      return result.length > 0;
     });
   }
 }

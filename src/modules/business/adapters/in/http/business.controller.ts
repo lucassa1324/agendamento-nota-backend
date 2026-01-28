@@ -9,6 +9,8 @@ import { updateOperatingHoursDTO, createAgendaBlockDTO } from "../dtos/business.
 import { UpdateOperatingHoursUseCase } from "../../../application/use-cases/update-operating-hours.use-case";
 import { GetOperatingHoursUseCase } from "../../../application/use-cases/get-operating-hours.use-case";
 import { CreateAgendaBlockUseCase } from "../../../application/use-cases/create-agenda-block.use-case";
+import { ListAgendaBlocksUseCase } from "../../../application/use-cases/list-agenda-blocks.use-case";
+import { DeleteAgendaBlockUseCase } from "../../../application/use-cases/delete-agenda-block.use-case";
 
 export const businessController = new Elysia({ prefix: "/api/business" })
   .use(repositoriesPlugin)
@@ -133,6 +135,28 @@ export const businessController = new Elysia({ prefix: "/api/business" })
   }, {
     params: t.Object({ companyId: t.String() })
   })
+  .get("/settings/:companyId/blocks", async ({ user, params: { companyId }, businessRepository, set }) => {
+    try {
+      const useCase = new ListAgendaBlocksUseCase(businessRepository);
+      return await useCase.execute(companyId, user!.id);
+    } catch (error: any) {
+      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
+      return { error: error.message };
+    }
+  }, {
+    params: t.Object({ companyId: t.String() })
+  })
+  .get("/settings/:companyId/blocks/", async ({ user, params: { companyId }, businessRepository, set }) => {
+    try {
+      const useCase = new ListAgendaBlocksUseCase(businessRepository);
+      return await useCase.execute(companyId, user!.id);
+    } catch (error: any) {
+      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
+      return { error: error.message };
+    }
+  }, {
+    params: t.Object({ companyId: t.String() })
+  })
   .post("/settings/:companyId/blocks", async ({ user, params: { companyId }, body, businessRepository, set }) => {
     try {
       const useCase = new CreateAgendaBlockUseCase(businessRepository);
@@ -156,4 +180,32 @@ export const businessController = new Elysia({ prefix: "/api/business" })
   }, {
     body: createAgendaBlockDTO,
     params: t.Object({ companyId: t.String() })
+  })
+  .delete("/settings/:companyId/blocks/:blockId", async ({ user, params: { companyId, blockId }, businessRepository, set }) => {
+    try {
+      const useCase = new DeleteAgendaBlockUseCase(businessRepository);
+      return await useCase.execute(companyId, user!.id, blockId);
+    } catch (error: any) {
+      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
+      return { error: error.message };
+    }
+  }, {
+    params: t.Object({
+      companyId: t.String(),
+      blockId: t.String()
+    })
+  })
+  .delete("/settings/:companyId/blocks/:blockId/", async ({ user, params: { companyId, blockId }, businessRepository, set }) => {
+    try {
+      const useCase = new DeleteAgendaBlockUseCase(businessRepository);
+      return await useCase.execute(companyId, user!.id, blockId);
+    } catch (error: any) {
+      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
+      return { error: error.message };
+    }
+  }, {
+    params: t.Object({
+      companyId: t.String(),
+      blockId: t.String()
+    })
   });
