@@ -1,62 +1,72 @@
 import { Elysia, t } from "elysia";
-import { db } from "../../../../infrastructure/drizzle/database";
-import { appointments } from "../../../../../db/schema";
-import { eq, or } from "drizzle-orm";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
-import type { User } from "../../../../infrastructure/auth/auth-plugin";
+import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
+import { ListAppointmentsUseCase } from "../../../application/use-cases/list-appointments.use-case";
+import { CreateAppointmentUseCase } from "../../../application/use-cases/create-appointment.use-case";
+import { UpdateAppointmentStatusUseCase } from "../../../application/use-cases/update-appointment-status.use-case";
+import { DeleteAppointmentUseCase } from "../../../application/use-cases/delete-appointment.use-case";
+import { createAppointmentDTO, updateAppointmentStatusDTO } from "../dtos/appointment.dto";
 
-export const appointmentController = new Elysia({ prefix: "/appointments" })
+export const appointmentController = new Elysia({ prefix: "/api/appointments" })
+  .use(repositoriesPlugin)
   .use(authPlugin)
-  .get("/", async ({ user, set }: { user: User | null; set: any }) => {
+  .onBeforeHandle(({ user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "Unauthorized" };
     }
-
-    // Busca agendamentos onde o usuário é o cliente (customerId)
-    // No futuro, se o usuário for ADMIN, ele poderá ver todos os agendamentos da empresa dele
-    const data = await db
-      .select()
-      .from(appointments)
-      .where(eq(appointments.customerId, user.id));
-
-    return data;
-  }, {
-    auth: true
   })
-  .post("/", async ({ user, body, set }: { user: User | null; body: any; set: any }) => {
-    if (!user) {
-      set.status = 401;
-      return { error: "Unauthorized" };
+  .get("/company/:companyId", async ({ params: { companyId }, appointmentRepository, businessRepository, user, set }) => {
+    try {
+      const listAppointmentsUseCase = new ListAppointmentsUseCase(appointmentRepository, businessRepository);
+      return await listAppointmentsUseCase.execute(companyId, user!.id);
+    } catch (error: any) {
+      set.status = 403;
+      return { error: error.message };
     }
+  })
+  .post("/", async ({ body, appointmentRepository, user, set }) => {
+    console.log("\n[APPOINTMENT_CONTROLLER] Recebendo requisição POST /");
+    console.log("Body recebido:", JSON.stringify(body, null, 2));
+    console.log("Usuário autenticado:", user?.email || "Nenhum");
 
-    const newAppointment = await db.insert(appointments).values({
-      id: crypto.randomUUID(),
-      companyId: body.companyId,
-      serviceId: body.serviceId,
-      customerId: user.id,
-      customerName: user.name || "Cliente",
-      customerEmail: user.email,
-      customerPhone: body.customerPhone || "",
-      serviceNameSnapshot: body.serviceName,
-      servicePriceSnapshot: body.servicePrice,
-      serviceDurationSnapshot: body.serviceDuration,
-      scheduledAt: new Date(body.scheduledAt),
-      status: "PENDING",
-      notes: body.notes,
-    }).returning();
-
-    return newAppointment[0];
+    try {
+      const createAppointmentUseCase = new CreateAppointmentUseCase(appointmentRepository);
+      const result = await createAppointmentUseCase.execute({
+        ...body,
+        customerId: body.customerId || user?.id,
+        scheduledAt: new Date(body.scheduledAt),
+      });
+      return result;
+    } catch (error: any) {
+      console.error("[APPOINTMENT_CONTROLLER] Erro ao criar agendamento:", error);
+      set.status = 400;
+      return {
+        error: error.message || "Erro interno ao criar agendamento",
+        detail: error.detail || error.toString()
+      };
+    }
   }, {
-    auth: true,
-    body: t.Object({
-      companyId: t.String(),
-      serviceId: t.String(),
-      scheduledAt: t.String(),
-      customerPhone: t.Optional(t.String()),
-      serviceName: t.String(),
-      servicePrice: t.String(),
-      serviceDuration: t.String(),
-      notes: t.Optional(t.String()),
-    })
+    body: createAppointmentDTO
+  })
+  .patch("/:id/status", async ({ params: { id }, body, appointmentRepository, businessRepository, user, set }) => {
+    try {
+      const updateAppointmentStatusUseCase = new UpdateAppointmentStatusUseCase(appointmentRepository, businessRepository);
+      return await updateAppointmentStatusUseCase.execute(id, body.status, user!.id);
+    } catch (error: any) {
+      set.status = 403;
+      return { error: error.message };
+    }
+  }, {
+    body: updateAppointmentStatusDTO
+  })
+  .delete("/:id", async ({ params: { id }, appointmentRepository, businessRepository, user, set }) => {
+    try {
+      const deleteAppointmentUseCase = new DeleteAppointmentUseCase(appointmentRepository, businessRepository);
+      await deleteAppointmentUseCase.execute(id, user!.id);
+      return { success: true };
+    } catch (error: any) {
+      set.status = 403;
+      return { error: error.message };
+    }
   });

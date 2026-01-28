@@ -1,9 +1,8 @@
 import { SigninDTO } from "../../adapters/in/dtos/signin.dto";
 import { UserRepository } from "../../adapters/out/user.repository";
-import { UserAlreadyExistsError } from "../../domain/error/user-already-exists.error";
 import { auth } from "../../../infrastructure/auth/auth";
 import { db } from "../../../infrastructure/drizzle/database";
-import { companies, account } from "../../../../db/schema";
+import { companies, account, companySiteCustomizations } from "../../../../db/schema";
 import { generateUniqueSlug } from "../../../../shared/utils/slug";
 import { eq } from "drizzle-orm";
 
@@ -36,6 +35,12 @@ export class CreateUserUseCase {
           slug,
           ownerId: alreadyExists.id,
         }).returning();
+
+        await tx.insert(companySiteCustomizations).values({
+          id: crypto.randomUUID(),
+          companyId: newCompany.id,
+        });
+
         await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, alreadyExists.id));
         return { newCompany, slug };
       }).catch(async (err) => {
@@ -49,6 +54,12 @@ export class CreateUserUseCase {
               slug: fallbackSlug,
               ownerId: alreadyExists.id,
             }).returning();
+
+            await tx.insert(companySiteCustomizations).values({
+              id: crypto.randomUUID(),
+              companyId: newCompany.id,
+            });
+
             await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, alreadyExists.id));
             return { newCompany, slug: fallbackSlug };
           });
@@ -89,18 +100,34 @@ export class CreateUserUseCase {
         slug,
         ownerId: response.user.id,
       }).returning();
+
+      await tx.insert(companySiteCustomizations).values({
+        id: crypto.randomUUID(),
+        companyId: created.id,
+      });
+
       return { newCompany: created, finalSlug: slug };
     }).catch(async (err) => {
       const code = (err as any)?.code || (err as any)?.cause?.code;
       if (code === "23505") {
         const fallbackSlug = await generateUniqueSlug(`${data.studioName}-${Date.now()}`);
-        const [created] = await db.insert(companies).values({
-          id: crypto.randomUUID(),
-          name: data.studioName,
-          slug: fallbackSlug,
-          ownerId: response.user.id,
-        }).returning();
-        return { newCompany: created, finalSlug: fallbackSlug };
+        const result = await db.transaction(async (tx) => {
+          await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, response.user.id));
+          const [created] = await tx.insert(companies).values({
+            id: crypto.randomUUID(),
+            name: data.studioName,
+            slug: fallbackSlug,
+            ownerId: response.user.id,
+          }).returning();
+
+          await tx.insert(companySiteCustomizations).values({
+            id: crypto.randomUUID(),
+            companyId: created.id,
+          });
+
+          return { newCompany: created, finalSlug: fallbackSlug };
+        });
+        return result;
       }
       throw err;
     });

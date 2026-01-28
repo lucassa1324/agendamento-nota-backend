@@ -16,11 +16,6 @@ export class CreateBusinessUseCase {
       name: data.name,
       slug: data.slug,
       ownerId: userId,
-      siteCustomization: {
-        hero: { title: "Novo Site" },
-        theme: { primaryColor: "#000" },
-        services: [],
-      },
     });
 
     return newBusiness;

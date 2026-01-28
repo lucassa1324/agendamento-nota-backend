@@ -7,13 +7,11 @@ export const createBusinessDTO = t.Object({
 
 export const updateBusinessConfigDTO = t.Object({
   config: t.Object({
-    hero: t.Object({
-      title: t.String(),
-    }),
-    theme: t.Object({
-      primaryColor: t.String(),
-    }),
-    services: t.Optional(t.Array(t.Any())),
+    layoutGlobal: t.Optional(t.Any()),
+    home: t.Optional(t.Any()),
+    gallery: t.Optional(t.Any()),
+    aboutUs: t.Optional(t.Any()),
+    appointmentFlow: t.Optional(t.Any()),
   }),
 });
 
