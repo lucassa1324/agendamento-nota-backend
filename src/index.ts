@@ -13,6 +13,7 @@ import { reportController } from "./modules/reports/adapters/in/http/report.cont
 import { businessController } from "./modules/business/adapters/in/http/business.controller";
 import { companyController } from "./modules/business/adapters/in/http/company.controller";
 import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
+import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
 import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
 
 const userRepository = new UserRepository();
@@ -47,6 +48,7 @@ const app = new Elysia()
   .use(reportController)
   .use(businessController)
   .use(companyController)
+  .use(inventoryController)
   .onError(({ code, error, set }) => {
     console.error(`\n[ERROR] ${code}:`, error);
     return {

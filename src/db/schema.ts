@@ -290,9 +290,13 @@ export const inventory = pgTable("inventory", {
     .notNull()
     .references(() => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  description: text("description"),
-  quantity: text("quantity").notNull(),
-  unit: text("unit").notNull(), // Ex: "Grama", "Unidade"
+  initialQuantity: numeric("initial_quantity", { precision: 10, scale: 2 }).notNull(),
+  currentQuantity: numeric("current_quantity", { precision: 10, scale: 2 }).notNull(),
+  minQuantity: numeric("min_quantity", { precision: 10, scale: 2 }).notNull(),
+  unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(), // Em centavos se preferir, mas usando numeric para precisão
+  unit: text("unit").notNull(), // Ex: "un", "ml", "g"
+  secondaryUnit: text("secondary_unit"),
+  conversionFactor: numeric("conversion_factor", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
