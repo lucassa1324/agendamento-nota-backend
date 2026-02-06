@@ -1,4 +1,11 @@
 import { t } from "elysia";
+import {
+  LayoutGlobalDTO,
+  HomeSectionDTO,
+  GallerySectionDTO,
+  AboutUsSectionDTO,
+  AppointmentFlowSectionDTO,
+} from "./site_customization.dto";
 
 export const createBusinessDTO = t.Object({
   name: t.String(),
@@ -7,11 +14,11 @@ export const createBusinessDTO = t.Object({
 
 export const updateBusinessConfigDTO = t.Object({
   config: t.Object({
-    layoutGlobal: t.Optional(t.Any()),
-    home: t.Optional(t.Any()),
-    gallery: t.Optional(t.Any()),
-    aboutUs: t.Optional(t.Any()),
-    appointmentFlow: t.Optional(t.Any()),
+    layoutGlobal: t.Optional(LayoutGlobalDTO),
+    home: t.Optional(HomeSectionDTO),
+    gallery: t.Optional(GallerySectionDTO),
+    aboutUs: t.Optional(AboutUsSectionDTO),
+    appointmentFlow: t.Optional(AppointmentFlowSectionDTO),
   }),
 });
 

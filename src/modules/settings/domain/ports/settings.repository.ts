@@ -1,3 +1,5 @@
+import { SiteCustomization } from "../../business/domain/types/site_customization.types";
+
 export interface BusinessProfile {
   id: string;
   businessId: string;
@@ -27,4 +29,7 @@ export interface BusinessProfile {
 export interface SettingsRepository {
   findByBusinessId(businessId: string): Promise<BusinessProfile | null>;
   upsert(businessId: string, data: Partial<Omit<BusinessProfile, "id" | "businessId" | "createdAt" | "updatedAt">>): Promise<BusinessProfile>;
+
+  findCustomizationByBusinessId(businessId: string): Promise<SiteCustomization | null>;
+  saveCustomization(businessId: string, data: SiteCustomization): Promise<SiteCustomization>;
 }

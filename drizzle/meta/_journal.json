@@ -50,6 +50,13 @@
       "when": 1770337664489,
       "tag": "0006_sticky_ultimo",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1770399161814,
+      "tag": "0007_noisy_goblin_queen",
+      "breakpoints": true
     }
   ]
 }

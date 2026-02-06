@@ -122,40 +122,27 @@ export const companies = pgTable("companies", {
     .notNull(),
 });
 
+import {
+  DEFAULT_LAYOUT_GLOBAL,
+  DEFAULT_HOME_SECTION,
+  DEFAULT_GALLERY_SECTION,
+  DEFAULT_ABOUT_US_SECTION,
+  DEFAULT_APPOINTMENT_FLOW_SECTION,
+} from "../modules/business/domain/constants/site_customization.defaults";
+
 export const companySiteCustomizations = pgTable("company_site_customizations", {
   id: text("id").primaryKey(),
   companyId: text("company_id")
     .notNull()
     .unique()
     .references(() => companies.id, { onDelete: "cascade" }),
-  layoutGlobal: jsonb("layout_global").default({
-    header: {},
-    footer: {},
-    typography: {},
-    base_colors: {},
-  }).notNull(),
-  home: jsonb("home").default({
-    hero_banner: {},
-    services_section: {},
-    contact_section: {},
-  }).notNull(),
-  gallery: jsonb("gallery").default({
-    grid_config: {},
-    interactivity: {},
-  }).notNull(),
-  aboutUs: jsonb("about_us").default({
-    about_banner: {},
-    our_story: {},
-    our_values: [],
-    our_team: [],
-    testimonials: [],
-  }).notNull(),
-  appointmentFlow: jsonb("appointment_flow").default({
-    step_1_services: {},
-    step_2_date: {},
-    step_3_time: {},
-    step_4_confirmation: {},
-  }).notNull(),
+  layoutGlobal: jsonb("layout_global").default(DEFAULT_LAYOUT_GLOBAL).notNull(),
+  home: jsonb("home").default(DEFAULT_HOME_SECTION).notNull(),
+  gallery: jsonb("gallery").default(DEFAULT_GALLERY_SECTION).notNull(),
+  aboutUs: jsonb("about_us").default(DEFAULT_ABOUT_US_SECTION).notNull(),
+  appointmentFlow: jsonb("appointment_flow")
+    .default(DEFAULT_APPOINTMENT_FLOW_SECTION)
+    .notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

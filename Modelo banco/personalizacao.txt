@@ -1,0 +1,179 @@
+└── 📂 PERSONALIZACAO_SITE (Tabela: site_customizations) [Pai de todas as abas]
+                ├── 📂 LAYOUT_GLOBAL (Configurações que afetam todas as páginas)
+                    ├── 📂 CABECALHO
+                    │   ├── 🖼️ fundo_e_efeito_glass: { cor, opacidade, blur }
+                    │   ├── ✍️ cores_textos: { logo, links, hover }
+                    │   └── 🔘 botoes_acao: { cor_fundo, cor_texto }
+                    │
+                    ├── 📂 TIPOGRAFIA
+                    │   ├── 🅰️ fonte_titulos: String
+                    │   ├── 🅱️ fonte_subtitulos: String
+                    │   └── 🔡 fonte_corpo: String
+                    │
+                    ├── 📂 CORES_DO_SITE
+                    │   ├── 🔵 cor_primaria: Hex
+                    |   ├── 🔘 cor_secundaria: Hex
+                    │   └── ⚪ cor_background: Hex
+                    │
+                    └── 📂 RODAPE
+                    |    ├── 🎨 cores: { fundo, textos, icones }
+                    |    ├── 🔤 tipografia: { titulos, corpo }
+                    |    └── 👁️ visibilidade: Boolean
+                    |
+                    |======================================================================
+                ├── 📂 INICIO (Página Principal) 
+                    └──📂 BANNER_PRINCIPAL (Hero Section)
+                        ├── 👁️ visibilidade: Boolean
+                        │
+                        ├── 🧱 ELEMENTO_TITULO (H1)
+                        │   ├── ✍️ texto: "Sua beleza, nossa prioridade"
+                        │   ├── 🎨 cor: "Hex ou Padrão"
+                        │   ├── 🔤 fonte: "Nome da Fonte"
+                        │   ├── 📏 tamanho_mobile: "px/rem"
+                        │   └── 📏 tamanho_desktop: "px/rem"
+                        │
+                        ├── 🧱 ELEMENTO_SUBTITULO (P)
+                        │   ├── ✍️ texto: "Agende seu horário..."
+                        │   ├── 🎨 cor: "Hex ou Padrão"
+                        │   ├── 🔤 fonte: "Nome da Fonte"
+                        │   └── 📏 tamanho: "px/rem"
+                        │
+                        ├── 🔘 ELEMENTO_BOTAO_PRINCIPAL
+                        │   ├── ✍️ texto: "Agendar Agora"
+                        │   ├── 🎨 cor_fundo: "Hex ou Padrão"
+                        │   ├── 🎨 cor_texto: "Hex ou Padrão"
+                        │   ├── 📐 arredondamento: "px"
+                        │   ├── 🎨 cor_borda: "Hex"
+                        │   └── 🔗 link_destino: String
+                        │
+                        └── 🖼️ CONFIGURACOES_DE_APARENCIA (Container)
+                        |    ├── 📷 imagem_fundo_url: String
+                        |    ├── 🌫️ efeito_glass: { ativo: Boolean, intensidade: Number }
+                        |    ├── 🖤 overlay_camada: { cor: Hex, opacidade: % }
+                        |    ├── 📍 alinhamento_vertical: [Topo, Centro, Baixo]
+                        |    ├── 📍 alinhamento_horizontal: [Esquerda, Centro, Direita]
+                        |    └── 📏 altura_secao: [Small, Medium, Full_Screen]
+                        |
+                        📂 NOSSOS_SERVICOS
+                        │    ├── 👁️ visibilidade_secao: Boolean (Ativar/Desativar na Home)
+                        │    ├── 🔢 ordem_na_home: Integer
+                        │    │
+                        │    ├── 🧱 BLOCO_CABEÇALHO (O texto acima dos cards)
+                        │    │   ├── 📄 TITULO_SECAO
+                        │    │   │   ├── ✍️ texto: "Nossos Serviços"
+                        │    │   │   ├── 🎨 cor: "Hex ou Padrão"
+                        │    │   │   ├── 🔤 fonte: "Nome da Fonte"
+                        │    │   │   └── 📏 tamanho: "px/rem"
+                        │    │   │
+                        │    │   ├── 📄 SUBTITULO_SECAO
+                        │    │   │   ├── ✍️ texto: "Escolha o tratamento ideal para si"
+                        │    │   │   ├── 🎨 cor: "Hex ou Padrão"
+                        │    │   │   ├── 🔤 fonte: "Nome da Fonte"
+                        │    │   │   └── 📏 tamanho: "px/rem"
+                        │    │   │
+                        │    │   └── 📍 alinhamento_texto: [Esquerda, Centro, Direita]
+                        │    │
+                        │    ├── 🎨 CONFIGURACOES_DOS_CARDS (Aparência individual de cada serviço)
+                        │    │   ├── 🖼️ mostrar_imagem: Boolean
+                        │    │   ├── 🏷️ mostrar_categoria: Boolean
+                        │    │   ├── 💰 estilo_preco: { visivel: Boolean, cor: Hex, fonte: String }
+                        │    │   ├── ⏱️ estilo_duracao: { visivel: Boolean, cor: Hex }
+                        │    │   ├── 🎨 cor_fundo_card: "Hex ou Padrão"
+                        │    │   ├── 🔳 borda_e_sombra: { tamanho_borda: px, intensidade_sombra: String }
+                        │    │   └── 📐 arredondamento: "px"
+                        │    │
+                        │    └── 🔘 ESTILO_BOTAO_AGENDAR (Botão dentro do card)
+                        │          ├── ✍️ texto_botao: "Agendar"
+                        │          ├── 🎨 cor_fundo: "Hex ou Padrão"
+                        │          ├── 🎨 cor_texto: "Hex ou Padrão"
+                        │          └── 📐 arredondamento_botao: "px"
+                        |
+                        📂 NOSSOS_VALORES
+                        │   ├── 👁️ visibilidade_secao: Boolean
+                        │   ├── 🔢 ordem_na_home: Integer
+                        │   │
+                        │   ├── 🧱 BLOCO_CABEÇALHO (Título e Subtítulo da seção)
+                        │     │   ├── 📄 TITULO
+                        │     │   │   ├── ✍️ texto: "Nossos Valores"
+                        │     │   │   ├── 🎨 cor: "Hex"
+                        │     │   │   └── 🔤 fonte_e_tamanho: { familia, px }
+                        │     │   └── 📄 SUBTITULO
+                        │     │       ├── ✍️ texto: "O que nos move todos os dias"
+                        │     │       └── 🎨 estilo: { cor, fonte, px }
+                        │     │
+                        │     ├── 🎨 ESTILO_VISUAL_DOS_ITENS (Configuração Global dos Cards de Valores)
+                        │     │   ├── 📐 layout: [Grade, Lista, Carrossel]
+                        │     │   ├── 🎨 cor_fundo_item: "Hex"
+                        │     │   ├── 🔳 borda_arredondamento: "px"
+                        │     │   └── 📍 alinhamento_interno: [Esquerda, Centro]
+                        │     │
+                        │     └── 📂 LISTA_DINAMICA_DE_VALORES (Aqui é onde ele adiciona/apaga)
+                        │           └── 📁 [ITEM_VALOR_GERADO_ID]
+                        │               ├── 🛡️ id: UUID (Gerado ao clicar em "Adicionar")
+                        │               ├── 🔢 ordem: Integer (Para arrastar e reordenar)
+                        │               ├── 🎭 ICONE/IMAGEM
+                        │               │   ├── 🏷️ tipo: [Icone, Imagem, Numero]
+                        │               │   ├── 🔗 valor: "sparkles" ou "url_da_imagem"
+                        │               │   └── 🎨 cor_icone: "Hex"
+                        │               │
+                        │               ├── 📄 TITULO_DO_VALOR
+                        │               │   ├── ✍️ texto: "Qualidade"
+                        │               │   └── 🎨 estilo: { cor, fonte, px }
+                        │               │
+                        │               └── 📄 DESCRICAO_DO_VALOR
+                        │                   ├── ✍️ texto: "Usamos apenas os melhores produtos..."
+                        │                   └── 🎨 estilo: { cor, fonte, px }
+                        📂 PREVIA_GALERIA
+                        |   ├── 👁️ visibilidade_secao: Boolean
+                        |   ├── 🔢 ordem_na_home: Integer
+                        |   │
+                        |   ├── 🧱 BLOCO_CABEÇALHO
+                        |   │   ├── 📄 TITULO
+                        |   │   │   ├── ✍️ texto: "Nossa Galeria"
+                        |   │   │   └── 🎨 estilo: { cor, fonte, px }
+                        |   │   └── 📄 SUBTITULO
+                        |   │       ├── ✍️ texto: "Confira nossos últimos trabalhos"
+                        |   │       └── 🎨 estilo: { cor, fonte, px }
+                        |   │
+                        |   ├── ⚙️ LOGICA_DE_EXIBICAO (O Diferencial)
+                        |   │   ├── 🔄 modo_selecao: [Automatico_Recentes, Manual_Destaques]
+                        |   │   ├── 🔢 quantidade_fotos: [3, 6, 9, 12] (Limite de exibição na Home)
+                        |   │   └── 🔳 layout_grid: [Mosaico, Quadrados_Fixos, Carrossel]
+                        |   ├── 🎨 ESTILO_VISUAL_DAS_FOTOS
+                        |   │   ├── 📐 proporcao_imagem: [1:1 (Quadrado), 4:3, 16:9]
+                        |   │   ├── ➕ espacamento_entre_fotos: "px"
+                        |   │   ├── 📐 arredondamento_bordas: "px"
+                        |   │   └── 🎞️ efeito_ao_passar_mouse: [Zoom, Brilho, Nenhum]
+                        |   │
+                        |   └── 🔘 BOTAO_VER_MAIS (Link para a página Galeria completa)
+                        |   ├── 👁️ mostrar_botao: Boolean
+                        |   ├── ✍️ texto_botao: "Ver Galeria Completa"
+                        |   └── 🎨 estilo: { cor_fundo, cor_texto, arredondamento }
+                        |
+                        📂 CHAMADA_PARA_ACAO (CTA Section)
+                        │   ├── 👁️ visibilidade_secao: Boolean
+                        │   ├── 🔢 ordem_na_home: Integer
+                        │   │
+                        │   ├── 🧱 ELEMENTO_TITULO_CTA
+                        │   │   ├── ✍️ texto: "Pronto para transformar seu olhar?"
+                        │   │   ├── 🎨 cor: "Hex ou Padrão"
+                        │   │   ├── 🔤 fonte: "Nome da Fonte"
+                        │   │   └── 📏 tamanho: { desktop: "px", mobile: "px" }
+                        │   │
+                        │   ├── 🧱 ELEMENTO_SUBTITULO_CTA
+                        │   │   ├── ✍️ texto: "Reserve seu horário em menos de 1 minuto."
+                        │   │   ├── 🎨 cor: "Hex"
+                        │   │   └── 🔤 estilo: { fonte, tamanho }
+                        │   │
+                        │   ├── 🔘 BOTAO_DE_CONVERSAO (O principal)
+                        │   │   ├── ✍️ texto: "Agendar Agora"
+                        │   │   ├── 🎨 estilo_visual: { cor_fundo, cor_texto, cor_borda }
+                        │   │   ├── 📐 arredondamento: "px"
+                        │   │
+                    |   │   └── 🎨 CONFIGURACOES_DE_DESIGN (O Container)
+                    |   │       ├── 📷 tipo_fundo: [Cor_Solida, Gradiente, Imagem]
+                    |   │       ├── 🎨 cor_ou_imagem_url: String
+                    |   │       ├── 🌫️ efeito_glass: { ativo: Boolean, intensidade: Number }
+                    |   │       ├── 🔳 bordas: { superior: Boolean, inferior: Boolean } (Para divisórias)
+                    |   │       ├── 📐 preenchimento_interno: "px" (Padding)
+                    |   │       └── 📍 alinhamento_elementos: [Esquerda, Centro, Direita]

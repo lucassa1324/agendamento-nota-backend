@@ -8,31 +8,31 @@
     ├── 📂 GOOGLE CALENDAR 
     ├── 📂 HORÁRIOS 
     ├── 📂 ESTOQUE 
-    ├── 📂 PERSONALIZACAO_SITE 
-    │   │
-    │   ├── 📂 LAYOUT_GLOBAL (Cabeçalho, Rodapé, Tipografia, Cores Base))
-    │   │   ├── 📂 CABECALHO (Cards de serviços da Home)
-    │   │   └── 📂 RODAPE 
-    │   │   └── 📂 TIPOGRAFIA 
-    │   │   └── 📂 CORES BASE (Cores base do site)
-    │   ├── 📂 PAGINA_HOME
-    │   │   ├── 📂 HERO_BANNER (Título, Subtítulo, Botões, Background)
-    │   │   ├── 📂 SECAO_SERVICOS (Cards de serviços da Home)
-    │   │   └── 📂 SECAO_CONTATO_HOME (Resumo de contato)
-    │   │
-    │   ├── 📂 PAGINA_GALERIA
-    │   │   ├── 📂 CONFIG_GRID (Colunas, Espaçamento, Arredondamento)
-    │   │   └── 📂 INTERATIVIDADE (Lightbox e Zoom)
-    │   │
-    │   ├── 📂 PAGINA_SOBRE_NOS
-    │   │   ├── 📂 BANNER_SOBRE (Tag, Ícone, Título, Background/Cor Sólida)
-    │   │   ├── 📂 NOSSA_HISTORIA (Texto + Imagem Lateral, Disposição)
-    │   │   ├── 📂 NOSSOS_VALORES (Lista Dinâmica, Ícones, Layout Grid)
-    │   │   ├── 📂 NOSSA_EQUIPE (Cards de Profissionais, Fotos, Redes Sociais)
-    │   │   └── 📂 DEPOIMENTOS (Avaliações Salvas, Estrelas, Carrossel)
-    │   │
-    │   └── 📂 PAGINA_AGENDAMENTO (Fluxo de 4 Passos)
-    │       ├── 📂 PASSO_1_SERVICOS (Categorias, Preços, Cards)
-    │       ├── 📂 PASSO_2_DATA (Calendário, Estados: Disponível/Selecionado)
-    │       ├── 📂 PASSO_3_HORARIO (Grade de Horas, Slots, Destaque)
-    │       └── 📂 PASSO_4_CONFIRMACAO (Formulário, Inputs, Resumo, Botão Final)
+├── 📂 PERSONALIZACAO_SITE 
+│   │
+│   ├── 📂 LAYOUT_GLOBAL (Cabeçalho, Rodapé, Tipografia, Cores Base))
+│   │   ├── 📂 CABECALHO (Cards de serviços da Home)
+│   │   └── 📂 RODAPE 
+│   │   └── 📂 TIPOGRAFIA 
+│   │   └── 📂 CORES BASE (Cores base do site)
+│   ├── 📂 PAGINA_HOME
+│   │   ├── 📂 HERO_BANNER (Título, Subtítulo, Botões, Background)
+│   │   ├── 📂 SECAO_SERVICOS (Cards de serviços da Home)
+│   │   └── 📂 SECAO_CONTATO_HOME (Resumo de contato)
+│   │
+│   ├── 📂 PAGINA_GALERIA
+│   │   ├── 📂 CONFIG_GRID (Colunas, Espaçamento, Arredondamento)
+│   │   └── 📂 INTERATIVIDADE (Lightbox e Zoom)
+│   │
+│   ├── 📂 PAGINA_SOBRE_NOS
+│   │   ├── 📂 BANNER_SOBRE (Tag, Ícone, Título, Background/Cor Sólida)
+│   │   ├── 📂 NOSSA_HISTORIA (Texto + Imagem Lateral, Disposição)
+│   │   ├── 📂 NOSSOS_VALORES (Lista Dinâmica, Ícones, Layout Grid)
+│   │   ├── 📂 NOSSA_EQUIPE (Cards de Profissionais, Fotos, Redes Sociais)
+│   │   └── 📂 DEPOIMENTOS (Avaliações Salvas, Estrelas, Carrossel)
+│   │
+│   └── 📂 PAGINA_AGENDAMENTO (Fluxo de 4 Passos)
+│       ├── 📂 PASSO_1_SERVICOS (Categorias, Preços, Cards)
+│       ├── 📂 PASSO_2_DATA (Calendário, Estados: Disponível/Selecionado)
+│       ├── 📂 PASSO_3_HORARIO (Grade de Horas, Slots, Destaque)
+│       └── 📂 PASSO_4_CONFIRMACAO (Formulário, Inputs, Resumo, Botão Final)

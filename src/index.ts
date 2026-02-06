@@ -30,16 +30,27 @@ const app = new Elysia()
   }))
   .use(
     cors({
-      origin: [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://localhost:3000",
-        "https://agendamento-nota-front.vercel.app"
-      ],
+      origin: (request: any) => {
+        const origin = request.headers.get('origin');
+        console.log('[CORS_CHECK] Origem solicitante:', origin);
+
+        if (!origin) return true;
+
+        // Permite qualquer subdomínio de localhost:3000 ou vercel.app
+        if (
+          origin.includes('localhost:3000') ||
+          origin.includes('127.0.0.1:3000') ||
+          origin.includes('agendamento-nota-front.vercel.app')
+        ) {
+          return true;
+        }
+
+        return false;
+      },
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
       credentials: true,
-      allowedHeaders: ["Content-Type", "Authorization", "Cookie", "set-cookie", "X-Requested-With"],
-      exposeHeaders: ["Set-Cookie", "set-cookie"],
+      allowedHeaders: ["Content-Type", "Authorization", "Cookie", "set-cookie", "X-Requested-With", "Cache-Control"],
+      exposeHeaders: ["Set-Cookie", "set-cookie", "Authorization"],
       preflight: true
     })
   )

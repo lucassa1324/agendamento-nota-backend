@@ -1,7 +1,16 @@
 import { Elysia, t } from "elysia";
 import { GetSettingsUseCase } from "../../../application/use-cases/get-settings.use-case";
 import { SaveSettingsUseCase } from "../../../application/use-cases/save-settings.use-case";
+import { GetSiteCustomizationUseCase } from "../../../application/use-cases/get-site-customization.use-case";
+import { UpdateSiteCustomizationUseCase } from "../../../application/use-cases/update-site-customization.use-case";
 import { SaveSettingsDTO } from "../dtos/settings.dto";
+import {
+  LayoutGlobalDTO,
+  HomeSectionDTO,
+  GallerySectionDTO,
+  AboutUsSectionDTO,
+  AppointmentFlowSectionDTO,
+} from "../../../../business/adapters/in/dtos/site_customization.dto";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 import sharp from "sharp";
@@ -118,38 +127,76 @@ export const settingsController = new Elysia({ prefix: "/api/settings" })
       return { error: error.message };
     }
   })
-  .patch("/profile", async ({ body, settingsRepository, businessRepository, user, set }) => {
+  .post("/profile/:businessId", async ({ params: { businessId }, body, settingsRepository, businessRepository, user, set }) => {
     try {
-      console.log(`[SETTINGS_CONTROLLER] Payload recebido no PATCH /profile:`, JSON.stringify(body, null, 2));
-
-      const businessId = body.businessId || body.companyId;
-
-      if (!businessId) {
-        set.status = 400;
-        return { error: "ID da empresa não fornecido (businessId ou companyId)" };
-      }
-
-      // Remove campos que não devem ir para o repositório
-      const { businessId: _, companyId: __, message: ___, data: ____, ...data } = body;
-
-      console.log(`[SETTINGS_CONTROLLER] Salvando perfil para a empresa: ${businessId}`);
-
       // Validar se o usuário é dono da empresa
       const business = await businessRepository.findById(businessId);
       if (!business || business.ownerId !== user!.id) {
         set.status = 403;
-        return { error: "Você não tem permissão para editar as configurações desta empresa." };
+        return { error: "Você não tem permissão para alterar as configurações desta empresa." };
       }
 
       const saveSettingsUseCase = new SaveSettingsUseCase(settingsRepository);
-      const updatedProfile = await saveSettingsUseCase.execute(businessId, data);
+      const updatedProfile = await saveSettingsUseCase.execute(businessId, body);
 
       return updatedProfile;
     } catch (error: any) {
-      console.error("[SETTINGS_PATCH_PROFILE_ERROR]:", error);
+      console.error("[SETTINGS_SAVE_PROFILE_ERROR]:", error);
       set.status = 500;
       return { error: error.message };
     }
   }, {
     body: SaveSettingsDTO
+  })
+  .get("/customization/:businessId", async ({ params: { businessId }, settingsRepository, businessRepository, user, set }) => {
+    try {
+      console.log(`[DB_FETCH] Buscando customização para ID: ${businessId}`);
+
+      // Validar se o usuário é dono da empresa
+      const business = await businessRepository.findById(businessId);
+      if (!business || business.ownerId !== user!.id) {
+        set.status = 403;
+        return { error: "Você não tem permissão para acessar a personalização desta empresa." };
+      }
+
+      // Adicionar headers de cache para evitar dados antigos no navegador
+      set.headers["Cache-Control"] = "no-store, max-age=0";
+
+      const getSiteCustomizationUseCase = new GetSiteCustomizationUseCase(settingsRepository);
+      return await getSiteCustomizationUseCase.execute(businessId);
+    } catch (error: any) {
+      console.error("[SETTINGS_GET_CUSTOMIZATION_ERROR]:", error);
+      set.status = 500;
+      return { error: error.message };
+    }
+  })
+  .patch("/customization/:businessId", async ({ params: { businessId }, body, settingsRepository, businessRepository, user, set }) => {
+    try {
+      console.log('BODY BRUTO RECEBIDO:', JSON.stringify(body, null, 2));
+      console.log('COR RECEBIDA DO FRONT:', (body as any).layoutGlobal?.siteColors?.primary || (body as any).layout_global?.site_colors?.primary);
+
+      // Validar se o usuário é dono da empresa
+      const business = await businessRepository.findById(businessId);
+      if (!business || business.ownerId !== user!.id) {
+        set.status = 403;
+        return { error: "Você não tem permissão para alterar a personalização desta empresa." };
+      }
+
+      const getSiteCustomizationUseCase = new GetSiteCustomizationUseCase(settingsRepository);
+      const updateSiteCustomizationUseCase = new UpdateSiteCustomizationUseCase(
+        settingsRepository,
+        getSiteCustomizationUseCase
+      );
+
+      return await updateSiteCustomizationUseCase.execute(businessId, body);
+    } catch (error: any) {
+      console.error("[SETTINGS_UPDATE_CUSTOMIZATION_ERROR]:", error);
+      if (error.all) {
+        console.log('ERRO DE VALIDAÇÃO DETALHADO:', JSON.stringify(error.all, null, 2));
+      }
+      set.status = 500;
+      return { error: error.message };
+    }
+  }, {
+    body: t.Any() // Permitir qualquer formato para que o Use Case normalize
   });
