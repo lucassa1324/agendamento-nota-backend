@@ -87,7 +87,7 @@ export class DrizzleInventoryRepository implements InventoryRepository {
   async update(id: string, data: Partial<Omit<Product, "id" | "companyId" | "createdAt" | "updatedAt">>): Promise<Product> {
     try {
       console.log(`[DRIZZLE_INVENTORY_REPO] Iniciando update para ID: ${id}`);
-      console.log(`[DRIZZLE_INVENTORY_REPO] Dados recebidos para update:`, JSON.stringify(data, null, 2));
+      console.log(`[DRIZZLE_INVENTORY_REPO] Valores para update:`, JSON.stringify(data, null, 2));
 
       const updateData: any = {
         updatedAt: new Date(),

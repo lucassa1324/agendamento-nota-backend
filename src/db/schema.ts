@@ -304,6 +304,45 @@ export const inventory = pgTable("inventory", {
     .notNull(),
 });
 
+export const businessProfiles = pgTable("business_profiles", {
+  id: text("id").primaryKey(),
+  businessId: text("business_id")
+    .notNull()
+    .unique()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  
+  // Informações Básicas
+  siteName: text("site_name"),
+  titleSuffix: text("title_suffix"),
+  description: text("description"),
+  logoUrl: text("logo_url"),
+
+  // Redes Sociais
+  instagram: text("instagram"),
+  showInstagram: boolean("show_instagram").default(true).notNull(),
+  whatsapp: text("whatsapp"),
+  showWhatsapp: boolean("show_whatsapp").default(true).notNull(),
+  facebook: text("facebook"),
+  showFacebook: boolean("show_facebook").default(true).notNull(),
+  tiktok: text("tiktok"),
+  showTiktok: boolean("show_tiktok").default(true).notNull(),
+  linkedin: text("linkedin"),
+  showLinkedin: boolean("show_linkedin").default(true).notNull(),
+  twitter: text("twitter"),
+  showTwitter: boolean("show_twitter").default(true).notNull(),
+
+  // Contato e Endereço
+  phone: text("phone"),
+  email: text("email"),
+  address: text("address"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
 export const companiesRelations = relations(companies, ({ one, many }) => ({
   owner: one(user, {
     fields: [companies.ownerId],
@@ -313,12 +352,23 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
     fields: [companies.id],
     references: [companySiteCustomizations.companyId],
   }),
+  profile: one(businessProfiles, {
+    fields: [companies.id],
+    references: [businessProfiles.businessId],
+  }),
   services: many(services),
   appointments: many(appointments),
   operatingHours: many(operatingHours),
   agendaBlocks: many(agendaBlocks),
   googleCalendarConfigs: many(googleCalendarConfigs),
   inventory: many(inventory),
+}));
+
+export const businessProfilesRelations = relations(businessProfiles, ({ one }) => ({
+  business: one(companies, {
+    fields: [businessProfiles.businessId],
+    references: [companies.id],
+  }),
 }));
 
 export const companySiteCustomizationsRelations = relations(companySiteCustomizations, ({ one }) => ({

@@ -14,7 +14,9 @@ import { businessController } from "./modules/business/adapters/in/http/business
 import { companyController } from "./modules/business/adapters/in/http/company.controller";
 import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
 import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
+import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
 import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
+import { staticPlugin } from "@elysiajs/static";
 
 const userRepository = new UserRepository();
 const createUserUseCase = new CreateUserUseCase(userRepository);
@@ -22,6 +24,10 @@ const listUsersUseCase = new ListUsersUseCase(userRepository);
 const userController = new UserController(createUserUseCase, listUsersUseCase);
 
 const app = new Elysia()
+  .use(staticPlugin({
+    assets: "public",
+    prefix: "/public"
+  }))
   .use(
     cors({
       origin: [
@@ -49,8 +55,18 @@ const app = new Elysia()
   .use(businessController)
   .use(companyController)
   .use(inventoryController)
-  .onError(({ code, error, set }) => {
+  .use(settingsController)
+  .onError(({ code, error, set, body }) => {
     console.error(`\n[ERROR] ${code}:`, error);
+
+    if (code === 'VALIDATION') {
+      console.error("[VALIDATION_ERROR_DETAILS]:", JSON.stringify(error.all, null, 2));
+      return {
+        error: "Erro de validação nos dados enviados",
+        details: error.all
+      };
+    }
+
     return {
       error: error instanceof Error ? error.message : "Unknown error",
       code,

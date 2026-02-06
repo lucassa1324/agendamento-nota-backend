@@ -33,6 +33,8 @@ export type Business = {
   id: string;
   name: string;
   slug: string;
+  address?: string | null;
+  contact?: string | null;
   ownerId: string;
   createdAt: Date;
   updatedAt?: Date;

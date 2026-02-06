@@ -11,10 +11,13 @@
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
+    "@elysiajs/static": "^1.4.7",
+    "@types/node": "^25.2.1",
     "better-auth": "^1.4.10",
     "drizzle-orm": "^0.45.1",
     "elysia": "latest",
     "postgres": "^3.4.8",
+    "sharp": "^0.34.5",
     "tsdown": "^0.15.12",
     "typescript": "^5.9.3"
   },
