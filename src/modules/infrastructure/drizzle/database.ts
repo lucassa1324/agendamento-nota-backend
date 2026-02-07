@@ -3,4 +3,4 @@ import postgres from "postgres";
 
 const dbUrl = process.env.DATABASE_URL;
 const queryClient = postgres(dbUrl!);
-export const db = drizzle(queryClient);
+export const db = drizzle(queryClient, { logger: true });

@@ -7,99 +7,16 @@ import { createServiceDTO } from "../dtos/service.dto";
 export const serviceController = new Elysia({ prefix: "/api/services" })
   .use(repositoriesPlugin)
   .use(authPlugin)
-  .onBeforeHandle(({ user, set }) => {
-    if (!user) {
-      set.status = 401;
-      return { error: "Unauthorized" };
-    }
-  })
-  .post("/", async ({ body, serviceRepository, set }) => {
-    try {
-      console.log(`[SERVICE_CONTROLLER] Iniciando criação/atualização de serviço para empresa: ${body.companyId}`);
-      console.log(`[SERVICE_CONTROLLER] Payload recebido:`, JSON.stringify(body, null, 2));
-
-      // Normaliza os dados para garantir que price e duration sejam strings
-      const normalizedBody = {
-        ...body,
-        price: body.price.toString(),
-        duration: body.duration.toString()
-      };
-
-      const createServiceUseCase = new CreateServiceUseCase(serviceRepository);
-      const result = await createServiceUseCase.execute(normalizedBody);
-
-      console.log(`[SERVICE_CONTROLLER] Serviço processado com sucesso: ${result.id}`);
-      return result;
-    } catch (error: any) {
-      console.error("\n[SERVICE_CONTROLLER_ERROR]:", error);
-      set.status = 500;
-
-      // Captura detalhes específicos de erro de conexão ou banco
-      const errorMessage = error.message || "Internal Server Error";
-      const errorDetail = error.detail || error.cause || null;
-
-      return {
-        error: errorMessage,
-        details: errorDetail,
-        code: error.code // Código de erro do Postgres (ex: 22P02 para invalid text representation)
-      };
-    }
-  }, {
-    body: createServiceDTO
-  })
-  .put("/:id", async ({ params: { id }, body, serviceRepository, set }) => {
-    try {
-      console.log(`[SERVICE_CONTROLLER] Atualizando serviço ${id}`);
-      
-      // Normaliza os dados para garantir que price e duration sejam strings
-      const normalizedBody = {
-        ...body,
-        price: body.price.toString(),
-        duration: body.duration.toString()
-      };
-
-      // O repositório DrizzleServiceRepository já possui um método update que faz o set parcial
-      const updated = await serviceRepository.update(id, normalizedBody);
-      
-      if (!updated) {
-        set.status = 404;
-        return { error: "Service not found" };
-      }
-
-      return updated;
-    } catch (error: any) {
-      console.error("\n[SERVICE_CONTROLLER_PUT_ERROR]:", error);
-      set.status = 500;
-      return {
-        error: error.message || "Internal Server Error",
-        details: error.detail || error.cause || null
-      };
-    }
-  }, {
-    body: createServiceDTO
-  })
-  .delete("/:id", async ({ params: { id }, serviceRepository, set }) => {
-    try {
-      console.log(`[SERVICE_CONTROLLER] Deletando serviço ${id}`);
-      const success = await serviceRepository.delete(id);
-      
-      if (!success) {
-        set.status = 404;
-        return { error: "Service not found" };
-      }
-
-      return { success: true };
-    } catch (error: any) {
-      console.error("\n[SERVICE_CONTROLLER_DELETE_ERROR]:", error);
-      set.status = 500;
-      return {
-        error: error.message || "Internal Server Error"
-      };
-    }
-  })
+  // --- ROTAS PÚBLICAS ---
   .get("/company/:companyId", async ({ params: { companyId }, serviceRepository, set }) => {
     try {
-      console.log(`[SERVICE_CONTROLLER] Listando serviços para empresa: ${companyId}`);
+      console.log(`>>> [BACK_PUBLIC_ACCESS] Serviços liberados para a empresa: ${companyId}`);
+
+      // Forçar o navegador a não usar cache para garantir que os serviços novos apareçam
+      set.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate";
+      set.headers["Pragma"] = "no-cache";
+      set.headers["Expires"] = "0";
+
       const services = await serviceRepository.findAllByCompanyId(companyId);
       return services || [];
     } catch (error: any) {
@@ -111,18 +28,126 @@ export const serviceController = new Elysia({ prefix: "/api/services" })
       };
     }
   })
-  .get("/check-exists/:id", async ({ params: { id }, serviceRepository, set }) => {
-    try {
-      console.log(`[SERVICE_CONTROLLER] Verificando existência do serviço com ID: ${id}`);
-      const exists = await serviceRepository.checkServiceExists(id);
-      console.log(`[SERVICE_CONTROLLER] Serviço com ID ${id} existe: ${exists}`);
-      return { id, exists };
-    } catch (error: any) {
-      console.error("\n[SERVICE_CONTROLLER_CHECK_EXISTS_ERROR]:", error);
-      set.status = 500;
-      return {
-        error: error.message || "Internal Server Error",
-        details: error.detail || error.cause || null
-      };
-    }
-  });
+  // --- ROTAS PRIVADAS (EXIGEM AUTH) ---
+  .group("", (app) =>
+    app.onBeforeHandle(({ user, set }) => {
+      if (!user) {
+        set.status = 401;
+        return { error: "Unauthorized" };
+      }
+    })
+      .post("/", async ({ body, serviceRepository, set }) => {
+        try {
+          console.log(`\n>>> [BACK_RECEIVED] POST /api/services:`, JSON.stringify(body, null, 2));
+          console.log(`>>> [BACK_RECEIVED] showOnHome (camel):`, body.showOnHome);
+          console.log(`>>> [BACK_RECEIVED] show_on_home (snake):`, body.show_on_home);
+          console.log(`>>> [BACK_RECEIVED] advancedRules (camel):`, JSON.stringify(body.advancedRules, null, 2));
+          console.log(`>>> [BACK_RECEIVED] advanced_rules (snake):`, JSON.stringify(body.advanced_rules, null, 2));
+
+          // Normaliza os dados para garantir que price e duration sejam strings
+          // Prioriza nomenclaturas snake_case vindo do Front-end
+          const normalizedBody = {
+            ...body,
+            price: body.price.toString(),
+            duration: body.duration.toString(),
+            showOnHome: body.show_on_home !== undefined ? body.show_on_home : body.showOnHome,
+            advancedRules: body.advanced_rules || body.advancedRules
+          };
+
+          const createServiceUseCase = new CreateServiceUseCase(serviceRepository);
+          const result = await createServiceUseCase.execute(normalizedBody);
+
+          console.log(`[SERVICE_CONTROLLER] Serviço processado com sucesso: ${result.id}`);
+          return result;
+        } catch (error: any) {
+          console.error("\n[SERVICE_CONTROLLER_ERROR]:", error);
+          set.status = 500;
+
+          // Captura detalhes específicos de erro de conexão ou banco
+          const errorMessage = error.message || "Internal Server Error";
+          const errorDetail = error.detail || error.cause || null;
+
+          return {
+            error: errorMessage,
+            details: errorDetail,
+            code: error.code // Código de erro do Postgres (ex: 22P02 para invalid text representation)
+          };
+        }
+      }, {
+        body: createServiceDTO
+      })
+      .put("/:id", async ({ params: { id }, body, serviceRepository, set }) => {
+        try {
+          console.log(`\n>>> [BACK_RECEIVED] PUT /api/services/${id}:`, JSON.stringify(body, null, 2));
+          console.log(`>>> [BACK_RECEIVED] showOnHome (camel):`, body.showOnHome);
+          console.log(`>>> [BACK_RECEIVED] show_on_home (snake):`, body.show_on_home);
+          console.log(`>>> [BACK_RECEIVED] advancedRules (camel):`, JSON.stringify(body.advancedRules, null, 2));
+          console.log(`>>> [BACK_RECEIVED] advanced_rules (snake):`, JSON.stringify(body.advanced_rules, null, 2));
+
+          // Normaliza os dados para garantir que price e duration sejam strings
+          const normalizedBody: any = {
+            ...body,
+            showOnHome: body.show_on_home !== undefined ? body.show_on_home : body.showOnHome,
+            advancedRules: body.advanced_rules || body.advancedRules
+          };
+
+          if (body.price !== undefined) normalizedBody.price = body.price.toString();
+          if (body.duration !== undefined) normalizedBody.duration = body.duration.toString();
+
+          console.log(`>>> [BACK_RECEIVED] Body normalizado para o repositório:`, JSON.stringify(normalizedBody, null, 2));
+
+          // O repositório DrizzleServiceRepository já possui um método update que faz o set parcial
+          const updated = await serviceRepository.update(id, normalizedBody);
+
+          if (!updated) {
+            set.status = 404;
+            return { error: "Service not found" };
+          }
+
+          return updated;
+        } catch (error: any) {
+          console.error("\n[SERVICE_CONTROLLER_PUT_ERROR]:", error);
+          set.status = 500;
+          return {
+            error: error.message || "Internal Server Error",
+            details: error.detail || error.cause || null
+          };
+        }
+      }, {
+        body: createServiceDTO
+      })
+      .delete("/:id", async ({ params: { id }, serviceRepository, set }) => {
+        try {
+          console.log(`[SERVICE_CONTROLLER] Deletando serviço ${id}`);
+          const success = await serviceRepository.delete(id);
+
+          if (!success) {
+            set.status = 404;
+            return { error: "Service not found" };
+          }
+
+          return { success: true };
+        } catch (error: any) {
+          console.error("\n[SERVICE_CONTROLLER_DELETE_ERROR]:", error);
+          set.status = 500;
+          return {
+            error: error.message || "Internal Server Error"
+          };
+        }
+      })
+      .get("/check-exists/:id", async ({ params: { id }, serviceRepository, set }) => {
+        try {
+          console.log(`[SERVICE_CONTROLLER] Verificando existência do serviço com ID: ${id}`);
+          const exists = await serviceRepository.checkServiceExists(id);
+          console.log(`[SERVICE_CONTROLLER] Serviço com ID ${id} existe: ${exists}`);
+          return { id, exists };
+        } catch (error: any) {
+          console.error("\n[SERVICE_CONTROLLER_CHECK_EXISTS_ERROR]:", error);
+          set.status = 500;
+          return {
+            error: error.message || "Internal Server Error",
+            details: error.detail || error.cause || null
+          };
+        }
+      })
+  );

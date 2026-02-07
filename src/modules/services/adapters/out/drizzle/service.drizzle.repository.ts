@@ -30,6 +30,24 @@ export class DrizzleServiceRepository implements IServiceRepository {
 
     console.log(`[DrizzleServiceRepository] Executando Upsert para ID: ${serviceId}`);
 
+    // Mapeia advancedRules para garantir o formato {"conflicts": []}
+    // Suporta tanto o objeto direto { conflicts: [] } quanto apenas o array []
+    let finalAdvancedRules: any = { conflicts: [] };
+
+    const rawRules = data.advancedRules;
+    if (rawRules) {
+      if (rawRules.conflicts && Array.isArray(rawRules.conflicts)) {
+        finalAdvancedRules = { conflicts: rawRules.conflicts };
+      } else if (Array.isArray(rawRules)) {
+        finalAdvancedRules = { conflicts: rawRules };
+      } else if (typeof rawRules === 'object') {
+        // Se for um objeto mas sem a chave conflicts, tentamos manter o que veio ou garantir conflicts
+        finalAdvancedRules = rawRules.conflicts ? { conflicts: rawRules.conflicts } : { conflicts: [], ...rawRules };
+      }
+    }
+
+    console.log(`[DrizzleServiceRepository] AdvancedRules processado (Create):`, JSON.stringify(finalAdvancedRules));
+
     try {
       const [newService] = await db
         .insert(services)
@@ -42,7 +60,8 @@ export class DrizzleServiceRepository implements IServiceRepository {
           duration: data.duration.toString(),
           icon: data.icon,
           isVisible: data.isVisible ?? true,
-          advancedRules: data.advancedRules,
+          showOnHome: data.showOnHome ?? false,
+          advancedRules: finalAdvancedRules,
         })
         .onConflictDoUpdate({
           target: services.id,
@@ -53,7 +72,8 @@ export class DrizzleServiceRepository implements IServiceRepository {
             duration: data.duration.toString(),
             icon: data.icon,
             isVisible: data.isVisible ?? true,
-            advancedRules: data.advancedRules,
+            showOnHome: data.showOnHome ?? false,
+            advancedRules: finalAdvancedRules,
             updatedAt: new Date(),
           },
         })
@@ -67,16 +87,68 @@ export class DrizzleServiceRepository implements IServiceRepository {
   }
 
   async update(id: string, data: Partial<CreateServiceInput>): Promise<Service | null> {
-    const [updated] = await db
-      .update(services)
-      .set({
-        ...data,
-        updatedAt: new Date(),
-      })
-      .where(eq(services.id, id))
-      .returning();
+    console.log(`\n[DrizzleServiceRepository] >>> INICIANDO UPDATE PARA ID: ${id}`);
+    console.log(`[DrizzleServiceRepository] DADOS RECEBIDOS:`, JSON.stringify(data, null, 2));
 
-    return (updated as Service) || null;
+    const updatePayload: any = {
+      updatedAt: new Date(),
+    };
+
+    // Mapeamento explícito de campos básicos
+    if (data.name !== undefined) updatePayload.name = data.name;
+    if (data.description !== undefined) updatePayload.description = data.description;
+    if (data.price !== undefined) updatePayload.price = data.price.toString();
+    if (data.duration !== undefined) updatePayload.duration = data.duration.toString();
+    if (data.icon !== undefined) updatePayload.icon = data.icon;
+    if (data.isVisible !== undefined) updatePayload.isVisible = data.isVisible;
+    if (data.showOnHome !== undefined) updatePayload.showOnHome = data.showOnHome;
+
+    // Tratamento ultra-rigoroso para advancedRules (advanced_rules no banco)
+    if (data.advancedRules !== undefined) {
+      let finalRules: any = { conflicts: [] };
+
+      const rawRules = data.advancedRules;
+      if (rawRules) {
+        // Se já vier no formato { conflicts: [...] }
+        if (rawRules.conflicts && Array.isArray(rawRules.conflicts)) {
+          finalRules = { conflicts: rawRules.conflicts };
+        }
+        // Se vier apenas o array [...]
+        else if (Array.isArray(rawRules)) {
+          finalRules = { conflicts: rawRules };
+        }
+        // Se vier como objeto genérico
+        else if (typeof rawRules === 'object') {
+          finalRules = rawRules.conflicts ? { conflicts: rawRules.conflicts } : { conflicts: [], ...rawRules };
+        }
+      }
+
+      updatePayload.advancedRules = finalRules;
+      console.log(`[DrizzleServiceRepository] AdvancedRules mapeado para:`, JSON.stringify(finalRules));
+    }
+
+    console.log(`[DrizzleServiceRepository] PAYLOAD FINAL ENVIADO AO DRIZZLE:`, JSON.stringify(updatePayload, null, 2));
+
+    try {
+      const [updated] = await db
+        .update(services)
+        .set(updatePayload)
+        .where(eq(services.id, id))
+        .returning();
+
+      if (updated) {
+        console.log(`[DrizzleServiceRepository] <<< UPDATE CONCLUÍDO COM SUCESSO!`);
+        console.log(`[DrizzleServiceRepository] RESULTADO FINAL DO BANCO (JSONB):`, JSON.stringify(updated.advancedRules, null, 2));
+        console.log(`[DrizzleServiceRepository] SHOW_ON_HOME NO BANCO:`, updated.showOnHome);
+      } else {
+        console.warn(`[DrizzleServiceRepository] !!! NENHUM REGISTRO ENCONTRADO PARA O ID: ${id}`);
+      }
+
+      return (updated as Service) || null;
+    } catch (error: any) {
+      console.error(`[DrizzleServiceRepository] !!! ERRO FATAL NO UPDATE:`, error);
+      throw error;
+    }
   }
 
   async delete(id: string): Promise<boolean> {

@@ -9,6 +9,7 @@ export class UpdateSiteCustomizationUseCase {
   ) { }
 
   async execute(businessId: string, partialData: any): Promise<SiteCustomization> {
+    console.log('>>> [BACK_SAVE] Recebendo novos dados para ID:', businessId, partialData);
     const current = await this.getSiteCustomizationUseCase.execute(businessId);
 
     // Mapeamento manual de snake_case para camelCase se necessário
@@ -19,7 +20,9 @@ export class UpdateSiteCustomizationUseCase {
     console.log(`[UPDATE_SITE_CUSTOMIZATION] Objeto final após deep merge para businessId: ${businessId}`);
     console.dir(merged, { depth: null, colors: true });
 
-    return await this.settingsRepository.saveCustomization(businessId, merged);
+    const result = await this.settingsRepository.saveCustomization(businessId, merged);
+    console.log(`>>> [BACK_SAVE_SUCCESS] Dados persistidos com sucesso para ID: ${businessId}`);
+    return result;
   }
 
   private normalizeKeys(obj: any): any {
@@ -29,11 +32,19 @@ export class UpdateSiteCustomizationUseCase {
     const mappings: Record<string, string> = {
       'layout_global': 'layoutGlobal',
       'site_colors': 'siteColors',
-      'base_colors': 'siteColors', // Suporte a variações
+      'base_colors': 'siteColors',
       'text_colors': 'textColors',
       'action_buttons': 'actionButtons',
       'about_us': 'aboutUs',
       'appointment_flow': 'appointmentFlow',
+      'step1_services': 'step1Services',
+      'step1_service': 'step1Services',
+      'step1Service': 'step1Services',
+      'service': 'step1Services', // NOVO: Mapeia 'service' para 'step1Services'
+      'card_config': 'cardConfig',
+      'card_bg_color': 'backgroundColor',
+      'cardBgColor': 'backgroundColor',
+      'background_color': 'backgroundColor',
       'hero_banner': 'heroBanner',
       'services_section': 'servicesSection',
       'background_and_effect': 'backgroundAndEffect',
@@ -42,8 +53,21 @@ export class UpdateSiteCustomizationUseCase {
     };
 
     for (const key in obj) {
-      const targetKey = mappings[key] || key;
-      normalized[targetKey] = this.normalizeKeys(obj[key]);
+      let targetKey = mappings[key] || key;
+      let value = obj[key];
+
+      // Caso especial: se a chave for 'cardBgColor' e estivermos no nível que deveria ter 'cardConfig'
+      // ou se o valor for uma string (cor), mas a chave sugere que deveria estar dentro de cardConfig
+      if (key === 'cardBgColor' || key === 'card_bg_color') {
+        console.log(`>>> [NORMALIZE] Remapeando ${key} para cardConfig.backgroundColor`);
+        normalized['cardConfig'] = {
+          ...normalized['cardConfig'],
+          backgroundColor: value
+        };
+        continue;
+      }
+
+      normalized[targetKey] = this.normalizeKeys(value);
     }
     return normalized;
   }

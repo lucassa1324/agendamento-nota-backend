@@ -57,6 +57,13 @@
       "when": 1770399161814,
       "tag": "0007_noisy_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1770470971806,
+      "tag": "0008_first_the_fury",
+      "breakpoints": true
     }
   ]
 }

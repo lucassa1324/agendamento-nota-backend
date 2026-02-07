@@ -1,0 +1,1 @@
+ALTER TABLE "services" ADD COLUMN "show_on_home" boolean DEFAULT false NOT NULL;

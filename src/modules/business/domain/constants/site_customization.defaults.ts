@@ -266,10 +266,19 @@ export const DEFAULT_ABOUT_US_SECTION: AboutUsSection = {
 };
 
 export const DEFAULT_APPOINTMENT_FLOW_SECTION: AppointmentFlowSection = {
+  colors: {
+    primary: "#000000",
+    secondary: "#333333",
+    background: "#ffffff",
+    text: "#000000",
+  },
   step1Services: {
     title: "Selecione o Serviço",
     showPrices: true,
     showDurations: true,
+    cardConfig: {
+      backgroundColor: "TRANSPARENT_DEFAULT",
+    },
   },
   step2Date: {
     title: "Escolha a Data",

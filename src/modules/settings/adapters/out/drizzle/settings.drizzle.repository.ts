@@ -82,6 +82,13 @@ export class DrizzleSettingsRepository implements SettingsRepository {
 
       if (existing) {
         console.log(`[DRIZZLE_REPOSITORY] Atualizando customização existente para companyId: ${businessId}`);
+
+        // Log de Persistência Temporário
+        const newColor = (data as any).appointmentFlow?.step1Services?.cardConfig?.backgroundColor;
+        if (newColor) {
+          console.log(`>>> [DB_SAVE] Salvando cor ${newColor} para o campo appointmentFlow.step1Services.cardConfig.backgroundColor`);
+        }
+
         const [updated] = await db
           .update(companySiteCustomizations)
           .set({
@@ -95,6 +102,7 @@ export class DrizzleSettingsRepository implements SettingsRepository {
           throw new Error("Falha ao atualizar customização: nenhum registro retornado.");
         }
 
+        console.log(`>>> [DB_CONFIRM] Banco retornou objeto atualizado para ID: ${businessId}`);
         return {
           layoutGlobal: updated.layoutGlobal,
           home: updated.home,

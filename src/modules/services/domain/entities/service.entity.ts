@@ -7,6 +7,7 @@ export interface Service {
   duration: string;
   icon?: string | null;
   isVisible: boolean;
+  showOnHome: boolean;
   advancedRules?: any;
   createdAt: Date;
   updatedAt: Date;
@@ -21,5 +22,6 @@ export interface CreateServiceInput {
   duration: string;
   icon?: string | null;
   isVisible?: boolean;
+  showOnHome?: boolean;
   advancedRules?: any;
 }

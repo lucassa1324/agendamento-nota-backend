@@ -9,7 +9,10 @@ export const createServiceDTO = t.Object({
   duration: t.Union([t.String(), t.Number()]),
   icon: t.Optional(t.Nullable(t.String())),
   isVisible: t.Optional(t.Boolean()),
+  showOnHome: t.Optional(t.Boolean()),
+  show_on_home: t.Optional(t.Boolean()),
   advancedRules: t.Optional(t.Any()),
+  advanced_rules: t.Optional(t.Any()),
 });
 
 export type CreateServiceDTO = typeof createServiceDTO.static;

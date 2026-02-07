@@ -161,6 +161,7 @@ export const services = pgTable("services", {
   duration: text("duration").notNull(),
   icon: text("icon"),
   isVisible: boolean("is_visible").default(true).notNull(),
+  showOnHome: boolean("show_on_home").default(false).notNull(),
   advancedRules: jsonb("advanced_rules").default({
     conflicts: [], // IDs de serviços que não podem ser feitos junto
   }),

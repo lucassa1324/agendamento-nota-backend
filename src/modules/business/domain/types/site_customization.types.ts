@@ -315,10 +315,19 @@ export interface Testimonial {
 
 // --- Appointment Flow ---
 export interface AppointmentFlowSection {
+  colors: {
+    primary: string;
+    secondary: string;
+    background: string;
+    text: string;
+  };
   step1Services: {
     title: string;
     showPrices: boolean;
     showDurations: boolean;
+    cardConfig: {
+      backgroundColor: string;
+    };
   };
   step2Date: {
     title: string;

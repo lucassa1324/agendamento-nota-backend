@@ -296,10 +296,19 @@ export const AboutUsSectionDTO = t.Object({
 });
 
 export const AppointmentFlowSectionDTO = t.Object({
+  colors: t.Object({
+    primary: t.String(),
+    secondary: t.String(),
+    background: t.String(),
+    text: t.String(),
+  }),
   step1Services: t.Object({
     title: t.String(),
     showPrices: t.Boolean(),
     showDurations: t.Boolean(),
+    cardConfig: t.Object({
+      backgroundColor: t.String(),
+    }),
   }),
   step2Date: t.Object({
     title: t.String(),
