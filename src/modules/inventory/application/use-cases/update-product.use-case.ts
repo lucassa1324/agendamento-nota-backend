@@ -9,7 +9,7 @@ export class UpdateProductUseCase {
 
   async execute(
     id: string,
-    data: Partial<Omit<Product, "id" | "companyId" | "createdAt" | "updatedAt">>,
+    data: any,
     userId: string
   ): Promise<Product> {
     const product = await this.inventoryRepository.findById(id);
@@ -24,13 +24,14 @@ export class UpdateProductUseCase {
       throw new Error("Unauthorized: You do not own this business");
     }
 
-    const updateData = { ...data };
+    // Normalizar números para string (exigido pelo schema do Drizzle que usa decimal/numeric)
+    const updateData: any = { ...data };
 
-    // Se a quantidade inicial for alterada, precisamos decidir se isso afeta o saldo atual.
-    // Regra: Se o usuário estiver alterando o initialQuantity, vamos assumir que ele está corrigindo
-    // o estoque base. O currentQuantity só deve mudar se for enviado explicitamente no payload.
-    // No entanto, para evitar inconsistências, se o novo initialQuantity for menor que o currentQuantity atual,
-    // podemos opcionalmente ajustar, mas por enquanto manteremos independentes conforme solicitado.
+    if (data.initialQuantity !== undefined) updateData.initialQuantity = String(data.initialQuantity);
+    if (data.currentQuantity !== undefined) updateData.currentQuantity = String(data.currentQuantity);
+    if (data.minQuantity !== undefined) updateData.minQuantity = String(data.minQuantity);
+    if (data.unitPrice !== undefined) updateData.unitPrice = String(data.unitPrice);
+    if (data.conversionFactor !== undefined) updateData.conversionFactor = data.conversionFactor ? String(data.conversionFactor) : null;
 
     return await this.inventoryRepository.update(id, updateData);
   }

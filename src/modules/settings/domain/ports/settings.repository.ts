@@ -1,4 +1,4 @@
-import { SiteCustomization } from "../../business/domain/types/site_customization.types";
+import { SiteCustomization } from "../../../business/domain/types/site_customization.types";
 
 export interface BusinessProfile {
   id: string;

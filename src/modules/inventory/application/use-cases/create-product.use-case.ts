@@ -7,18 +7,22 @@ export class CreateProductUseCase {
     private businessRepository: IBusinessRepository
   ) { }
 
-  async execute(data: Omit<Product, "id" | "createdAt" | "updatedAt">, userId: string): Promise<Product> {
+  async execute(data: any, userId: string): Promise<Product> {
     const business = await this.businessRepository.findById(data.companyId);
 
     if (!business || business.ownerId !== userId) {
       throw new Error("Unauthorized: You do not own this business");
     }
 
-    // Se currentQuantity não for enviado, assume que é igual ao initialQuantity
+    // Normalizar números para string (exigido pelo schema do Drizzle que usa decimal/numeric)
     const productData = {
       ...data,
-      currentQuantity: data.currentQuantity ?? data.initialQuantity,
-      unit: data.unit ?? 'un' // Default para unidade se não enviado
+      initialQuantity: String(data.initialQuantity),
+      currentQuantity: String(data.currentQuantity ?? data.initialQuantity),
+      minQuantity: String(data.minQuantity),
+      unitPrice: String(data.unitPrice),
+      unit: data.unit ?? 'un',
+      conversionFactor: data.conversionFactor ? String(data.conversionFactor) : null
     };
 
     return await this.inventoryRepository.create(productData);
