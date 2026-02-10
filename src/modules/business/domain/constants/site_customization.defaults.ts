@@ -284,9 +284,10 @@ export const DEFAULT_APPOINTMENT_FLOW_SECTION: AppointmentFlowSection = {
     title: "Escolha a Data",
     calendarStyle: "modern",
   },
-  step3Time: {
+  step3Times: {
     title: "Escolha o Horário",
     timeSlotStyle: "grid",
+    timeSlotSize: "00:30", // Formato HH:mm para compatibilidade com o frontend
   },
   step4Confirmation: {
     title: "Confirme seu Agendamento",

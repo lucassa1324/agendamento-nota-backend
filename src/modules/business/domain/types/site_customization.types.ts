@@ -333,9 +333,10 @@ export interface AppointmentFlowSection {
     title: string;
     calendarStyle: 'modern' | 'classic';
   };
-  step3Time: {
+  step3Times: {
     title: string;
     timeSlotStyle: 'list' | 'grid';
+    timeSlotSize: number; // Intervalo em minutos (ex: 30, 60)
   };
   step4Confirmation: {
     title: string;

@@ -44,6 +44,23 @@ export class GetSiteCustomizationUseCase {
 
     console.log(`>>> [GET_SITE_CUSTOMIZATION] Contrato Validado: step1Services.cardConfig.backgroundColor = ${merged.appointmentFlow?.step1Services?.cardConfig?.backgroundColor}`);
 
+    /**
+     * FORÇAR ENTREGA (timeSlotSize como Número):
+     * O site oficial exige que este campo seja um número dentro de step3Times.
+     */
+    if (merged.appointmentFlow?.step3Times) {
+      const size = merged.appointmentFlow.step3Times.timeSlotSize;
+      merged.appointmentFlow.step3Times.timeSlotSize = typeof size === 'string' ? parseInt(size, 10) : Number(size || 30);
+
+      console.log('>>> [PUBLIC_API_SEND] Enviando intervalo para o site:', merged.appointmentFlow.step3Times.timeSlotSize);
+    }
+
+    /**
+     * DEBUG DE AGENDAMENTO (LOG):
+     * Monitora o intervalo de tempo enviado para o front-end
+     */
+    console.log(`>>> [BOOKING_DEBUG] Intervalo de agendamento (timeSlotSize) para businessId ${businessId}: ${merged.appointmentFlow?.step3Times?.timeSlotSize} min`);
+
     return merged;
   }
 

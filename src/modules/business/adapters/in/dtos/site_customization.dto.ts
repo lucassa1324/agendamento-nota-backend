@@ -314,9 +314,10 @@ export const AppointmentFlowSectionDTO = t.Object({
     title: t.String(),
     calendarStyle: t.Union([t.Literal("modern"), t.Literal("classic")]),
   }),
-  step3Time: t.Object({
+  step3Times: t.Object({
     title: t.String(),
     timeSlotStyle: t.Union([t.Literal("list"), t.Literal("grid")]),
+    timeSlotSize: t.Number(),
   }),
   step4Confirmation: t.Object({
     title: t.String(),

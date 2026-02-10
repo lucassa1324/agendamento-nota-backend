@@ -20,7 +20,7 @@ export interface IBusinessRepository {
   ): Promise<boolean>;
   getOperatingHours(
     companyId: string,
-    userId: string
+    userId?: string
   ): Promise<{
     weekly: Array<{
       id: string;
@@ -30,12 +30,26 @@ export interface IBusinessRepository {
       morningEnd?: string | null;
       afternoonStart?: string | null;
       afternoonEnd?: string | null;
+      openTime?: string | null;
+      lunchStart?: string | null;
+      lunchEnd?: string | null;
+      closeTime?: string | null;
     }>;
     slotInterval: string;
+    interval: string;
+    blocks: Array<{
+      id: string;
+      type: string;
+      startDate: string;
+      endDate: string;
+      startTime?: string | null;
+      endTime?: string | null;
+      reason?: string | null;
+    }>;
   } | null>;
   listAgendaBlocks(
     companyId: string,
-    userId: string
+    userId?: string
   ): Promise<Array<{
     id: string;
     companyId: string;

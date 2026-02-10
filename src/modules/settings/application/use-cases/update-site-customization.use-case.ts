@@ -40,7 +40,13 @@ export class UpdateSiteCustomizationUseCase {
       'step1_services': 'step1Services',
       'step1_service': 'step1Services',
       'step1Service': 'step1Services',
-      'service': 'step1Services', // NOVO: Mapeia 'service' para 'step1Services'
+      'service': 'step1Services',
+      'step3_time': 'step3Times',
+      'step3Time': 'step3Times',
+      'step3Times': 'step3Times',
+      'slot_interval': 'timeSlotSize',
+      'timeSlotSize': 'timeSlotSize',
+      'time_slot_size': 'timeSlotSize',
       'card_config': 'cardConfig',
       'card_bg_color': 'backgroundColor',
       'cardBgColor': 'backgroundColor',
@@ -55,6 +61,15 @@ export class UpdateSiteCustomizationUseCase {
     for (const key in obj) {
       let targetKey = mappings[key] || key;
       let value = obj[key];
+
+      // Caso especial: normalização de intervalo de tempo para número
+      if (targetKey === 'timeSlotSize' && typeof value === 'string') {
+        const parsed = parseInt(value, 10);
+        if (!isNaN(parsed)) {
+          console.log(`>>> [NORMALIZE] Convertendo timeSlotSize de string para número: ${value} -> ${parsed}`);
+          value = parsed;
+        }
+      }
 
       // Caso especial: se a chave for 'cardBgColor' e estivermos no nível que deveria ter 'cardConfig'
       // ou se o valor for uma string (cor), mas a chave sugere que deveria estar dentro de cardConfig

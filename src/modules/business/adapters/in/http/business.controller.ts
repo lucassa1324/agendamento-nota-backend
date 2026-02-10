@@ -28,184 +28,200 @@ export const businessController = new Elysia({ prefix: "/api/business" })
       };
     }
   })
-  .onBeforeHandle(({ user, set }) => {
-    if (!user) {
-      set.status = 401;
-      return { error: "Unauthorized" };
-    }
-  })
-  .get("/my", async ({ user, businessRepository }) => {
-    const listMyBusinessesUseCase = new ListMyBusinessesUseCase(businessRepository);
-    return await listMyBusinessesUseCase.execute(user!.id);
-  })
-  .post("/", async ({ user, body, set, businessRepository }) => {
-    try {
-      const createBusinessUseCase = new CreateBusinessUseCase(businessRepository);
-      return await createBusinessUseCase.execute(user!.id, body);
-    } catch (error: any) {
-      set.status = 400;
-      return { error: error.message };
-    }
-  }, {
-    body: createBusinessDTO
-  })
-  .patch("/:id/config", async ({ user, params: { id }, body, set, businessRepository }) => {
-    try {
-      const updateBusinessConfigUseCase = new UpdateBusinessConfigUseCase(businessRepository);
-      return await updateBusinessConfigUseCase.execute(id, user!.id, body);
-    } catch (error: any) {
-      set.status = 400;
-      return { error: error.message };
-    }
-  }, {
-    body: updateBusinessConfigDTO,
-    params: t.Object({
-      id: t.String()
-    })
-  })
-  .put("/settings/:companyId", async ({ user, params: { companyId }, body, businessRepository, set }) => {
-    try {
-      console.log("BUSINESS_SETTINGS_PUT", JSON.stringify(body));
-      const interval = (body as any).interval ?? (body as any).timeInterval;
-      if (!interval || !/^\d{2}:\d{2}$/.test(interval)) {
-        set.status = 422;
-        console.error("BUSINESS_SETTINGS_INTERVAL_INVALID", interval);
-        return { error: "Invalid interval format", field: "interval", expected: "HH:mm" };
-      }
-      if (!Array.isArray(body?.weekly) || body.weekly.length !== 7) {
-        set.status = 422;
-        console.error("BUSINESS_SETTINGS_WEEKLY_LENGTH_INVALID", Array.isArray(body?.weekly) ? body.weekly.length : null);
-        return { error: "Weekly must have 7 days", field: "weekly.length", expected: 7 };
-      }
-      const useCase = new UpdateOperatingHoursUseCase(businessRepository);
-      const normalizedBody = { ...(body as any), interval };
-      return await useCase.execute(companyId, user!.id, normalizedBody as any);
-    } catch (error: any) {
-      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
-      return { error: error.message };
-    }
-  }, {
-    body: updateOperatingHoursDTO,
-    params: t.Object({ companyId: t.String() })
-  })
-  .put("/settings/:companyId/", async ({ user, params: { companyId }, body, businessRepository, set }) => {
-    try {
-      console.log("BUSINESS_SETTINGS_PUT", JSON.stringify(body));
-      const interval = (body as any).interval ?? (body as any).timeInterval;
-      if (!interval || !/^\d{2}:\d{2}$/.test(interval)) {
-        set.status = 422;
-        console.error("BUSINESS_SETTINGS_INTERVAL_INVALID", interval);
-        return { error: "Invalid interval format", field: "interval", expected: "HH:mm" };
-      }
-      if (!Array.isArray(body?.weekly) || body.weekly.length !== 7) {
-        set.status = 422;
-        console.error("BUSINESS_SETTINGS_WEEKLY_LENGTH_INVALID", Array.isArray(body?.weekly) ? body.weekly.length : null);
-        return { error: "Weekly must have 7 days", field: "weekly.length", expected: 7 };
-      }
-      const useCase = new UpdateOperatingHoursUseCase(businessRepository);
-      const normalizedBody = { ...(body as any), interval };
-      return await useCase.execute(companyId, user!.id, normalizedBody as any);
-    } catch (error: any) {
-      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
-      return { error: error.message };
-    }
-  }, {
-    body: updateOperatingHoursDTO,
-    params: t.Object({ companyId: t.String() })
-  })
-  .get("/settings/:companyId", async ({ user, params: { companyId }, businessRepository, set }) => {
-    try {
-      const useCase = new GetOperatingHoursUseCase(businessRepository);
-      return await useCase.execute(companyId, user!.id);
-    } catch (error: any) {
-      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
-      return { error: error.message };
-    }
-  }, {
-    params: t.Object({ companyId: t.String() })
-  })
-  .get("/settings/:companyId/", async ({ user, params: { companyId }, businessRepository, set }) => {
-    try {
-      const useCase = new GetOperatingHoursUseCase(businessRepository);
-      return await useCase.execute(companyId, user!.id);
-    } catch (error: any) {
-      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
-      return { error: error.message };
-    }
-  }, {
-    params: t.Object({ companyId: t.String() })
-  })
-  .get("/settings/:companyId/blocks", async ({ user, params: { companyId }, businessRepository, set }) => {
-    try {
-      const useCase = new ListAgendaBlocksUseCase(businessRepository);
-      return await useCase.execute(companyId, user!.id);
-    } catch (error: any) {
-      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
-      return { error: error.message };
-    }
-  }, {
-    params: t.Object({ companyId: t.String() })
-  })
-  .get("/settings/:companyId/blocks/", async ({ user, params: { companyId }, businessRepository, set }) => {
-    try {
-      const useCase = new ListAgendaBlocksUseCase(businessRepository);
-      return await useCase.execute(companyId, user!.id);
-    } catch (error: any) {
-      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
-      return { error: error.message };
-    }
-  }, {
-    params: t.Object({ companyId: t.String() })
-  })
-  .post("/settings/:companyId/blocks", async ({ user, params: { companyId }, body, businessRepository, set }) => {
-    try {
-      const useCase = new CreateAgendaBlockUseCase(businessRepository);
-      return await useCase.execute(companyId, user!.id, body);
-    } catch (error: any) {
-      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
-      return { error: error.message };
-    }
-  }, {
-    body: createAgendaBlockDTO,
-    params: t.Object({ companyId: t.String() })
-  })
-  .post("/settings/:companyId/blocks/", async ({ user, params: { companyId }, body, businessRepository, set }) => {
-    try {
-      const useCase = new CreateAgendaBlockUseCase(businessRepository);
-      return await useCase.execute(companyId, user!.id, body);
-    } catch (error: any) {
-      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
-      return { error: error.message };
-    }
-  }, {
-    body: createAgendaBlockDTO,
-    params: t.Object({ companyId: t.String() })
-  })
-  .delete("/settings/:companyId/blocks/:blockId", async ({ user, params: { companyId, blockId }, businessRepository, set }) => {
-    try {
-      const useCase = new DeleteAgendaBlockUseCase(businessRepository);
-      return await useCase.execute(companyId, user!.id, blockId);
-    } catch (error: any) {
-      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
-      return { error: error.message };
-    }
-  }, {
-    params: t.Object({
-      companyId: t.String(),
-      blockId: t.String()
-    })
-  })
-  .delete("/settings/:companyId/blocks/:blockId/", async ({ user, params: { companyId, blockId }, businessRepository, set }) => {
-    try {
-      const useCase = new DeleteAgendaBlockUseCase(businessRepository);
-      return await useCase.execute(companyId, user!.id, blockId);
-    } catch (error: any) {
-      set.status = error.message?.includes("Unauthorized") ? 403 : 400;
-      return { error: error.message };
-    }
-  }, {
-    params: t.Object({
-      companyId: t.String(),
-      blockId: t.String()
-    })
-  });
+  // Rotas Públicas (Sem necessidade de Token)
+  .group("", (publicGroup) =>
+    publicGroup
+      .get("/settings/:companyId", async ({ params: { companyId }, businessRepository, set }) => {
+        try {
+          console.log(`>>> [BACK_PUBLIC_ACCESS] Buscando horários para a empresa: ${companyId}`);
+          const useCase = new GetOperatingHoursUseCase(businessRepository);
+          const result = await useCase.execute(companyId);
+
+          if (result) {
+            console.log(`>>> [PUBLIC_API_SEND] Enviando intervalo para o site: ${result.interval}`);
+          }
+
+          return result;
+        } catch (error: any) {
+          set.status = 404;
+          return { error: error.message };
+        }
+      }, {
+        params: t.Object({ companyId: t.String() })
+      })
+      .get("/settings/:companyId/", async ({ params: { companyId }, businessRepository, set }) => {
+        try {
+          const useCase = new GetOperatingHoursUseCase(businessRepository);
+          return await useCase.execute(companyId);
+        } catch (error: any) {
+          set.status = 404;
+          return { error: error.message };
+        }
+      }, {
+        params: t.Object({ companyId: t.String() })
+      })
+      .get("/settings/:companyId/blocks", async ({ params: { companyId }, businessRepository, set }) => {
+        try {
+          console.log(`>>> [BACK_PUBLIC_ACCESS] Buscando bloqueios para a empresa: ${companyId}`);
+          const useCase = new ListAgendaBlocksUseCase(businessRepository);
+          return await useCase.execute(companyId);
+        } catch (error: any) {
+          set.status = 404;
+          return { error: error.message };
+        }
+      }, {
+        params: t.Object({ companyId: t.String() })
+      })
+  )
+  // Rotas Privadas (Exigem Token)
+  .group("", (privateGroup) =>
+    privateGroup
+      .onBeforeHandle(({ user, set }) => {
+        if (!user) {
+          set.status = 401;
+          return { error: "Unauthorized" };
+        }
+      })
+      .get("/my", async ({ user, businessRepository }) => {
+        const listMyBusinessesUseCase = new ListMyBusinessesUseCase(businessRepository);
+        return await listMyBusinessesUseCase.execute(user!.id);
+      })
+      .post("/", async ({ user, body, set, businessRepository }) => {
+        try {
+          const createBusinessUseCase = new CreateBusinessUseCase(businessRepository);
+          return await createBusinessUseCase.execute(user!.id, body);
+        } catch (error: any) {
+          set.status = 400;
+          return { error: error.message };
+        }
+      }, {
+        body: createBusinessDTO
+      })
+      .patch("/:id/config", async ({ user, params: { id }, body, set, businessRepository }) => {
+        try {
+          const updateBusinessConfigUseCase = new UpdateBusinessConfigUseCase(businessRepository);
+          return await updateBusinessConfigUseCase.execute(id, user!.id, body);
+        } catch (error: any) {
+          set.status = 400;
+          return { error: error.message };
+        }
+      }, {
+        body: updateBusinessConfigDTO,
+        params: t.Object({
+          id: t.String()
+        })
+      })
+      .put("/settings/:companyId", async ({ user, params: { companyId }, body, businessRepository, set }) => {
+        try {
+          console.log("BUSINESS_SETTINGS_PUT", JSON.stringify(body));
+          const interval = (body as any).interval ?? (body as any).slotInterval ?? (body as any).timeInterval;
+          if (!interval || !/^\d{2}:\d{2}$/.test(interval)) {
+            set.status = 422;
+            console.error("BUSINESS_SETTINGS_INTERVAL_INVALID", interval);
+            return { error: "Invalid interval format", field: "interval", expected: "HH:mm" };
+          }
+          if (!Array.isArray(body?.weekly) || body.weekly.length !== 7) {
+            set.status = 422;
+            console.error("BUSINESS_SETTINGS_WEEKLY_LENGTH_INVALID", Array.isArray(body?.weekly) ? body.weekly.length : null);
+            return { error: "Weekly must have 7 days", field: "weekly.length", expected: 7 };
+          }
+          const useCase = new UpdateOperatingHoursUseCase(businessRepository);
+          const normalizedBody = { ...(body as any), interval };
+          return await useCase.execute(companyId, user!.id, normalizedBody as any);
+        } catch (error: any) {
+          set.status = error.message?.includes("Unauthorized") ? 403 : 400;
+          return { error: error.message };
+        }
+      }, {
+        body: updateOperatingHoursDTO,
+        params: t.Object({ companyId: t.String() })
+      })
+      .put("/settings/:companyId/", async ({ user, params: { companyId }, body, businessRepository, set }) => {
+        try {
+          console.log("BUSINESS_SETTINGS_PUT", JSON.stringify(body));
+          const interval = (body as any).interval ?? (body as any).slotInterval ?? (body as any).timeInterval;
+          if (!interval || !/^\d{2}:\d{2}$/.test(interval)) {
+            set.status = 422;
+            console.error("BUSINESS_SETTINGS_INTERVAL_INVALID", interval);
+            return { error: "Invalid interval format", field: "interval", expected: "HH:mm" };
+          }
+          if (!Array.isArray(body?.weekly) || body.weekly.length !== 7) {
+            set.status = 422;
+            console.error("BUSINESS_SETTINGS_WEEKLY_LENGTH_INVALID", Array.isArray(body?.weekly) ? body.weekly.length : null);
+            return { error: "Weekly must have 7 days", field: "weekly.length", expected: 7 };
+          }
+          const useCase = new UpdateOperatingHoursUseCase(businessRepository);
+          const normalizedBody = { ...(body as any), interval };
+          return await useCase.execute(companyId, user!.id, normalizedBody as any);
+        } catch (error: any) {
+          set.status = error.message?.includes("Unauthorized") ? 403 : 400;
+          return { error: error.message };
+        }
+      }, {
+        body: updateOperatingHoursDTO,
+        params: t.Object({ companyId: t.String() })
+      })
+      .get("/settings/:companyId/blocks/", async ({ user, params: { companyId }, businessRepository, set }) => {
+        try {
+          const useCase = new ListAgendaBlocksUseCase(businessRepository);
+          return await useCase.execute(companyId, user!.id);
+        } catch (error: any) {
+          set.status = error.message?.includes("Unauthorized") ? 403 : 400;
+          return { error: error.message };
+        }
+      }, {
+        params: t.Object({ companyId: t.String() })
+      })
+      .post("/settings/:companyId/blocks", async ({ user, params: { companyId }, body, businessRepository, set }) => {
+        try {
+          const useCase = new CreateAgendaBlockUseCase(businessRepository);
+          return await useCase.execute(companyId, user!.id, body);
+        } catch (error: any) {
+          set.status = error.message?.includes("Unauthorized") ? 403 : 400;
+          return { error: error.message };
+        }
+      }, {
+        body: createAgendaBlockDTO,
+        params: t.Object({ companyId: t.String() })
+      })
+      .post("/settings/:companyId/blocks/", async ({ user, params: { companyId }, body, businessRepository, set }) => {
+        try {
+          const useCase = new CreateAgendaBlockUseCase(businessRepository);
+          return await useCase.execute(companyId, user!.id, body);
+        } catch (error: any) {
+          set.status = error.message?.includes("Unauthorized") ? 403 : 400;
+          return { error: error.message };
+        }
+      }, {
+        body: createAgendaBlockDTO,
+        params: t.Object({ companyId: t.String() })
+      })
+      .delete("/settings/:companyId/blocks/:blockId", async ({ user, params: { companyId, blockId }, businessRepository, set }) => {
+        try {
+          const useCase = new DeleteAgendaBlockUseCase(businessRepository);
+          return await useCase.execute(companyId, user!.id, blockId);
+        } catch (error: any) {
+          set.status = error.message?.includes("Unauthorized") ? 403 : 400;
+          return { error: error.message };
+        }
+      }, {
+        params: t.Object({
+          companyId: t.String(),
+          blockId: t.String()
+        })
+      })
+      .delete("/settings/:companyId/blocks/:blockId/", async ({ user, params: { companyId, blockId }, businessRepository, set }) => {
+        try {
+          const useCase = new DeleteAgendaBlockUseCase(businessRepository);
+          return await useCase.execute(companyId, user!.id, blockId);
+        } catch (error: any) {
+          set.status = error.message?.includes("Unauthorized") ? 403 : 400;
+          return { error: error.message };
+        }
+      }, {
+        params: t.Object({
+          companyId: t.String(),
+          blockId: t.String()
+        })
+      })
+  );

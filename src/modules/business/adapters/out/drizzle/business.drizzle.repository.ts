@@ -174,7 +174,7 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
 
   async getOperatingHours(
     companyId: string,
-    userId: string
+    userId?: string
   ): Promise<{
     weekly: Array<{
       id: string;
@@ -184,10 +184,24 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
       morningEnd?: string | null;
       afternoonStart?: string | null;
       afternoonEnd?: string | null;
+      openTime?: string | null;
+      lunchStart?: string | null;
+      lunchEnd?: string | null;
+      closeTime?: string | null;
     }>;
     slotInterval: string;
+    interval: string;
+    blocks: Array<{
+      id: string;
+      type: string;
+      startDate: string;
+      endDate: string;
+      startTime?: string | null;
+      endTime?: string | null;
+      reason?: string | null;
+    }>;
   } | null> {
-    const [company] = await db
+    const query = db
       .select({
         id: companies.id,
         siteCustomization: {
@@ -195,8 +209,15 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         }
       })
       .from(companies)
-      .leftJoin(companySiteCustomizations, eq(companies.id, companySiteCustomizations.companyId))
-      .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
+      .leftJoin(companySiteCustomizations, eq(companies.id, companySiteCustomizations.companyId));
+
+    const conditions = [eq(companies.id, companyId)];
+    if (userId) {
+      conditions.push(eq(companies.ownerId, userId));
+    }
+
+    const [company] = await query
+      .where(and(...conditions))
       .limit(1);
 
     if (!company) return null;
@@ -207,23 +228,64 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
       .where(eq(operatingHours.companyId, companyId));
 
     const weekly = rows.map(row => ({
-      ...row,
-      dayOfWeek: String(row.dayOfWeek)
+      id: row.id,
+      dayOfWeek: String(row.dayOfWeek),
+      status: row.status,
+      morningStart: row.morningStart,
+      morningEnd: row.morningEnd,
+      afternoonStart: row.afternoonStart,
+      afternoonEnd: row.afternoonEnd,
+      // Adicionar mapeamento reverso para compatibilidade com o frontend (openTime/closeTime)
+      openTime: row.morningStart,
+      lunchStart: row.morningEnd,
+      lunchEnd: row.afternoonStart,
+      closeTime: row.afternoonEnd
+    }));
+
+    // Buscar também os bloqueios de agenda para o site poder desabilitar os horários
+    const blocksRows = await db
+      .select()
+      .from(agendaBlocks)
+      .where(eq(agendaBlocks.companyId, companyId));
+
+    const blocks = blocksRows.map(block => ({
+      id: block.id,
+      type: block.type,
+      startDate: block.startDate,
+      endDate: block.endDate,
+      startTime: block.startTime,
+      endTime: block.endTime,
+      reason: block.reason
     }));
 
     const appointmentFlow = (company.siteCustomization?.appointmentFlow as any) || {};
-    const step3Time = appointmentFlow.step_3_time || {};
-    const slotInterval = step3Time.slot_interval || step3Time.slotInterval || "00:30";
+    // Suportar tanto a chave antiga quanto a nova (plural) e as variações de snake/camel case
+    const step3 = appointmentFlow.step3Times || appointmentFlow.step3Time || appointmentFlow.step_3_time || {};
+    let slotInterval = step3.timeSlotSize || step3.slot_interval || step3.slotInterval || "00:30";
+
+    // Garantir formato HH:mm se for número (ex: 30 -> "00:30")
+    if (typeof slotInterval === 'number') {
+      const hours = Math.floor(slotInterval / 60);
+      const minutes = slotInterval % 60;
+      slotInterval = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    } else if (typeof slotInterval === 'string' && /^\d+$/.test(slotInterval)) {
+      const totalMin = parseInt(slotInterval);
+      const hours = Math.floor(totalMin / 60);
+      const minutes = totalMin % 60;
+      slotInterval = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
 
     return {
       weekly,
-      slotInterval
+      slotInterval,
+      interval: slotInterval,
+      blocks
     };
   }
 
   async listAgendaBlocks(
     companyId: string,
-    userId: string
+    userId?: string
   ): Promise<Array<{
     id: string;
     companyId: string;
@@ -236,10 +298,15 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
     createdAt: Date;
     updatedAt: Date;
   }>> {
+    const conditions = [eq(companies.id, companyId)];
+    if (userId) {
+      conditions.push(eq(companies.ownerId, userId));
+    }
+
     const [company] = await db
       .select()
       .from(companies)
-      .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
+      .where(and(...conditions))
       .limit(1);
 
     if (!company) return [];
