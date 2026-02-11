@@ -7,4 +7,5 @@ export interface IAppointmentRepository {
   create(data: CreateAppointmentInput): Promise<Appointment>;
   updateStatus(id: string, status: AppointmentStatus): Promise<Appointment | null>;
   delete(id: string): Promise<void>;
+  sumRevenueByCompanyId(companyId: string, startDate?: Date, endDate?: Date): Promise<number>;
 }

@@ -4,7 +4,7 @@ import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.p
 import { CreateServiceUseCase } from "../../../application/use-cases/create-service.use-case";
 import { createServiceDTO } from "../dtos/service.dto";
 
-export const serviceController = new Elysia({ prefix: "/api/services" })
+export const serviceController = new Elysia({ prefix: "/services" })
   .use(repositoriesPlugin)
   .use(authPlugin)
   // --- ROTAS PÚBLICAS ---

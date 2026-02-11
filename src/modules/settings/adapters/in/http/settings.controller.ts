@@ -18,7 +18,7 @@ import { join } from "path";
 import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 
-export const settingsController = new Elysia({ prefix: "/api/settings" })
+export const settingsController = new Elysia({ prefix: "/settings" })
   .use(authPlugin)
   .use(repositoriesPlugin)
   // --- ROTAS PÚBLICAS ---

@@ -7,7 +7,7 @@ import { UpdateProductUseCase } from "../../../application/use-cases/update-prod
 import { DeleteProductUseCase } from "../../../application/use-cases/delete-product.use-case";
 import { CreateProductDTO, UpdateProductDTO } from "../dtos/inventory.dto";
 
-export const inventoryController = new Elysia({ prefix: "/api/inventory" })
+export const inventoryController = new Elysia({ prefix: "/inventory" })
   .use(repositoriesPlugin)
   .use(authPlugin)
   .onBeforeHandle(({ user, set }) => {

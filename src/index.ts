@@ -15,6 +15,7 @@ import { companyController } from "./modules/business/adapters/in/http/company.c
 import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
 import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
 import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
+import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
 import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
 import { staticPlugin } from "@elysiajs/static";
 
@@ -30,23 +31,12 @@ const app = new Elysia()
   }))
   .use(
     cors({
-      origin: (request: any) => {
-        const origin = request.headers.get('origin');
-        console.log('[CORS_CHECK] Origem solicitante:', origin);
-
-        if (!origin) return true;
-
-        // Permite qualquer subdomínio de localhost:3000 ou vercel.app
-        if (
-          origin.includes('localhost:3000') ||
-          origin.includes('127.0.0.1:3000') ||
-          origin.includes('agendamento-nota-front.vercel.app')
-        ) {
-          return true;
-        }
-
-        return false;
-      },
+      origin: [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'https://agendamento-nota-front.vercel.app',
+        'https://landingpage-agendamento-front.vercel.app'
+      ],
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
       credentials: true,
       allowedHeaders: ["Content-Type", "Authorization", "Cookie", "set-cookie", "X-Requested-With", "Cache-Control"],
@@ -55,18 +45,26 @@ const app = new Elysia()
     })
   )
   .onBeforeHandle(({ request }) => {
+    const origin = request.headers.get('origin');
+    const cookie = request.headers.get('cookie');
     console.log(`\n[LOG] ${request.method} ${request.url}`);
+    console.log(`[LOG] Origin: ${origin}`);
+    console.log(`[LOG] Cookie presente: ${cookie ? 'Sim' : 'Não'}`);
   })
   .group("/api/auth", (group) => group.mount(auth.handler))
   .use(publicBusinessController)
   .use(userController.registerRoutes())
-  .use(appointmentController)
-  .use(serviceController)
-  .use(reportController)
-  .use(businessController)
-  .use(companyController)
-  .use(inventoryController)
-  .use(settingsController)
+  .group("/api", (api) =>
+    api
+      .use(appointmentController)
+      .use(serviceController)
+      .use(reportController)
+      .use(businessController)
+      .use(companyController)
+      .use(inventoryController)
+      .use(settingsController)
+      .use(expenseController)
+  )
   .onError(({ code, error, set, body }) => {
     console.error(`\n[ERROR] ${code}:`, error);
 

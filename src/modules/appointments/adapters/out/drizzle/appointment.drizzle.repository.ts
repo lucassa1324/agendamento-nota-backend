@@ -1,6 +1,6 @@
 import { db } from "../../../../infrastructure/drizzle/database";
 import { appointments } from "../../../../../db/schema";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, sql } from "drizzle-orm";
 import { IAppointmentRepository } from "../../../domain/ports/appointment.repository";
 import { Appointment, CreateAppointmentInput, AppointmentStatus } from "../../../domain/entities/appointment.entity";
 
@@ -67,5 +67,29 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
 
   async delete(id: string): Promise<void> {
     await db.delete(appointments).where(eq(appointments.id, id));
+  }
+
+  async sumRevenueByCompanyId(companyId: string, startDate?: Date, endDate?: Date): Promise<number> {
+    const filters = [
+      eq(appointments.companyId, companyId),
+      eq(appointments.status, "COMPLETED")
+    ];
+
+    if (startDate) {
+      filters.push(gte(appointments.scheduledAt, startDate));
+    }
+
+    if (endDate) {
+      filters.push(lte(appointments.scheduledAt, endDate));
+    }
+
+    const [result] = await db
+      .select({
+        total: sql<string>`sum(${appointments.servicePriceSnapshot})`,
+      })
+      .from(appointments)
+      .where(and(...filters));
+
+    return parseFloat(result?.total || "0");
   }
 }

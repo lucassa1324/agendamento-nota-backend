@@ -12,7 +12,7 @@ import { CreateAgendaBlockUseCase } from "../../../application/use-cases/create-
 import { ListAgendaBlocksUseCase } from "../../../application/use-cases/list-agenda-blocks.use-case";
 import { DeleteAgendaBlockUseCase } from "../../../application/use-cases/delete-agenda-block.use-case";
 
-export const businessController = new Elysia({ prefix: "/api/business" })
+export const businessController = new Elysia({ prefix: "/business" })
   .use(repositoriesPlugin)
   .use(authPlugin)
   .onError(({ code, error, set }) => {
