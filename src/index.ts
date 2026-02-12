@@ -16,6 +16,7 @@ import { publicBusinessController } from "./modules/business/adapters/in/http/pu
 import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
 import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
 import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
+import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
 import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
 import { staticPlugin } from "@elysiajs/static";
 
@@ -45,13 +46,13 @@ const app = new Elysia()
         // 1. Permite origens exatas da lista
         if (allowedOrigins.includes(origin)) return true;
 
-        // 2. Permite qualquer subdomínio de localhost (ex: lucas.localhost:3000)
-        // O regex cobre http://localhost:PORTA e http://QUALQUER-COISA.localhost:PORTA
+        // 2. Permite qualquer subdomínio de localhost (ex: lucas-studio.localhost:3000)
+        // O regex cobre http://localhost:PORTA e http://*.localhost:PORTA
         if (origin.endsWith('.localhost:3000') || /^http:\/\/localhost:\d+$/.test(origin)) {
           return true;
         }
 
-        // 3. Permite subdomínios da Vercel (opcional, para deploys de review)
+        // 3. Permite subdomínios da Vercel
         if (origin.endsWith('.vercel.app')) {
           return true;
         }
@@ -60,7 +61,14 @@ const app = new Elysia()
       },
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
       credentials: true,
-      allowedHeaders: ["Content-Type", "Authorization", "Cookie", "set-cookie", "X-Requested-With", "Cache-Control"],
+      allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "Cookie",
+        "set-cookie",
+        "X-Requested-With",
+        "Cache-Control"
+      ],
       exposeHeaders: ["Set-Cookie", "set-cookie", "Authorization"],
       preflight: true
     })
@@ -85,6 +93,7 @@ const app = new Elysia()
       .use(inventoryController)
       .use(settingsController)
       .use(expenseController)
+      .use(galleryController)
   )
   .onError(({ code, error, set, body }) => {
     console.error(`\n[ERROR] ${code}:`, error);

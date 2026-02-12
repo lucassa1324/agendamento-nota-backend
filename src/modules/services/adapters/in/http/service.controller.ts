@@ -36,18 +36,20 @@ export const serviceController = new Elysia({ prefix: "/services" })
         return { error: "Unauthorized" };
       }
     })
-      .post("/", async ({ body, serviceRepository, set }) => {
+      .post("/", async ({ body, serviceRepository, user, set }) => {
         try {
           console.log(`\n>>> [BACK_RECEIVED] POST /api/services:`, JSON.stringify(body, null, 2));
-          console.log(`>>> [BACK_RECEIVED] showOnHome (camel):`, body.showOnHome);
-          console.log(`>>> [BACK_RECEIVED] show_on_home (snake):`, body.show_on_home);
-          console.log(`>>> [BACK_RECEIVED] advancedRules (camel):`, JSON.stringify(body.advancedRules, null, 2));
-          console.log(`>>> [BACK_RECEIVED] advanced_rules (snake):`, JSON.stringify(body.advanced_rules, null, 2));
 
-          // Normaliza os dados para garantir que price e duration sejam strings
-          // Prioriza nomenclaturas snake_case vindo do Front-end
+          const businessId = user!.businessId;
+          if (!businessId) {
+            set.status = 401;
+            return { error: "Usuário não vinculado a uma empresa" };
+          }
+
+          // Força o companyId do usuário logado por segurança
           const normalizedBody = {
             ...body,
+            companyId: businessId,
             price: body.price.toString(),
             duration: body.duration.toString(),
             showOnHome: body.show_on_home !== undefined ? body.show_on_home : body.showOnHome,
@@ -76,13 +78,22 @@ export const serviceController = new Elysia({ prefix: "/services" })
       }, {
         body: createServiceDTO
       })
-      .put("/:id", async ({ params: { id }, body, serviceRepository, set }) => {
+      .put("/:id", async ({ params: { id }, body, serviceRepository, user, set }) => {
         try {
           console.log(`\n>>> [BACK_RECEIVED] PUT /api/services/${id}:`, JSON.stringify(body, null, 2));
-          console.log(`>>> [BACK_RECEIVED] showOnHome (camel):`, body.showOnHome);
-          console.log(`>>> [BACK_RECEIVED] show_on_home (snake):`, body.show_on_home);
-          console.log(`>>> [BACK_RECEIVED] advancedRules (camel):`, JSON.stringify(body.advancedRules, null, 2));
-          console.log(`>>> [BACK_RECEIVED] advanced_rules (snake):`, JSON.stringify(body.advanced_rules, null, 2));
+
+          const businessId = user!.businessId;
+          const existing = await serviceRepository.findById(id);
+
+          if (!existing) {
+            set.status = 404;
+            return { error: "Service not found" };
+          }
+
+          if (existing.companyId !== businessId) {
+            set.status = 403;
+            return { error: "Não autorizado" };
+          }
 
           // Normaliza os dados para garantir que price e duration sejam strings
           const normalizedBody: any = {
@@ -96,14 +107,7 @@ export const serviceController = new Elysia({ prefix: "/services" })
 
           console.log(`>>> [BACK_RECEIVED] Body normalizado para o repositório:`, JSON.stringify(normalizedBody, null, 2));
 
-          // O repositório DrizzleServiceRepository já possui um método update que faz o set parcial
           const updated = await serviceRepository.update(id, normalizedBody);
-
-          if (!updated) {
-            set.status = 404;
-            return { error: "Service not found" };
-          }
-
           return updated;
         } catch (error: any) {
           console.error("\n[SERVICE_CONTROLLER_PUT_ERROR]:", error);
@@ -116,16 +120,24 @@ export const serviceController = new Elysia({ prefix: "/services" })
       }, {
         body: createServiceDTO
       })
-      .delete("/:id", async ({ params: { id }, serviceRepository, set }) => {
+      .delete("/:id", async ({ params: { id }, serviceRepository, user, set }) => {
         try {
           console.log(`[SERVICE_CONTROLLER] Deletando serviço ${id}`);
-          const success = await serviceRepository.delete(id);
 
-          if (!success) {
+          const businessId = user!.businessId;
+          const existing = await serviceRepository.findById(id);
+
+          if (!existing) {
             set.status = 404;
             return { error: "Service not found" };
           }
 
+          if (existing.companyId !== businessId) {
+            set.status = 403;
+            return { error: "Não autorizado" };
+          }
+
+          const success = await serviceRepository.delete(id);
           return { success: true };
         } catch (error: any) {
           console.error("\n[SERVICE_CONTROLLER_DELETE_ERROR]:", error);

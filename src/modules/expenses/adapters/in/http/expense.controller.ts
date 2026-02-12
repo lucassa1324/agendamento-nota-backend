@@ -15,31 +15,79 @@ export const expenseController = new Elysia({ prefix: "/expenses" })
     }
     console.log(`>>> [AUTH_CHECK] Usuário autenticado: ${user.id}`);
   })
-  .post("/", async ({ body, expenseRepository }) => {
+  .post("/", async ({ body, expenseRepository, user, set }) => {
+    const businessId = user!.businessId;
+    if (!businessId) {
+      set.status = 401;
+      return { error: "Usuário não vinculado a uma empresa" };
+    }
+
     return await expenseRepository.create({
       ...body,
+      companyId: businessId, // Força o companyId do usuário logado
       dueDate: new Date(body.dueDate),
     });
   }, {
     body: CreateExpenseDto
   })
-  .get("/", async ({ query, expenseRepository }) => {
+  .get("/", async ({ query, expenseRepository, user, set }) => {
+    const businessId = user!.businessId;
     const { companyId } = query;
-    if (!companyId) throw new Error("companyId is required");
-    return await expenseRepository.findAllByCompanyId(companyId);
+
+    // Se companyId for passado, verifica se é o do usuário logado
+    // Se não for passado, usa o do usuário logado
+    const targetCompanyId = companyId || businessId;
+
+    if (!targetCompanyId) {
+      set.status = 400;
+      return { error: "companyId is required" };
+    }
+
+    if (targetCompanyId !== businessId) {
+      set.status = 403;
+      return { error: "Não autorizado" };
+    }
+
+    return await expenseRepository.findAllByCompanyId(targetCompanyId);
   }, {
     query: t.Object({
-      companyId: t.String()
+      companyId: t.Optional(t.String())
     })
   })
-  .patch("/:id", async ({ params: { id }, body, expenseRepository }) => {
+  .patch("/:id", async ({ params: { id }, body, expenseRepository, user, set }) => {
+    const businessId = user!.businessId;
+    const existing = await expenseRepository.findById(id);
+
+    if (!existing) {
+      set.status = 404;
+      return { error: "Expense not found" };
+    }
+
+    if (existing.companyId !== businessId) {
+      set.status = 403;
+      return { error: "Não autorizado" };
+    }
+
     const updateData: any = { ...body };
     if (body.dueDate) updateData.dueDate = new Date(body.dueDate);
     return await expenseRepository.update(id, updateData);
   }, {
     body: UpdateExpenseDto
   })
-  .delete("/:id", async ({ params: { id }, expenseRepository }) => {
+  .delete("/:id", async ({ params: { id }, expenseRepository, user, set }) => {
+    const businessId = user!.businessId;
+    const existing = await expenseRepository.findById(id);
+
+    if (!existing) {
+      set.status = 404;
+      return { error: "Expense not found" };
+    }
+
+    if (existing.companyId !== businessId) {
+      set.status = 403;
+      return { error: "Não autorizado" };
+    }
+
     await expenseRepository.delete(id);
     return { success: true };
   });

@@ -363,6 +363,23 @@ export const businessProfiles = pgTable("business_profiles", {
     .notNull(),
 });
 
+export const galleryImages = pgTable("gallery_images", {
+  id: text("id").primaryKey(),
+  businessId: text("business_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  title: text("title"),
+  imageUrl: text("image_url").notNull(),
+  category: text("category"),
+  showInHome: boolean("show_in_home").default(false).notNull(),
+  order: numeric("order").default("0").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
 export const companiesRelations = relations(companies, ({ one, many }) => ({
   owner: one(user, {
     fields: [companies.ownerId],
@@ -383,6 +400,14 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
   googleCalendarConfigs: many(googleCalendarConfigs),
   inventory: many(inventory),
   fixedExpenses: many(fixedExpenses),
+  galleryImages: many(galleryImages),
+}));
+
+export const galleryImagesRelations = relations(galleryImages, ({ one }) => ({
+  business: one(companies, {
+    fields: [galleryImages.businessId],
+    references: [companies.id],
+  }),
 }));
 
 export const businessProfilesRelations = relations(businessProfiles, ({ one }) => ({

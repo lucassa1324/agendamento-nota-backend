@@ -15,17 +15,30 @@ export const reportController = new Elysia({ prefix: "/reports" })
     }
     console.log(`>>> [AUTH_CHECK] Usuário autenticado: ${user.id}`);
   })
-  .get("/profit", async ({ query, expenseRepository, appointmentRepository }) => {
+  .get("/profit", async ({ query, expenseRepository, appointmentRepository, user, set }) => {
+    const businessId = user!.businessId;
+    const companyId = query.companyId || businessId;
+
+    if (!companyId) {
+      set.status = 400;
+      return { error: "companyId is required" };
+    }
+
+    if (companyId !== businessId) {
+      set.status = 403;
+      return { error: "Não autorizado" };
+    }
+
     const useCase = new GetProfitReportUseCase(expenseRepository, appointmentRepository);
 
     return await useCase.execute({
-      companyId: query.companyId,
+      companyId: companyId,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
     });
   }, {
     query: t.Object({
-      companyId: t.String(),
+      companyId: t.Optional(t.String()),
       startDate: t.Optional(t.String()),
       endDate: t.Optional(t.String()),
     })
