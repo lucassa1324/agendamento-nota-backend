@@ -226,12 +226,16 @@ export const serviceResources = pgTable("service_resources", {
   inventoryId: text("inventory_id")
     .notNull()
     .references(() => inventory.id, { onDelete: "cascade" }),
-  consumptionUnit: text("consumption_unit").notNull(),
-  conversionFactor: text("conversion_factor").notNull(),
-  purchaseUnit: text("purchase_unit").notNull(),
-  consumedQuantity: text("consumed_quantity").notNull(),
-  outputFactor: text("output_factor").notNull(),
-  trigger: text("trigger").default("UPON_COMPLETION").notNull(),
+  
+  // Quantidade consumida no serviço
+  quantity: numeric("quantity", { precision: 10, scale: 2 }).notNull(),
+  
+  // Unidade usada no consumo (pode ser a principal ou secundária do produto)
+  unit: text("unit").notNull(),
+  
+  // Se está usando a unidade secundária (ajuste fino)
+  useSecondaryUnit: boolean("use_secondary_unit").default(false).notNull(),
+  
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

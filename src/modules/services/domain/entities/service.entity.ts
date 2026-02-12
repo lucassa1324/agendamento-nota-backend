@@ -1,3 +1,14 @@
+export interface ServiceResource {
+  id: string;
+  serviceId: string;
+  inventoryId: string;
+  quantity: string;
+  unit: string;
+  useSecondaryUnit: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Service {
   id: string;
   companyId: string;
@@ -9,6 +20,7 @@ export interface Service {
   isVisible: boolean;
   showOnHome: boolean;
   advancedRules?: any;
+  resources?: ServiceResource[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,4 +36,10 @@ export interface CreateServiceInput {
   isVisible?: boolean;
   showOnHome?: boolean;
   advancedRules?: any;
+  resources?: Array<{
+    inventoryId: string;
+    quantity: number;
+    unit: string;
+    useSecondaryUnit: boolean;
+  }>;
 }

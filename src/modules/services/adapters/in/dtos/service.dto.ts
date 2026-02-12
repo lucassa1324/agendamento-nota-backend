@@ -13,6 +13,13 @@ export const createServiceDTO = t.Object({
   show_on_home: t.Optional(t.Boolean()),
   advancedRules: t.Optional(t.Any()),
   advanced_rules: t.Optional(t.Any()),
+  // Novos campos para recursos/estoque
+  resources: t.Optional(t.Array(t.Object({
+    inventoryId: t.String(),
+    quantity: t.Number(),
+    unit: t.String(),
+    useSecondaryUnit: t.Boolean(),
+  }))),
 });
 
 export type CreateServiceDTO = typeof createServiceDTO.static;

@@ -70,6 +70,42 @@ export const inventoryController = new Elysia({ prefix: "/inventory" })
   }, {
     body: UpdateProductDTO
   })
+  .post("/:id/subtract", async ({ params: { id }, body, inventoryRepository, user, set }) => {
+    try {
+      console.log(`[INVENTORY_CONTROLLER] Subtraindo estoque para o produto ${id}:`, body);
+
+      const product = await inventoryRepository.findById(id);
+      if (!product) {
+        set.status = 404;
+        return { error: "Product not found" };
+      }
+
+      const currentQty = parseFloat(product.currentQuantity);
+      const subtractQty = parseFloat(body.quantity.toString());
+
+      if (isNaN(subtractQty)) {
+        set.status = 400;
+        return { error: "Invalid quantity" };
+      }
+
+      const newQty = Math.max(0, currentQty - subtractQty);
+
+      const updated = await inventoryRepository.update(id, {
+        currentQuantity: newQty.toString()
+      });
+
+      console.log(`[INVENTORY_CONTROLLER] Estoque atualizado: ${currentQty} -> ${newQty}`);
+      return updated;
+    } catch (error: any) {
+      console.error("[INVENTORY_CONTROLLER_SUBTRACT_ERROR]:", error);
+      set.status = 500;
+      return { error: error.message };
+    }
+  }, {
+    body: t.Object({
+      quantity: t.Union([t.Number(), t.String()])
+    })
+  })
   .delete("/:id", async ({ params: { id }, inventoryRepository, businessRepository, user, set }) => {
     try {
       console.log(`[INVENTORY_CONTROLLER] Excluindo produto ${id}`);

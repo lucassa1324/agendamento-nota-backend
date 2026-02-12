@@ -43,6 +43,50 @@ export const settingsController = new Elysia({ prefix: "/settings" })
       return { error: error.message };
     }
   })
+  .get("/profile/:businessId", async ({ params: { businessId }, settingsRepository, businessRepository, set }) => {
+    try {
+      const business = await businessRepository.findById(businessId);
+      if (!business) {
+        set.status = 404;
+        return { error: "Empresa não encontrada" };
+      }
+
+      const getSettingsUseCase = new GetSettingsUseCase(settingsRepository);
+      const profile = await getSettingsUseCase.execute(businessId);
+
+      // Retorna o perfil mesclado com dados de cadastro como padrão
+      // Sanitização: Garante null em vez de undefined para phone, email e address
+      return {
+        id: profile?.id || null,
+        businessId: businessId,
+        siteName: profile?.siteName || business.name,
+        titleSuffix: profile?.titleSuffix || "",
+        description: profile?.description || "",
+        logoUrl: profile?.logoUrl || "",
+        instagram: profile?.instagram || null,
+        showInstagram: profile?.showInstagram ?? true,
+        whatsapp: profile?.whatsapp || null,
+        showWhatsapp: profile?.showWhatsapp ?? true,
+        facebook: profile?.facebook || null,
+        showFacebook: profile?.showFacebook ?? true,
+        tiktok: profile?.tiktok || null,
+        showTiktok: profile?.showTiktok ?? true,
+        linkedin: profile?.linkedin || null,
+        showLinkedin: profile?.showLinkedin ?? true,
+        twitter: profile?.twitter || null,
+        showTwitter: profile?.showTwitter ?? true,
+        phone: profile?.phone || (business as any).contact || null,
+        email: profile?.email || null,
+        address: profile?.address || (business as any).address || null,
+        createdAt: profile?.createdAt || null,
+        updatedAt: profile?.updatedAt || null
+      };
+    } catch (error: any) {
+      console.error("[SETTINGS_GET_PROFILE_PUBLIC_ERROR]:", error);
+      set.status = 500;
+      return { error: error.message };
+    }
+  })
   // --- ROTAS PRIVADAS (EXIGEM AUTH) ---
   .group("", (app) =>
     app.onBeforeHandle(({ user, set }) => {
@@ -107,49 +151,26 @@ export const settingsController = new Elysia({ prefix: "/settings" })
           businessId: t.String()
         })
       })
-      .get("/profile/:businessId", async ({ params: { businessId }, settingsRepository, businessRepository, user, set }) => {
+      .patch("/profile/:businessId", async ({ params: { businessId }, body, settingsRepository, businessRepository, user, set }) => {
         try {
           // Validar se o usuário é dono da empresa
           const business = await businessRepository.findById(businessId);
           if (!business || business.ownerId !== user!.id) {
             set.status = 403;
-            return { error: "Você não tem permissão para acessar as configurações desta empresa." };
+            return { error: "Você não tem permissão para alterar as configurações desta empresa." };
           }
 
-          const getSettingsUseCase = new GetSettingsUseCase(settingsRepository);
-          const profile = await getSettingsUseCase.execute(businessId);
+          const saveSettingsUseCase = new SaveSettingsUseCase(settingsRepository);
+          const updatedProfile = await saveSettingsUseCase.execute(businessId, body);
 
-          // Retorna o perfil mesclado com dados de cadastro como padrão
-          return {
-            id: profile?.id,
-            businessId: businessId,
-            siteName: profile?.siteName || business.name,
-            titleSuffix: profile?.titleSuffix || "",
-            description: profile?.description || "",
-            logoUrl: profile?.logoUrl || "",
-            instagram: profile?.instagram || "",
-            showInstagram: profile?.showInstagram ?? true,
-            whatsapp: profile?.whatsapp || "",
-            showWhatsapp: profile?.showWhatsapp ?? true,
-            facebook: profile?.facebook || "",
-            showFacebook: profile?.showFacebook ?? true,
-            tiktok: profile?.tiktok || "",
-            showTiktok: profile?.showTiktok ?? true,
-            linkedin: profile?.linkedin || "",
-            showLinkedin: profile?.showLinkedin ?? true,
-            twitter: profile?.twitter || "",
-            showTwitter: profile?.showTwitter ?? true,
-            phone: profile?.phone || (business as any).contact || "",
-            email: profile?.email || user!.email,
-            address: profile?.address || (business as any).address || "",
-            createdAt: profile?.createdAt,
-            updatedAt: profile?.updatedAt
-          };
+          return updatedProfile;
         } catch (error: any) {
-          console.error("[SETTINGS_GET_PROFILE_ERROR]:", error);
+          console.error("[SETTINGS_PATCH_PROFILE_ERROR]:", error);
           set.status = 500;
           return { error: error.message };
         }
+      }, {
+        body: SaveSettingsDTO
       })
       .post("/profile/:businessId", async ({ params: { businessId }, body, settingsRepository, businessRepository, user, set }) => {
         try {

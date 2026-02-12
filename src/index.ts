@@ -31,12 +31,33 @@ const app = new Elysia()
   }))
   .use(
     cors({
-      origin: [
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-        'https://agendamento-nota-front.vercel.app',
-        'https://landingpage-agendamento-front.vercel.app'
-      ],
+      origin: (request) => {
+        const origin = request.headers.get('origin');
+        if (!origin) return true;
+
+        const allowedOrigins = [
+          'http://localhost:3000',
+          'http://127.0.0.1:3000',
+          'https://agendamento-nota-front.vercel.app',
+          'https://landingpage-agendamento-front.vercel.app'
+        ];
+
+        // 1. Permite origens exatas da lista
+        if (allowedOrigins.includes(origin)) return true;
+
+        // 2. Permite qualquer subdomínio de localhost (ex: lucas.localhost:3000)
+        // O regex cobre http://localhost:PORTA e http://QUALQUER-COISA.localhost:PORTA
+        if (origin.endsWith('.localhost:3000') || /^http:\/\/localhost:\d+$/.test(origin)) {
+          return true;
+        }
+
+        // 3. Permite subdomínios da Vercel (opcional, para deploys de review)
+        if (origin.endsWith('.vercel.app')) {
+          return true;
+        }
+
+        return false;
+      },
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
       credentials: true,
       allowedHeaders: ["Content-Type", "Authorization", "Cookie", "set-cookie", "X-Requested-With", "Cache-Control"],

@@ -1,5 +1,5 @@
 import { db } from "../../../../infrastructure/drizzle/database";
-import { services } from "../../../../../db/schema";
+import { services, serviceResources } from "../../../../../db/schema";
 import { eq } from "drizzle-orm";
 import { IServiceRepository } from "../../../domain/ports/service.repository";
 import { Service, CreateServiceInput } from "../../../domain/entities/service.entity";
@@ -12,7 +12,18 @@ export class DrizzleServiceRepository implements IServiceRepository {
       .where(eq(services.id, id))
       .limit(1);
 
-    return (result as Service) || null;
+    if (!result) return null;
+
+    // Busca os recursos vinculados
+    const resources = await db
+      .select()
+      .from(serviceResources)
+      .where(eq(serviceResources.serviceId, id));
+
+    return {
+      ...(result as Service),
+      resources: resources as any[]
+    };
   }
 
   async findAllByCompanyId(companyId: string): Promise<Service[]> {
@@ -21,7 +32,22 @@ export class DrizzleServiceRepository implements IServiceRepository {
       .from(services)
       .where(eq(services.companyId, companyId));
 
-    return results as Service[];
+    // Para cada serviço, busca seus recursos (pode ser otimizado futuramente com join ou Promise.all)
+    const servicesWithResources = await Promise.all(
+      results.map(async (service) => {
+        const resources = await db
+          .select()
+          .from(serviceResources)
+          .where(eq(serviceResources.serviceId, service.id));
+
+        return {
+          ...(service as Service),
+          resources: resources as any[]
+        };
+      })
+    );
+
+    return servicesWithResources;
   }
 
   async create(data: CreateServiceInput): Promise<Service> {
@@ -31,7 +57,6 @@ export class DrizzleServiceRepository implements IServiceRepository {
     console.log(`[DrizzleServiceRepository] Executando Upsert para ID: ${serviceId}`);
 
     // Mapeia advancedRules para garantir o formato {"conflicts": []}
-    // Suporta tanto o objeto direto { conflicts: [] } quanto apenas o array []
     let finalAdvancedRules: any = { conflicts: [] };
 
     const rawRules = data.advancedRules;
@@ -41,12 +66,9 @@ export class DrizzleServiceRepository implements IServiceRepository {
       } else if (Array.isArray(rawRules)) {
         finalAdvancedRules = { conflicts: rawRules };
       } else if (typeof rawRules === 'object') {
-        // Se for um objeto mas sem a chave conflicts, tentamos manter o que veio ou garantir conflicts
         finalAdvancedRules = rawRules.conflicts ? { conflicts: rawRules.conflicts } : { conflicts: [], ...rawRules };
       }
     }
-
-    console.log(`[DrizzleServiceRepository] AdvancedRules processado (Create):`, JSON.stringify(finalAdvancedRules));
 
     try {
       const [newService] = await db
@@ -79,7 +101,37 @@ export class DrizzleServiceRepository implements IServiceRepository {
         })
         .returning();
 
-      return newService as Service;
+      // Gerencia os recursos (estoque) vinculados
+      if (data.resources) {
+        // Primeiro remove os antigos
+        await db
+          .delete(serviceResources)
+          .where(eq(serviceResources.serviceId, serviceId));
+
+        // Insere os novos
+        if (data.resources.length > 0) {
+          await db.insert(serviceResources).values(
+            data.resources.map(res => ({
+              id: crypto.randomUUID(),
+              serviceId: serviceId,
+              inventoryId: res.inventoryId,
+              quantity: res.quantity.toString(),
+              unit: res.unit,
+              useSecondaryUnit: res.useSecondaryUnit
+            }))
+          );
+        }
+      }
+
+      const resources = await db
+        .select()
+        .from(serviceResources)
+        .where(eq(serviceResources.serviceId, serviceId));
+
+      return {
+        ...(newService as Service),
+        resources: resources as any[]
+      };
     } catch (dbError: any) {
       console.error(`[DrizzleServiceRepository] Erro no banco:`, dbError);
       throw dbError;
@@ -136,15 +188,47 @@ export class DrizzleServiceRepository implements IServiceRepository {
         .where(eq(services.id, id))
         .returning();
 
-      if (updated) {
-        console.log(`[DrizzleServiceRepository] <<< UPDATE CONCLUÍDO COM SUCESSO!`);
-        console.log(`[DrizzleServiceRepository] RESULTADO FINAL DO BANCO (JSONB):`, JSON.stringify(updated.advancedRules, null, 2));
-        console.log(`[DrizzleServiceRepository] SHOW_ON_HOME NO BANCO:`, updated.showOnHome);
-      } else {
+      if (!updated) {
         console.warn(`[DrizzleServiceRepository] !!! NENHUM REGISTRO ENCONTRADO PARA O ID: ${id}`);
+        return null;
       }
 
-      return (updated as Service) || null;
+      // Gerencia os recursos (estoque) vinculados no Update
+      if (data.resources !== undefined) {
+        console.log(`[DrizzleServiceRepository] Atualizando recursos para o serviço: ${id}`);
+
+        // Remove os antigos
+        await db
+          .delete(serviceResources)
+          .where(eq(serviceResources.serviceId, id));
+
+        // Insere os novos se houver
+        if (data.resources.length > 0) {
+          await db.insert(serviceResources).values(
+            data.resources.map(res => ({
+              id: crypto.randomUUID(),
+              serviceId: id,
+              inventoryId: res.inventoryId,
+              quantity: res.quantity.toString(),
+              unit: res.unit,
+              useSecondaryUnit: res.useSecondaryUnit
+            }))
+          );
+        }
+      }
+
+      // Busca os recursos atuais para retornar o objeto completo
+      const resources = await db
+        .select()
+        .from(serviceResources)
+        .where(eq(serviceResources.serviceId, id));
+
+      console.log(`[DrizzleServiceRepository] <<< UPDATE CONCLUÍDO COM SUCESSO!`);
+
+      return {
+        ...(updated as Service),
+        resources: resources as any[]
+      };
     } catch (error: any) {
       console.error(`[DrizzleServiceRepository] !!! ERRO FATAL NO UPDATE:`, error);
       throw error;

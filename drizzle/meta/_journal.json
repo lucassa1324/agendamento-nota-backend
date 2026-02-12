@@ -64,6 +64,13 @@
       "when": 1770470971806,
       "tag": "0008_first_the_fury",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1770839143077,
+      "tag": "0009_plain_shocker",
+      "breakpoints": true
     }
   ]
 }
