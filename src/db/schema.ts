@@ -18,6 +18,8 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
+  role: text("role").default("USER").notNull(), // USER ou SUPER_ADMIN
+  active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -115,6 +117,7 @@ export const companies = pgTable("companies", {
   ownerId: text("owner_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
+  active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -226,16 +229,16 @@ export const serviceResources = pgTable("service_resources", {
   inventoryId: text("inventory_id")
     .notNull()
     .references(() => inventory.id, { onDelete: "cascade" }),
-  
+
   // Quantidade consumida no serviço
   quantity: numeric("quantity", { precision: 10, scale: 2 }).notNull(),
-  
+
   // Unidade usada no consumo (pode ser a principal ou secundária do produto)
   unit: text("unit").notNull(),
-  
+
   // Se está usando a unidade secundária (ajuste fino)
   useSecondaryUnit: boolean("use_secondary_unit").default(false).notNull(),
-  
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

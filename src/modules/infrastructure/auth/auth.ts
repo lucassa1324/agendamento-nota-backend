@@ -52,8 +52,39 @@ export const auth = betterAuth({
     provider: "pg",
     schema: schema,
   }),
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+      },
+    },
+  },
   hooks: {
     before: async (context: any) => {
+      // Bloqueia login de usuários inativos
+      if (context.path.includes("/sign-in")) {
+        const body = context.body;
+        if (body && body.email) {
+          const [usr] = await db
+            .select()
+            .from(schema.user)
+            .where(eq(schema.user.email, body.email))
+            .limit(1);
+
+          if (usr && usr.active === false) {
+            return {
+              response: new Response(JSON.stringify({
+                error: "Account inactive",
+                message: "Sua conta está desativada. Entre em contato com o administrador."
+              }), {
+                status: 403,
+                headers: new Headers({ "Content-Type": "application/json" }),
+              }),
+            };
+          }
+        }
+      }
+
       // Normalização preventiva de headers para evitar erro forEach no Better Auth interno
       if (context.headers && !(context.headers instanceof Headers)) {
         try {
@@ -86,7 +117,7 @@ export const auth = betterAuth({
     },
     after: async (context: any) => {
       const path = context.path || "";
-      const response = context.response || context.context?.returned;
+      let response = context.response || context.context?.returned;
 
       try {
         // Se houver erro, sempre retornamos uma Response com headers válidos
@@ -149,6 +180,24 @@ export const auth = betterAuth({
               }
             }
 
+            // Se encontrou usuário, tenta enriquecer com business antes de retornar
+            if (payload.user) {
+              const businessResults = await db
+                .select({
+                  id: schema.companies.id,
+                  name: schema.companies.name,
+                  slug: schema.companies.slug,
+                })
+                .from(schema.companies)
+                .where(eq(schema.companies.ownerId, payload.user.id))
+                .limit(1);
+
+              if (businessResults[0]) {
+                payload.user.business = businessResults[0];
+                payload.user.slug = businessResults[0].slug;
+              }
+            }
+
             return new Response(JSON.stringify(payload), {
               status: 200,
               headers: new Headers({ "Content-Type": "application/json" }),
@@ -176,9 +225,22 @@ export const auth = betterAuth({
           return response;
         }
 
-        // Se chegamos aqui, é um sucesso em um caminho de auth. 
-        // Vamos enriquecer o objeto user com os dados do business.
-        const user = response.user || response.session?.user;
+        // --- ENRIQUECIMENTO DE DADOS (BUSINESS / SLUG) ---
+        // Se response for um objeto Response (o que é comum no Better Auth), precisamos ler o body
+        let data: any = null;
+        let isResponseObject = response instanceof Response;
+
+        if (isResponseObject) {
+          try {
+            data = await response.json();
+          } catch (e) {
+            return response; // Se não for JSON, retorna original
+          }
+        } else {
+          data = response;
+        }
+
+        const user = data.user || data.session?.user;
 
         if (user && user.id) {
           try {
@@ -188,18 +250,8 @@ export const auth = betterAuth({
                 name: schema.companies.name,
                 slug: schema.companies.slug,
                 ownerId: schema.companies.ownerId,
-                createdAt: schema.companies.createdAt,
-                updatedAt: schema.companies.updatedAt,
-                siteCustomization: {
-                  layoutGlobal: schema.companySiteCustomizations.layoutGlobal,
-                  home: schema.companySiteCustomizations.home,
-                  gallery: schema.companySiteCustomizations.gallery,
-                  aboutUs: schema.companySiteCustomizations.aboutUs,
-                  appointmentFlow: schema.companySiteCustomizations.appointmentFlow,
-                }
               })
               .from(schema.companies)
-              .leftJoin(schema.companySiteCustomizations, eq(schema.companies.id, schema.companySiteCustomizations.companyId))
               .where(eq(schema.companies.ownerId, user.id))
               .limit(1);
 
@@ -207,36 +259,37 @@ export const auth = betterAuth({
 
             if (userCompany) {
               const companyData = {
-                ...userCompany,
-                slug: userCompany.slug
+                id: userCompany.id,
+                name: userCompany.name,
+                slug: userCompany.slug,
               };
 
-              // Modifica o objeto response diretamente (se for um objeto plano)
-              if (response.user) {
-                response.user.business = companyData;
-                response.user.slug = userCompany.slug;
+              // Injeta os dados no objeto
+              if (data.user) {
+                data.user.business = companyData;
+                data.user.slug = userCompany.slug;
               }
-              if (response.session && response.session.user) {
-                response.session.user.business = companyData;
-                response.session.user.slug = userCompany.slug;
+              if (data.session && data.session.user) {
+                data.session.user.business = companyData;
+                data.session.user.slug = userCompany.slug;
               }
+
+              console.log(`[AUTH_AFTER_HOOK] Enriquecido: ${user.email} -> ${userCompany.slug}`);
             }
           } catch (dbError) {
             console.error(`[AUTH_AFTER_HOOK] Erro ao buscar company:`, dbError);
           }
         }
 
-        // Importante: se response tiver headers, garantir que seja um objeto Headers
-        // para evitar o erro "headers.forEach is not a function" no Better Auth interno
-        if (response && response.headers && !(response.headers instanceof Headers)) {
-          try {
-            response.headers = new Headers(response.headers);
-          } catch (e) {
-            // Se falhar (ex: response é um Response objeto read-only), ignoramos
-          }
+        // Se era um Response, retorna um novo Response com os dados enriquecidos
+        if (isResponseObject) {
+          return new Response(JSON.stringify(data), {
+            status: response.status,
+            headers: new Headers(response.headers),
+          });
         }
 
-        return response;
+        return data;
       } catch (globalError) {
         console.error(`[AUTH_AFTER_HOOK] Erro crítico:`, globalError);
         return response;

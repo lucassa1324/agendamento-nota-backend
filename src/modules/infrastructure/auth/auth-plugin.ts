@@ -8,6 +8,7 @@ export type User = typeof auth.$Infer.Session.user & {
     business?: any;
     slug?: string;
     businessId?: string;
+    role?: string;
 };
 
 export type Session = typeof auth.$Infer.Session.session;
@@ -22,11 +23,11 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             // Injeção de Token do Header para Cookie (suporte a Bearer Token)
             if (authHeader && authHeader.startsWith("Bearer ")) {
                 const token = authHeader.substring(7).trim();
-                
+
                 // Better Auth espera o token no cookie com prefixo configurado ou padrão
                 // Por padrão o better-auth usa 'better-auth.session_token'
                 const cookieName = "better-auth.session_token";
-                
+
                 let cookieString = cookieHeader || "";
                 if (!cookieString.includes(cookieName)) {
                     cookieString += (cookieString ? "; " : "") + `${cookieName}=${token}`;
@@ -59,16 +60,16 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                 if (authHeader && authHeader.startsWith("Bearer ")) {
                     const token = authHeader.substring(7).trim();
                     console.log(`[AUTH_PLUGIN] Buscando token/id no DB: ${token.substring(0, 10)}...`);
-                    
+
                     // Tenta buscar por token OU por id (alguns clients mandam o session ID)
                     let sessionRow = null;
-                    
+
                     const byToken = await db
                         .select()
                         .from(schema.session)
                         .where(eq(schema.session.token, token))
                         .limit(1);
-                    
+
                     if (byToken.length > 0) {
                         sessionRow = byToken[0];
                     } else {
@@ -86,7 +87,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     if (sessionRow) {
                         const now = new Date();
                         const expires = new Date(sessionRow.expiresAt);
-                        
+
                         if (expires > now) {
                             const userResults = await db
                                 .select()
@@ -98,7 +99,10 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                             if (userRow) {
                                 console.log(`[AUTH_PLUGIN] Sucesso manual: ${userRow.email}`);
-                                user = userRow;
+                                user = {
+                                    ...userRow,
+                                    role: userRow.role // Garante que a role do DB seja passada
+                                };
                                 session = sessionRow;
                             } else {
                                 console.error(`[AUTH_PLUGIN] Usuário ${sessionRow.userId} não encontrado para sessão.`);
@@ -165,4 +169,12 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                 }
             },
         },
+        isMaster: {
+            resolve({ user, set }) {
+                if (!user || user.role !== "SUPER_ADMIN") {
+                    set.status = 403;
+                    return { error: "Forbidden: Super Admin access required" };
+                }
+            }
+        }
     });

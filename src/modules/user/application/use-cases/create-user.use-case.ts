@@ -2,7 +2,7 @@ import { SigninDTO } from "../../adapters/in/dtos/signin.dto";
 import { UserRepository } from "../../adapters/out/user.repository";
 import { auth } from "../../../infrastructure/auth/auth";
 import { db } from "../../../infrastructure/drizzle/database";
-import { companies, account, companySiteCustomizations } from "../../../../db/schema";
+import { companies, account, companySiteCustomizations, user } from "../../../../db/schema";
 import { generateUniqueSlug } from "../../../../shared/utils/slug";
 import { eq } from "drizzle-orm";
 
@@ -90,6 +90,11 @@ export class CreateUserUseCase {
       throw new Error("Failed to create user");
     }
     console.log(`[USER_REGISTER_USE_CASE] signUpEmail concluído com sucesso para: ${response.user.email}`);
+
+    // Atualiza a role do usuário se fornecida, caso contrário define como "ADMIN" por padrão para quem vem da landing page
+    const finalRole = data.role || "ADMIN";
+    await db.update(user).set({ role: finalRole }).where(eq(user.id, response.user.id));
+    console.log(`[USER_REGISTER_USE_CASE] Role '${finalRole}' aplicada ao usuário ${response.user.id}`);
 
     const slug = await generateUniqueSlug(data.studioName);
     const { newCompany, finalSlug } = await db.transaction(async (tx) => {

@@ -17,6 +17,7 @@ import { inventoryController } from "./modules/inventory/adapters/in/http/invent
 import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
 import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
 import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
+import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
 import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
 import { staticPlugin } from "@elysiajs/static";
 
@@ -94,6 +95,7 @@ const app = new Elysia()
       .use(settingsController)
       .use(expenseController)
       .use(galleryController)
+      .use(masterAdminController)
   )
   .onError(({ code, error, set, body }) => {
     console.error(`\n[ERROR] ${code}:`, error);
