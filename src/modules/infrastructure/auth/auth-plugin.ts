@@ -123,10 +123,6 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     if (user.active === false && !isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
                         console.warn(`[AUTH_BLOCK]: Conta de usuário desativada: ${user.email}`);
                         
-                        const origin = request.headers.get('origin') || "http://localhost:3000";
-                        set.headers["Access-Control-Allow-Origin"] = origin;
-                        set.headers["Access-Control-Allow-Credentials"] = "true";
-                        
                         set.status = 403;
                         throw new Error("ACCOUNT_SUSPENDED");
                     }
@@ -140,10 +136,6 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                         // Se o status for explicitamente false, bloqueia.
                         if (userCompany.active === false && !isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
                             console.warn(`[AUTH_BLOCK]: Acesso negado para estúdio suspenso: ${userCompany.slug} (User: ${user.email})`);
-                            
-                            const origin = request.headers.get('origin') || "http://localhost:3000";
-                            set.headers["Access-Control-Allow-Origin"] = origin;
-                            set.headers["Access-Control-Allow-Credentials"] = "true";
                             
                             set.status = 403;
                             throw new Error("BUSINESS_SUSPENDED");
@@ -161,7 +153,11 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                 user: user as User | null,
                 session: session as Session | null,
             };
-        } catch (error) {
+        } catch (error: any) {
+            // Repassa erros de suspensão para o onError global do index.ts
+            if (error.message === "BUSINESS_SUSPENDED" || error.message === "ACCOUNT_SUSPENDED") {
+                throw error;
+            }
             console.error("[AUTH_PLUGIN] Erro ao obter sessão:", error);
             return {
                 user: null,

@@ -11,16 +11,12 @@ export const auth = betterAuth({
     enabled: true,
   },
   // Prioriza a URL do Front (via Proxy) se disponível, para garantir cookies First-Party
-  baseURL: process.env.FRONTEND_URL
+  baseURL: process.env.BETTER_AUTH_URL || (process.env.FRONTEND_URL
     ? `${process.env.FRONTEND_URL}/api/auth`
-    : (process.env.BETTER_AUTH_URL ? `${process.env.BETTER_AUTH_URL}/api/auth` : "http://localhost:3001/api/auth"),
-  trustedOrigins: [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "https://agendamento-nota-front.vercel.app",
-    "https://landingpage-agendamento-front.vercel.app",
-    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
-  ],
+    : "http://localhost:3001/api/auth"),
+  trustedOrigins: process.env.TRUSTED_ORIGINS
+    ? process.env.TRUSTED_ORIGINS.split(',')
+    : ["http://localhost:3000", "http://localhost:3001"],
   advanced: {
     cookiePrefix: "better-auth",
     // Desabilitado: o proxy torna a comunicação First-Party
@@ -226,9 +222,7 @@ export const auth = betterAuth({
                   }), {
                     status: 403,
                     headers: new Headers({
-                      "Content-Type": "application/json",
-                      "Access-Control-Allow-Origin": "http://localhost:3000",
-                      "Access-Control-Allow-Credentials": "true"
+                      "Content-Type": "application/json"
                     }),
                   });
 
