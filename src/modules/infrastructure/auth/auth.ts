@@ -57,6 +57,9 @@ export const auth = betterAuth({
       role: {
         type: "string",
       },
+      active: {
+        type: "boolean",
+      },
     },
   },
   hooks: {
@@ -173,6 +176,19 @@ export const auth = betterAuth({
                   .from(schema.user)
                   .where(eq(schema.user.id, sess.userId))
                   .limit(1);
+
+                // BLOQUEIO EM TEMPO REAL: Se o usuário estiver desativado no banco
+                if (usr && usr.active === false) {
+                  console.warn(`[AUTH_GET_SESSION_BLOCK]: Conta desativada - ${usr.email}`);
+                  return new Response(JSON.stringify({
+                    error: "ACCOUNT_SUSPENDED",
+                    message: "Sua conta foi desativada."
+                  }), {
+                    status: 403,
+                    headers: new Headers({ "Content-Type": "application/json" }),
+                  });
+                }
+
                 payload = {
                   session: sess,
                   user: usr || null,
@@ -187,17 +203,46 @@ export const auth = betterAuth({
                   id: schema.companies.id,
                   name: schema.companies.name,
                   slug: schema.companies.slug,
+                  active: schema.companies.active,
                 })
                 .from(schema.companies)
                 .where(eq(schema.companies.ownerId, payload.user.id))
                 .limit(1);
 
-              if (businessResults[0]) {
-                payload.user.business = businessResults[0];
-                payload.user.slug = businessResults[0].slug;
+              const userCompany = businessResults[0];
+
+              // LOG DE DEBUG PARA VALIDAR O QUE ESTÁ VINDO DO BANCO
+              console.log(`[AUTH_DEBUG] User: ${payload.user.email} | Business Active: ${userCompany?.active}`);
+
+              if (userCompany) {
+                // BLOQUEIO EM TEMPO REAL: Se o estúdio estiver desativado no banco
+                if (userCompany.active === false && payload.user.role !== "SUPER_ADMIN") {
+                  console.warn(`[AUTH_GET_SESSION_BLOCK]: Estúdio suspenso - ${userCompany.slug}`);
+
+                  // Forçamos a Response 403 aqui para o Better Auth não ignorar
+                  const errorResponse = new Response(JSON.stringify({
+                    error: "BUSINESS_SUSPENDED",
+                    message: "O acesso a este estúdio foi suspenso."
+                  }), {
+                    status: 403,
+                    headers: new Headers({
+                      "Content-Type": "application/json",
+                      "Access-Control-Allow-Origin": "http://localhost:3000",
+                      "Access-Control-Allow-Credentials": "true"
+                    }),
+                  });
+
+                  return errorResponse;
+                }
+
+                payload.user.business = userCompany;
+                payload.user.slug = userCompany.slug;
+                payload.user.businessId = userCompany.id;
               }
             }
 
+            // Se chegamos aqui e temos um payload bloqueado por algum motivo
+            // Mas para garantir o 403, retornamos a Response customizada
             return new Response(JSON.stringify(payload), {
               status: 200,
               headers: new Headers({ "Content-Type": "application/json" }),

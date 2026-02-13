@@ -37,6 +37,7 @@ export const masterAdminController = new Elysia({ prefix: "/admin/master" })
           role: schema.user.role,
           active: schema.user.active,
           createdAt: schema.user.createdAt,
+          companyId: schema.companies.id,
           companyName: schema.companies.name,
           companySlug: schema.companies.slug,
         })
@@ -180,6 +181,20 @@ export const masterAdminController = new Elysia({ prefix: "/admin/master" })
       if (!updated) {
         set.status = 404;
         return { error: "Estúdio não encontrado" };
+      }
+
+      // Invalidação de Sessão (Real-time Kick)
+      if (active === false) {
+        try {
+          // Deleta todas as sessões vinculadas ao proprietário do estúdio
+          await db
+            .delete(schema.session)
+            .where(eq(schema.session.userId, updated.ownerId));
+
+          console.log(`[MASTER_ADMIN_KICK]: Sessões invalidadas para o estúdio ${updated.name} (Owner: ${updated.ownerId})`);
+        } catch (kickError) {
+          console.error("[MASTER_ADMIN_KICK_ERROR]:", kickError);
+        }
       }
 
       return {

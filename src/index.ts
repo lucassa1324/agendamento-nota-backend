@@ -100,6 +100,16 @@ const app = new Elysia()
   .onError(({ code, error, set, body }) => {
     console.error(`\n[ERROR] ${code}:`, error);
 
+    if (error.message === "BUSINESS_SUSPENDED" || error.message === "ACCOUNT_SUSPENDED") {
+      set.status = 403;
+      return {
+        error: error.message,
+        message: error.message === "BUSINESS_SUSPENDED"
+          ? "O acesso a este estúdio foi suspenso."
+          : "Sua conta foi desativada."
+      };
+    }
+
     if (code === 'VALIDATION') {
       console.error("[VALIDATION_ERROR_DETAILS]:", JSON.stringify(error.all, null, 2));
       return {

@@ -9,13 +9,18 @@ export type User = typeof auth.$Infer.Session.user & {
     slug?: string;
     businessId?: string;
     role?: string;
+    active?: boolean;
 };
 
 export type Session = typeof auth.$Infer.Session.session;
 
 export const authPlugin = new Elysia({ name: "auth-plugin" })
-    .derive({ as: 'global' }, async ({ request }) => {
+    .derive({ as: 'global' }, async ({ request, path, set }) => {
         try {
+            // Exceção para rotas do Master Admin
+            const isMasterRoute = path.startsWith("/api/admin/master");
+            const isAuthRoute = path.startsWith("/api/auth");
+
             const authHeader = request.headers.get("authorization");
             const cookieHeader = request.headers.get("cookie");
             const headers = new Headers(request.headers);
@@ -23,9 +28,6 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             // Injeção de Token do Header para Cookie (suporte a Bearer Token)
             if (authHeader && authHeader.startsWith("Bearer ")) {
                 const token = authHeader.substring(7).trim();
-
-                // Better Auth espera o token no cookie com prefixo configurado ou padrão
-                // Por padrão o better-auth usa 'better-auth.session_token'
                 const cookieName = "better-auth.session_token";
 
                 let cookieString = cookieHeader || "";
@@ -33,15 +35,11 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     cookieString += (cookieString ? "; " : "") + `${cookieName}=${token}`;
                 }
                 headers.set("cookie", cookieString);
-                console.log(`[AUTH_PLUGIN] Token injetado no cookie para validação do Better Auth`);
             }
 
             // Força o host para bater com o baseURL do Better Auth se necessário
             const baseURL = new URL(auth.options.baseURL || "http://localhost:3001");
             headers.set("host", baseURL.host);
-
-            console.log(`[AUTH_PLUGIN] Verificando sessão para: ${request.url}`);
-            // console.log(`[AUTH_PLUGIN] Headers enviados para getSession: ${JSON.stringify(Object.fromEntries(headers.entries()))}`);
 
             let user: any = null;
             let session: any = null;
@@ -51,17 +49,11 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             });
 
             if (authSession) {
-                console.log(`[AUTH_PLUGIN] Sessão validada via API para: ${authSession.user.email}`);
                 user = authSession.user;
                 session = authSession.session;
             } else {
-                console.warn(`[AUTH_PLUGIN] API não validou sessão. Token presente: ${authHeader ? 'Sim' : 'Não'}. Tentando manual...`);
-
                 if (authHeader && authHeader.startsWith("Bearer ")) {
                     const token = authHeader.substring(7).trim();
-                    console.log(`[AUTH_PLUGIN] Buscando token/id no DB: ${token.substring(0, 10)}...`);
-
-                    // Tenta buscar por token OU por id (alguns clients mandam o session ID)
                     let sessionRow = null;
 
                     const byToken = await db
@@ -80,7 +72,6 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             .limit(1);
                         if (byId.length > 0) {
                             sessionRow = byId[0];
-                            console.log(`[AUTH_PLUGIN] Sessão encontrada por ID.`);
                         }
                     }
 
@@ -96,27 +87,19 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                 .limit(1);
 
                             const userRow = userResults[0];
-
                             if (userRow) {
-                                console.log(`[AUTH_PLUGIN] Sucesso manual: ${userRow.email}`);
                                 user = {
                                     ...userRow,
-                                    role: userRow.role // Garante que a role do DB seja passada
+                                    role: userRow.role
                                 };
                                 session = sessionRow;
-                            } else {
-                                console.error(`[AUTH_PLUGIN] Usuário ${sessionRow.userId} não encontrado para sessão.`);
                             }
-                        } else {
-                            console.error(`[AUTH_PLUGIN] Sessão expirada em: ${expires.toISOString()} (Agora: ${now.toISOString()})`);
                         }
-                    } else {
-                        console.error(`[AUTH_PLUGIN] Token/ID '${token.substring(0, 10)}...' não encontrado no banco de dados.`);
                     }
                 }
             }
 
-            // Enriquecimento com dados do business (similar ao after hook do auth.ts)
+            // Enriquecimento com dados do business e Verificação de Status
             if (user && user.id) {
                 try {
                     const businessResults = await db
@@ -125,27 +108,53 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             name: schema.companies.name,
                             slug: schema.companies.slug,
                             ownerId: schema.companies.ownerId,
+                            active: schema.companies.active,
                         })
                         .from(schema.companies)
                         .where(eq(schema.companies.ownerId, user.id))
                         .limit(1);
 
                     const userCompany = businessResults[0];
+                    
+                    // Log de depuração (Status: true/false ou undefined se não encontrar)
+                    console.log(`>>> [CHECK_BLOQUEIO] User: ${user.email} | Active: ${user.active} | BusinessID: ${userCompany?.id} | Status: ${userCompany?.active}`);
+
+                    // 1. BLOQUEIO POR CONTA DE USUÁRIO DESATIVADA (Restritivo)
+                    if (user.active === false && !isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
+                        console.warn(`[AUTH_BLOCK]: Conta de usuário desativada: ${user.email}`);
+                        
+                        const origin = request.headers.get('origin') || "http://localhost:3000";
+                        set.headers["Access-Control-Allow-Origin"] = origin;
+                        set.headers["Access-Control-Allow-Credentials"] = "true";
+                        
+                        set.status = 403;
+                        throw new Error("ACCOUNT_SUSPENDED");
+                    }
+
                     if (userCompany) {
                         user.business = userCompany;
                         user.slug = userCompany.slug;
                         user.businessId = userCompany.id;
-                        console.log(`[AUTH_PLUGIN] Business vinculado encontrado: ${userCompany.slug} (${userCompany.id})`);
+
+                        // 2. BLOQUEIO POR ESTÚDIO (BUSINESS) DESATIVADO (Restritivo)
+                        // Se o status for explicitamente false, bloqueia.
+                        if (userCompany.active === false && !isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
+                            console.warn(`[AUTH_BLOCK]: Acesso negado para estúdio suspenso: ${userCompany.slug} (User: ${user.email})`);
+                            
+                            const origin = request.headers.get('origin') || "http://localhost:3000";
+                            set.headers["Access-Control-Allow-Origin"] = origin;
+                            set.headers["Access-Control-Allow-Credentials"] = "true";
+                            
+                            set.status = 403;
+                            throw new Error("BUSINESS_SUSPENDED");
+                        }
                     }
-                } catch (dbError) {
+                } catch (dbError: any) {
+                    if (dbError.message === "BUSINESS_SUSPENDED") {
+                        throw dbError;
+                    }
                     console.error(`[AUTH_PLUGIN] Erro ao buscar company:`, dbError);
                 }
-            }
-
-            if (user) {
-                console.log(`[AUTH_PLUGIN] Finalizado: Usuário ${user.email} (Business: ${user.businessId || 'NENHUM'})`);
-            } else {
-                console.log(`[AUTH_PLUGIN] Finalizado: Sem usuário autenticado.`);
             }
 
             return {
