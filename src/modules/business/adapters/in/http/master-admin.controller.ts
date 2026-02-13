@@ -115,6 +115,34 @@ export const masterAdminController = new Elysia({ prefix: "/admin/master" })
       email: t.String({ format: 'email' })
     })
   })
+  .delete("/users/:id", async ({ params, set }) => {
+    try {
+      const { id } = params;
+
+      // O banco está configurado com ON DELETE CASCADE em todas as tabelas vinculadas:
+      // user -> companies -> (services, appointments, site_customizations, gallery, etc.)
+      const [deleted] = await db
+        .delete(schema.user)
+        .where(eq(schema.user.id, id))
+        .returning();
+
+      if (!deleted) {
+        set.status = 404;
+        return { error: "Usuário não encontrado" };
+      }
+
+      console.log(`[MASTER_ADMIN_DELETE]: Usuário ${deleted.email} e todos os seus dados foram removidos.`);
+
+      return {
+        success: true,
+        message: `Usuário ${deleted.name} e todos os dados vinculados foram apagados permanentemente.`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_DELETE_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao apagar usuário: " + error.message };
+    }
+  })
   .get("/businesses", async () => {
     try {
       const results = await db
