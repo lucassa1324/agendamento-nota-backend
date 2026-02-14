@@ -82,6 +82,8 @@ export class CreateUserUseCase {
         email: data.email,
         password: data.password,
         name: data.name,
+        role: "ADMIN",
+        active: true,
       },
     });
 
