@@ -95,8 +95,9 @@ export const settingsController = new Elysia({ prefix: "/settings" })
         return { error: "Não autorizado" };
       }
     })
-      .post("/logo", async ({ body: { file, businessId }, user, businessRepository, set }) => {
+      .post("/logo", async ({ body, user, settingsRepository, businessRepository, set }) => {
         try {
+          const { file, businessId } = body;
           if (!file || !businessId) {
             set.status = 400;
             return { error: "Arquivo e businessId são obrigatórios" };
@@ -109,37 +110,29 @@ export const settingsController = new Elysia({ prefix: "/settings" })
             return { error: "Você não tem permissão para esta empresa." };
           }
 
-          const uploadDir = join(process.cwd(), "public/uploads/logos");
-          if (!existsSync(uploadDir)) {
-            await mkdir(uploadDir, { recursive: true });
-          }
+          // Converter o arquivo (Blob/File) para Base64 para salvar no banco
+          // Como desenvolvedor sênior, recomendo limitar o tamanho para não sobrecarregar o banco
+          const arrayBuffer = await file.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          
+          // Otimização: Usamos o Sharp apenas para garantir o formato e tamanho, mas em memória
+          const optimizedBuffer = await sharp(buffer)
+            .resize(400, 400, { fit: "inside", withoutEnlargement: true })
+            .webp({ quality: 80 })
+            .toBuffer();
 
-          const fileName = `${businessId}-${Date.now()}.webp`;
-          const filePath = join(uploadDir, fileName);
-          const publicUrl = `/public/uploads/logos/${fileName}`;
+          const base64Logo = `data:image/webp;base64,${optimizedBuffer.toString('base64')}`;
 
-          // Processamento em Background e Streaming
-          // Lemos o buffer do arquivo (Elysia já faz o parse do multipart)
-          const buffer = Buffer.from(await file.arrayBuffer());
+          // Atualizar o banco de dados com a string Base64 na coluna logoUrl
+          const saveSettingsUseCase = new SaveSettingsUseCase(settingsRepository);
+          await saveSettingsUseCase.execute(businessId, { logoUrl: base64Logo });
 
-          // Retornamos a resposta imediatamente após iniciar o processamento
-          // O processamento real acontece em background
-          const processImage = async () => {
-            try {
-              await sharp(buffer)
-                .resize(400, 400, { fit: "inside", withoutEnlargement: true })
-                .webp({ quality: 80 })
-                .toFile(filePath);
-              console.log(`[SETTINGS_CONTROLLER] Logo processada e salva em: ${filePath}`);
-            } catch (err) {
-              console.error(`[SETTINGS_CONTROLLER] Erro no processamento da logo:`, err);
-            }
+          console.log(`[SETTINGS_CONTROLLER] Logo salva no banco de dados como Base64 para businessId: ${businessId}`);
+
+          return { 
+            success: true,
+            logoUrl: base64Logo 
           };
-
-          // Dispara o processamento sem esperar (background)
-          processImage();
-
-          return { url: publicUrl };
         } catch (error: any) {
           console.error("[SETTINGS_LOGO_UPLOAD_ERROR]:", error);
           set.status = 500;
@@ -147,7 +140,7 @@ export const settingsController = new Elysia({ prefix: "/settings" })
         }
       }, {
         body: t.Object({
-          file: t.File(),
+          file: t.Any(),
           businessId: t.String()
         })
       })
