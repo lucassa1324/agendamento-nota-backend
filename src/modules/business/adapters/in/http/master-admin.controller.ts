@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
+import { auth } from "../../../../infrastructure/auth/auth";
 import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
 import { eq, sql, count } from "drizzle-orm";
@@ -115,6 +116,99 @@ export const masterAdminController = new Elysia({ prefix: "/admin/master" })
     body: t.Object({
       email: t.String({ format: 'email' })
     })
+  })
+  .post("/users/:id/reset-password", async ({ params, set }) => {
+    try {
+      const { id } = params;
+      const defaultPassword = "Mudar@123";
+
+      // Better Auth gerencia as senhas na tabela 'user' (geralmente via hash)
+      // Como estamos no Master Admin, vamos usar a API do Better Auth para atualizar
+      // ou atualizar diretamente se soubermos o algoritmo. 
+      // O Better Auth usa Scrypt por padrão.
+
+      await auth.api.setPassword({
+        body: {
+          newPassword: defaultPassword,
+        },
+        headers: new Headers({
+          "x-better-auth-user-id": id
+        })
+      });
+
+      return {
+        success: true,
+        message: `Senha resetada para o padrão: ${defaultPassword}`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_RESET_PASSWORD_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao resetar senha: " + error.message };
+    }
+  })
+  .get("/users/:id/details", async ({ params, set }) => {
+    try {
+      const { id } = params;
+
+      // 1. Dados do Usuário
+      const [usr] = await db
+        .select()
+        .from(schema.user)
+        .where(eq(schema.user.id, id))
+        .limit(1);
+
+      if (!usr) {
+        set.status = 404;
+        return { error: "Usuário não encontrado" };
+      }
+
+      // 2. Dados do Estúdio
+      const [company] = await db
+        .select()
+        .from(schema.companies)
+        .where(eq(schema.companies.ownerId, id))
+        .limit(1);
+
+      // 3. Métricas Básicas (Agendamentos)
+      const [appointmentStats] = await db
+        .select({ count: count() })
+        .from(schema.appointments)
+        .where(company ? eq(schema.appointments.companyId, company.id) : undefined);
+
+      // 4. Contas Vinculadas (Better Auth)
+      const accounts = await db
+        .select()
+        .from(schema.account)
+        .where(eq(schema.account.userId, id));
+
+      return {
+        user: {
+          id: usr.id,
+          name: usr.name,
+          email: usr.email,
+          role: usr.role,
+          active: usr.active,
+          createdAt: usr.createdAt,
+        },
+        business: company ? {
+          id: company.id,
+          name: company.name,
+          slug: company.slug,
+          active: company.active,
+          createdAt: company.createdAt,
+        } : null,
+        stats: {
+          totalAppointments: Number(appointmentStats?.count || 0),
+        },
+        auth: {
+          providers: accounts.map(acc => acc.providerId),
+        }
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_USER_DETAILS_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao buscar detalhes: " + error.message };
+    }
   })
   .delete("/users/:id", async ({ params, set }) => {
     try {

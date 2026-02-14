@@ -27,10 +27,6 @@ const listUsersUseCase = new ListUsersUseCase(userRepository);
 const userController = new UserController(createUserUseCase, listUsersUseCase);
 
 const app = new Elysia()
-  .use(staticPlugin({
-    assets: "public",
-    prefix: "/public"
-  }))
   .use(
     cors({
       origin: (request) => {
@@ -74,6 +70,7 @@ const app = new Elysia()
       preflight: true
     })
   )
+  .mount(auth.handler)
   .onBeforeHandle(({ request }) => {
     const origin = request.headers.get('origin');
     const cookie = request.headers.get('cookie');
@@ -81,7 +78,6 @@ const app = new Elysia()
     console.log(`[LOG] Origin: ${origin}`);
     console.log(`[LOG] Cookie presente: ${cookie ? 'Sim' : 'Não'}`);
   })
-  .group("/api/auth", (group) => group.mount(auth.handler))
   .use(publicBusinessController)
   .use(userController.registerRoutes())
   .group("/api", (api) =>
@@ -97,14 +93,21 @@ const app = new Elysia()
       .use(galleryController)
       .use(masterAdminController)
   )
+  .use(staticPlugin({
+    assets: "public",
+    prefix: "/public",
+    alwaysStatic: false,
+  }))
   .onError(({ code, error, set, body }) => {
     console.error(`\n[ERROR] ${code}:`, error);
 
-    if (error.message === "BUSINESS_SUSPENDED" || error.message === "ACCOUNT_SUSPENDED") {
+    const errorMessage = error instanceof Error ? error.message : "";
+
+    if (errorMessage === "BUSINESS_SUSPENDED" || errorMessage === "ACCOUNT_SUSPENDED") {
       set.status = 403;
       return {
-        error: error.message,
-        message: error.message === "BUSINESS_SUSPENDED"
+        error: errorMessage,
+        message: errorMessage === "BUSINESS_SUSPENDED"
           ? "O acesso a este estúdio foi suspenso."
           : "Sua conta foi desativada."
       };

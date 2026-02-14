@@ -287,7 +287,7 @@ export const DEFAULT_APPOINTMENT_FLOW_SECTION: AppointmentFlowSection = {
   step3Times: {
     title: "Escolha o Horário",
     timeSlotStyle: "grid",
-    timeSlotSize: "00:30", // Formato HH:mm para compatibilidade com o frontend
+    timeSlotSize: 30, // Intervalo em minutos (número)
   },
   step4Confirmation: {
     title: "Confirme seu Agendamento",
