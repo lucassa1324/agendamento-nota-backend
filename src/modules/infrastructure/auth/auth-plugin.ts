@@ -102,6 +102,8 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             // Enriquecimento com dados do business e Verificação de Status
             if (user && user.id) {
                 try {
+                    // FIX: Busca explícita na tabela companies usando o ownerId
+                    // Isso garante que o slug e o businessId estejam sempre atualizados
                     const businessResults = await db
                         .select({
                             id: schema.companies.id,
@@ -116,8 +118,13 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                     const userCompany = businessResults[0];
                     
-                    // Log de depuração (Status: true/false ou undefined se não encontrar)
-                    console.log(`>>> [CHECK_BLOQUEIO] User: ${user.email} | Active: ${user.active} | BusinessID: ${userCompany?.id} | Status: ${userCompany?.active}`);
+                    // Log de depuração detalhado para diagnosticar problemas de login
+                    console.log(`>>> [AUTH_DEBUG] User: ${user.email} (ID: ${user.id})`);
+                    if (userCompany) {
+                         console.log(`>>> [AUTH_DEBUG] Business Found -> ID: ${userCompany.id} | Slug: ${userCompany.slug} | Active: ${userCompany.active}`);
+                    } else {
+                         console.log(`>>> [AUTH_DEBUG] NO BUSINESS FOUND for this user.`);
+                    }
 
                     // 1. BLOQUEIO POR CONTA DE USUÁRIO DESATIVADA (Restritivo)
                     if (user.active === false && !isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
@@ -128,8 +135,9 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     }
 
                     if (userCompany) {
+                        // INJEÇÃO CRÍTICA: Garante que o objeto user tenha os dados do business
                         user.business = userCompany;
-                        user.slug = userCompany.slug;
+                        user.slug = userCompany.slug; // Fundamental para o redirecionamento no Front
                         user.businessId = userCompany.id;
 
                         // 2. BLOQUEIO POR ESTÚDIO (BUSINESS) DESATIVADO (Restritivo)

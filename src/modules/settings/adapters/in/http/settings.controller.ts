@@ -43,7 +43,7 @@ export const settingsController = new Elysia({ prefix: "/settings" })
       return { error: error.message };
     }
   })
-  .get("/profile/:businessId", async ({ params: { businessId }, settingsRepository, businessRepository, set }) => {
+  .get("/profile/:businessId", async ({ params: { businessId }, settingsRepository, businessRepository, userRepository, set }) => {
     try {
       const business = await businessRepository.findById(businessId);
       if (!business) {
@@ -54,33 +54,55 @@ export const settingsController = new Elysia({ prefix: "/settings" })
       const getSettingsUseCase = new GetSettingsUseCase(settingsRepository);
       const profile = await getSettingsUseCase.execute(businessId);
 
-      // Retorna o perfil mesclado com dados de cadastro como padrão
-      // Sanitização: Garante null em vez de undefined para phone, email e address
-      return {
+      // Lógica de Fallback para E-mail:
+      // 1. Tenta pegar do perfil do negócio (configuração específica)
+      // 2. Se não tiver, tenta pegar do contato da empresa
+      // 3. Se não tiver, pega do e-mail do dono da conta (User)
+      let publicEmail = profile?.email || (business as any).contact;
+
+      if (!publicEmail && business.ownerId) {
+        const owner = await userRepository.find(business.ownerId);
+        if (owner) {
+          publicEmail = owner.email;
+        }
+      }
+
+      // Padronização Sênior: Garante tipos booleanos reais e nomes de campos consistentes
+      // Além de fallback seguro para campos de contato vindo do cadastro da empresa
+      const standardizedProfile = {
         id: profile?.id || null,
         businessId: businessId,
         siteName: profile?.siteName || business.name,
         titleSuffix: profile?.titleSuffix || "",
         description: profile?.description || "",
         logoUrl: profile?.logoUrl || "",
+
+        // Redes Sociais com normalização de visibilidade
         instagram: profile?.instagram || null,
-        showInstagram: profile?.showInstagram ?? true,
+        showInstagram: Boolean(profile?.showInstagram ?? true),
         whatsapp: profile?.whatsapp || null,
-        showWhatsapp: profile?.showWhatsapp ?? true,
+        showWhatsapp: Boolean(profile?.showWhatsapp ?? true),
         facebook: profile?.facebook || null,
-        showFacebook: profile?.showFacebook ?? true,
+        showFacebook: Boolean(profile?.showFacebook ?? true),
         tiktok: profile?.tiktok || null,
-        showTiktok: profile?.showTiktok ?? true,
+        showTiktok: Boolean(profile?.showTiktok ?? true),
         linkedin: profile?.linkedin || null,
-        showLinkedin: profile?.showLinkedin ?? true,
+        showLinkedin: Boolean(profile?.showLinkedin ?? true),
         twitter: profile?.twitter || null,
-        showTwitter: profile?.showTwitter ?? true,
+        showTwitter: Boolean(profile?.showTwitter ?? true),
+
+        // Contato e Endereço
         phone: profile?.phone || (business as any).contact || null,
-        email: profile?.email || null,
+        email: publicEmail || null,
         address: profile?.address || (business as any).address || null,
+
         createdAt: profile?.createdAt || null,
         updatedAt: profile?.updatedAt || null
       };
+
+      console.log(`>>> [SETTINGS_PROFILE_RESPONSE] Enviando perfil padronizado para businessId: ${businessId}`);
+
+      return standardizedProfile;
     } catch (error: any) {
       console.error("[SETTINGS_GET_PROFILE_PUBLIC_ERROR]:", error);
       set.status = 500;
@@ -114,7 +136,7 @@ export const settingsController = new Elysia({ prefix: "/settings" })
           // Como desenvolvedor sênior, recomendo limitar o tamanho para não sobrecarregar o banco
           const arrayBuffer = await file.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
-          
+
           // Otimização: Usamos o Sharp apenas para garantir o formato e tamanho, mas em memória
           const optimizedBuffer = await sharp(buffer)
             .resize(400, 400, { fit: "inside", withoutEnlargement: true })
@@ -129,9 +151,9 @@ export const settingsController = new Elysia({ prefix: "/settings" })
 
           console.log(`[SETTINGS_CONTROLLER] Logo salva no banco de dados como Base64 para businessId: ${businessId}`);
 
-          return { 
+          return {
             success: true,
-            logoUrl: base64Logo 
+            logoUrl: base64Logo
           };
         } catch (error: any) {
           console.error("[SETTINGS_LOGO_UPLOAD_ERROR]:", error);

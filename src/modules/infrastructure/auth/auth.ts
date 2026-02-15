@@ -144,106 +144,9 @@ export const auth = betterAuth({
           return response;
         }
 
-        // Fallback seguro para /get-session caso alguma etapa anterior falhe
-        if (path.startsWith("/get-session")) {
-          try {
-            const hdrs: Headers =
-              context.headers instanceof Headers
-                ? context.headers
-                : new Headers(context.headers || {});
-            const cookie = hdrs.get("cookie") || "";
-            const token = cookie
-              .split(";")
-              .map((c) => c.trim())
-              .find((c) => c.startsWith("better-auth.sessionToken="))
-              ?.split("=")[1];
-
-            let payload: any = { user: null, session: null };
-            if (token) {
-              const [sess] = await db
-                .select()
-                .from(schema.session)
-                .where(eq(schema.session.token, token))
-                .limit(1);
-              if (sess && sess.expiresAt > new Date()) {
-                const [usr] = await db
-                  .select()
-                  .from(schema.user)
-                  .where(eq(schema.user.id, sess.userId))
-                  .limit(1);
-
-                // BLOQUEIO EM TEMPO REAL: Se o usuário estiver desativado no banco
-                if (usr && usr.active === false) {
-                  console.warn(`[AUTH_GET_SESSION_BLOCK]: Conta desativada - ${usr.email}`);
-                  return new Response(JSON.stringify({
-                    error: "ACCOUNT_SUSPENDED",
-                    message: "Sua conta foi desativada."
-                  }), {
-                    status: 403,
-                    headers: new Headers({ "Content-Type": "application/json" }),
-                  });
-                }
-
-                payload = {
-                  session: sess,
-                  user: usr || null,
-                };
-              }
-            }
-
-            // Se encontrou usuário, tenta enriquecer com business antes de retornar
-            if (payload.user) {
-              const businessResults = await db
-                .select({
-                  id: schema.companies.id,
-                  name: schema.companies.name,
-                  slug: schema.companies.slug,
-                  active: schema.companies.active,
-                })
-                .from(schema.companies)
-                .where(eq(schema.companies.ownerId, payload.user.id))
-                .limit(1);
-
-              const userCompany = businessResults[0];
-
-              // LOG DE DEBUG PARA VALIDAR O QUE ESTÁ VINDO DO BANCO
-              console.log(`[AUTH_DEBUG] User: ${payload.user.email} | Business Active: ${userCompany?.active}`);
-
-              if (userCompany) {
-                // BLOQUEIO EM TEMPO REAL: Se o estúdio estiver desativado no banco
-                if (userCompany.active === false && payload.user.role !== "SUPER_ADMIN") {
-                  console.warn(`[AUTH_GET_SESSION_BLOCK]: Estúdio suspenso - ${userCompany.slug}`);
-
-                  // Forçamos a Response 403 aqui para o Better Auth não ignorar
-                  const errorResponse = new Response(JSON.stringify({
-                    error: "BUSINESS_SUSPENDED",
-                    message: "O acesso a este estúdio foi suspenso."
-                  }), {
-                    status: 403,
-                    headers: new Headers({
-                      "Content-Type": "application/json"
-                    }),
-                  });
-
-                  return errorResponse;
-                }
-
-                payload.user.business = userCompany;
-                payload.user.slug = userCompany.slug;
-                payload.user.businessId = userCompany.id;
-              }
-            }
-
-            // Se chegamos aqui e temos um payload bloqueado por algum motivo
-            // Mas para garantir o 403, retornamos a Response customizada
-            return new Response(JSON.stringify(payload), {
-              status: 200,
-              headers: new Headers({ "Content-Type": "application/json" }),
-            });
-          } catch {
-            // Se algo falhar, deixamos seguir fluxo padrão
-          }
-        }
+        // Fallback seguro para /get-session removido para evitar redundância e erros de parsing de cookie.
+        // A lógica abaixo (ENRIQUECIMENTO DE DADOS) manipulará a resposta original do Better Auth,
+        // que é mais segura e já validou o token corretamente.
 
         // Se for sign-out, garantimos um retorno JSON para evitar Unexpected EOF no front
         if (path.includes("/sign-out")) {
@@ -282,12 +185,32 @@ export const auth = betterAuth({
 
         if (user && user.id) {
           try {
+            // BLOQUEIO EM TEMPO REAL: Se o usuário estiver desativado no banco
+            // Buscamos o status atualizado do usuário
+            const userStatus = await db
+              .select({ active: schema.user.active })
+              .from(schema.user)
+              .where(eq(schema.user.id, user.id))
+              .limit(1);
+
+            if (userStatus[0] && userStatus[0].active === false) {
+              console.warn(`[AUTH_BLOCK]: Conta desativada - ${user.email}`);
+              return new Response(JSON.stringify({
+                error: "ACCOUNT_SUSPENDED",
+                message: "Sua conta foi desativada."
+              }), {
+                status: 403,
+                headers: new Headers({ "Content-Type": "application/json" }),
+              });
+            }
+
             const results = await db
               .select({
                 id: schema.companies.id,
                 name: schema.companies.name,
                 slug: schema.companies.slug,
                 ownerId: schema.companies.ownerId,
+                active: schema.companies.active,
               })
               .from(schema.companies)
               .where(eq(schema.companies.ownerId, user.id))
@@ -296,6 +219,19 @@ export const auth = betterAuth({
             const userCompany = results[0];
 
             if (userCompany) {
+              // BLOQUEIO EM TEMPO REAL: Se o estúdio estiver desativado no banco
+              if (userCompany.active === false && user.role !== "SUPER_ADMIN") {
+                console.warn(`[AUTH_BLOCK]: Estúdio suspenso - ${userCompany.slug}`);
+
+                return new Response(JSON.stringify({
+                  error: "BUSINESS_SUSPENDED",
+                  message: "O acesso a este estúdio foi suspenso."
+                }), {
+                  status: 403,
+                  headers: new Headers({ "Content-Type": "application/json" }),
+                });
+              }
+
               const companyData = {
                 id: userCompany.id,
                 name: userCompany.name,
@@ -306,13 +242,17 @@ export const auth = betterAuth({
               if (data.user) {
                 data.user.business = companyData;
                 data.user.slug = userCompany.slug;
+                data.user.businessId = userCompany.id;
               }
               if (data.session && data.session.user) {
                 data.session.user.business = companyData;
                 data.session.user.slug = userCompany.slug;
+                data.session.user.businessId = userCompany.id;
               }
 
-              console.log(`[AUTH_AFTER_HOOK] Enriquecido: ${user.email} -> ${userCompany.slug}`);
+              console.log(`[AUTH_AFTER_HOOK] Enriquecido com sucesso: ${user.email} -> ${userCompany.slug}`);
+            } else {
+              console.log(`[AUTH_AFTER_HOOK] Nenhuma empresa encontrada para: ${user.email}`);
             }
           } catch (dbError) {
             console.error(`[AUTH_AFTER_HOOK] Erro ao buscar company:`, dbError);

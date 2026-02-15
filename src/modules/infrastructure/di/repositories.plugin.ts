@@ -6,9 +6,11 @@ import { DrizzleInventoryRepository } from "../../inventory/adapters/out/drizzle
 import { DrizzleSettingsRepository } from "../../settings/adapters/out/drizzle/settings.drizzle.repository";
 import { DrizzleExpenseRepository } from "../../expenses/adapters/out/drizzle/expense.drizzle.repository";
 import { GalleryDrizzleRepository } from "../../gallery/adapters/out/drizzle/gallery.drizzle.repository";
+import { UserRepository } from "../../user/adapters/out/user.repository";
 
 export const repositoriesPlugin = new Elysia()
   .decorate("businessRepository", new DrizzleBusinessRepository())
+  .decorate("userRepository", new UserRepository())
   .decorate("appointmentRepository", new DrizzleAppointmentRepository())
   .decorate("serviceRepository", new DrizzleServiceRepository())
   .decorate("inventoryRepository", new DrizzleInventoryRepository())
