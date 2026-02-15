@@ -1,7 +1,7 @@
 import { db } from "../../../../infrastructure/drizzle/database";
-import { inventory } from "../../../../../db/schema";
-import { eq } from "drizzle-orm";
-import { InventoryRepository, Product } from "../../../domain/ports/inventory.repository";
+import { inventory, inventoryLogs } from "../../../../../db/schema";
+import { eq, desc } from "drizzle-orm";
+import { InventoryRepository, Product, InventoryLog } from "../../../domain/ports/inventory.repository";
 
 export class DrizzleInventoryRepository implements InventoryRepository {
   async create(data: Omit<Product, "id" | "createdAt" | "updatedAt">): Promise<Product> {
@@ -152,5 +152,57 @@ export class DrizzleInventoryRepository implements InventoryRepository {
 
   async delete(id: string): Promise<void> {
     await db.delete(inventory).where(eq(inventory.id, id));
+  }
+
+  // Transaction Logs Implementation
+  async createLog(log: Omit<InventoryLog, "id" | "createdAt">): Promise<InventoryLog> {
+    try {
+      const [result] = await db
+        .insert(inventoryLogs)
+        .values({
+          id: crypto.randomUUID(),
+          inventoryId: log.inventoryId,
+          type: log.type,
+          quantity: log.quantity.toString(),
+          reason: log.reason,
+          companyId: log.companyId,
+        })
+        .returning();
+
+      return result as InventoryLog;
+    } catch (error: any) {
+      console.error("[DRIZZLE_INVENTORY_REPOSITORY_CREATELOG_ERROR]:", error);
+      throw error;
+    }
+  }
+
+  async getLogsByProduct(productId: string): Promise<InventoryLog[]> {
+    try {
+      const results = await db
+        .select()
+        .from(inventoryLogs)
+        .where(eq(inventoryLogs.inventoryId, productId))
+        .orderBy(desc(inventoryLogs.createdAt));
+
+      return results as InventoryLog[];
+    } catch (error: any) {
+      console.error("[DRIZZLE_INVENTORY_REPOSITORY_GETLOGS_ERROR]:", error);
+      throw error;
+    }
+  }
+
+  async getLogsByCompany(companyId: string): Promise<InventoryLog[]> {
+    try {
+      const results = await db
+        .select()
+        .from(inventoryLogs)
+        .where(eq(inventoryLogs.companyId, companyId))
+        .orderBy(desc(inventoryLogs.createdAt));
+
+      return results as InventoryLog[];
+    } catch (error: any) {
+      console.error("[DRIZZLE_INVENTORY_REPOSITORY_GETLOGS_BY_COMPANY_ERROR]:", error);
+      throw error;
+    }
   }
 }

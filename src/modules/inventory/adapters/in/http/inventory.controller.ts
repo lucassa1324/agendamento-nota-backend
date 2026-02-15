@@ -5,7 +5,8 @@ import { CreateProductUseCase } from "../../../application/use-cases/create-prod
 import { ListProductsUseCase } from "../../../application/use-cases/list-products.use-case";
 import { UpdateProductUseCase } from "../../../application/use-cases/update-product.use-case";
 import { DeleteProductUseCase } from "../../../application/use-cases/delete-product.use-case";
-import { CreateProductDTO, UpdateProductDTO } from "../dtos/inventory.dto";
+import { CreateInventoryTransactionUseCase } from "../../../application/use-cases/create-inventory-transaction.use-case";
+import { CreateProductDTO, UpdateProductDTO, CreateTransactionDTO } from "../dtos/inventory.dto";
 
 export const inventoryController = new Elysia({ prefix: "/inventory" })
   .use(repositoriesPlugin)
@@ -105,6 +106,44 @@ export const inventoryController = new Elysia({ prefix: "/inventory" })
     body: t.Object({
       quantity: t.Union([t.Number(), t.String()])
     })
+  })
+  .post("/transactions", async ({ body, inventoryRepository, businessRepository, user, set }) => {
+    try {
+      console.log(`[INVENTORY_CONTROLLER] Nova transação de estoque recebida:`, body);
+      const useCase = new CreateInventoryTransactionUseCase(inventoryRepository, businessRepository);
+
+      const result = await useCase.execute({
+        productId: body.productId,
+        type: body.type as "ENTRY" | "EXIT",
+        quantity: Number(body.quantity),
+        reason: body.reason,
+        companyId: body.companyId
+      }, user!.id);
+
+      return result;
+    } catch (error: any) {
+      console.error("[INVENTORY_CONTROLLER_TRANSACTION_ERROR]:", error);
+      if (error.message.includes("not found")) {
+        set.status = 404;
+      } else if (error.message.includes("obrigatório") || error.message.includes("inválido") || error.message.includes("insuficiente")) {
+        set.status = 400;
+      } else {
+        set.status = 500;
+      }
+      return { error: error.message };
+    }
+  }, {
+    body: CreateTransactionDTO
+  })
+  .get("/:id/logs", async ({ params: { id }, inventoryRepository, set }) => {
+    try {
+      const logs = await inventoryRepository.getLogsByProduct(id);
+      return logs;
+    } catch (error: any) {
+      console.error("[INVENTORY_CONTROLLER_GET_LOGS_ERROR]:", error);
+      set.status = 500;
+      return { error: error.message };
+    }
   })
   .delete("/:id", async ({ params: { id }, inventoryRepository, businessRepository, user, set }) => {
     try {

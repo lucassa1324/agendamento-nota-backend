@@ -39,3 +39,12 @@ export const ProductResponseDTO = t.Object({
   createdAt: t.Date(),
   updatedAt: t.Date(),
 });
+
+export const CreateTransactionDTO = t.Object({
+  productId: t.String(),
+  type: t.Union([t.Literal("ENTRY"), t.Literal("EXIT")]),
+  quantity: t.Union([t.String(), t.Number()]),
+  reason: t.String(),
+  companyId: t.String(),
+});
+

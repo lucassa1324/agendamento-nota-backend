@@ -125,6 +125,20 @@ export const companies = pgTable("companies", {
     .notNull(),
 });
 
+export const inventoryLogs = pgTable("inventory_logs", {
+  id: text("id").primaryKey(),
+  inventoryId: text("inventory_id")
+    .notNull()
+    .references(() => inventory.id, { onDelete: "cascade" }),
+  type: text("type", { enum: ["ENTRY", "EXIT"] }).notNull(),
+  quantity: numeric("quantity", { precision: 10, scale: 2 }).notNull(),
+  reason: text("reason").notNull(),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 import {
   DEFAULT_LAYOUT_GLOBAL,
   DEFAULT_HOME_SECTION,
