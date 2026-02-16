@@ -128,10 +128,11 @@ export class CreateInventoryTransactionUseCase {
           console.error("[INVENTORY_ALERT] Error sending notification:", err);
         }
       }
-
-      return {
-        product: updatedProduct,
-        log
-      };
     }
+
+    return {
+      product: updatedProduct,
+      log
+    };
   }
+}
