@@ -153,7 +153,7 @@ export const appointmentController = new Elysia({ prefix: "/appointments" })
           endDate: t.Optional(t.String())
         })
       })
-      .post("/", async ({ body, appointmentRepository, serviceRepository, businessRepository, user, set }) => {
+      .post("/", async ({ body, appointmentRepository, serviceRepository, businessRepository, pushSubscriptionRepository, userRepository, user, set }) => {
         console.log("\n>>> [BACK_PUBLIC_ACCESS] Recebendo agendamento público POST /api/appointments");
         console.log("Body recebido:", JSON.stringify(body, null, 2));
 
@@ -169,7 +169,13 @@ export const appointmentController = new Elysia({ prefix: "/appointments" })
             };
           }
 
-          const createAppointmentUseCase = new CreateAppointmentUseCase(appointmentRepository, serviceRepository, businessRepository);
+          const createAppointmentUseCase = new CreateAppointmentUseCase(
+            appointmentRepository,
+            serviceRepository,
+            businessRepository,
+            pushSubscriptionRepository,
+            userRepository
+          );
           const result = await createAppointmentUseCase.execute({
             ...body,
             customerId: body.customerId || user?.id,
@@ -242,9 +248,14 @@ export const appointmentController = new Elysia({ prefix: "/appointments" })
           endDate: t.Optional(t.String())
         })
       })
-      .patch("/:id/status", async ({ params: { id }, body, appointmentRepository, businessRepository, user, set }) => {
+      .patch("/:id/status", async ({ params: { id }, body, appointmentRepository, businessRepository, userRepository, pushSubscriptionRepository, user, set }) => {
         try {
-          const updateAppointmentStatusUseCase = new UpdateAppointmentStatusUseCase(appointmentRepository, businessRepository);
+          const updateAppointmentStatusUseCase = new UpdateAppointmentStatusUseCase(
+            appointmentRepository,
+            businessRepository,
+            userRepository,
+            pushSubscriptionRepository
+          );
           return await updateAppointmentStatusUseCase.execute(id, body.status, user!.id);
         } catch (error: any) {
           set.status = 403;

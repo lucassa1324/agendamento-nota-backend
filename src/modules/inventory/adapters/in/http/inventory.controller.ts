@@ -71,7 +71,7 @@ export const inventoryController = new Elysia({ prefix: "/inventory" })
   }, {
     body: UpdateProductDTO
   })
-  .post("/:id/subtract", async ({ params: { id }, body, inventoryRepository, user, set }) => {
+  .post("/:id/subtract", async ({ params: { id }, body, inventoryRepository, businessRepository, userRepository, pushSubscriptionRepository, user, set }) => {
     try {
       console.log(`[INVENTORY_CONTROLLER] Subtraindo estoque para o produto ${id}:`, body);
 
@@ -81,25 +81,37 @@ export const inventoryController = new Elysia({ prefix: "/inventory" })
         return { error: "Product not found" };
       }
 
-      const currentQty = parseFloat(product.currentQuantity);
       const subtractQty = parseFloat(body.quantity.toString());
-
-      if (isNaN(subtractQty)) {
+      if (isNaN(subtractQty) || subtractQty <= 0) {
         set.status = 400;
         return { error: "Invalid quantity" };
       }
 
-      const newQty = Math.max(0, currentQty - subtractQty);
+      const useCase = new CreateInventoryTransactionUseCase(
+        inventoryRepository,
+        businessRepository,
+        userRepository,
+        pushSubscriptionRepository
+      );
 
-      const updated = await inventoryRepository.update(id, {
-        currentQuantity: newQty.toString()
-      });
+      const result = await useCase.execute({
+        productId: id,
+        type: "EXIT",
+        quantity: subtractQty,
+        reason: "Baixa via Sistema (Subtract API)",
+        companyId: product.companyId
+      }, user!.id);
 
-      console.log(`[INVENTORY_CONTROLLER] Estoque atualizado: ${currentQty} -> ${newQty}`);
-      return updated;
+      return result.product;
     } catch (error: any) {
       console.error("[INVENTORY_CONTROLLER_SUBTRACT_ERROR]:", error);
-      set.status = 500;
+      if (error.message.includes("not found")) {
+        set.status = 404;
+      } else if (error.message.includes("insuficiente") || error.message.includes("inválido")) {
+        set.status = 400;
+      } else {
+        set.status = 500;
+      }
       return { error: error.message };
     }
   }, {
@@ -107,10 +119,15 @@ export const inventoryController = new Elysia({ prefix: "/inventory" })
       quantity: t.Union([t.Number(), t.String()])
     })
   })
-  .post("/transactions", async ({ body, inventoryRepository, businessRepository, user, set }) => {
+  .post("/transactions", async ({ body, inventoryRepository, businessRepository, userRepository, pushSubscriptionRepository, user, set }) => {
     try {
       console.log(`[INVENTORY_CONTROLLER] Nova transação de estoque recebida:`, body);
-      const useCase = new CreateInventoryTransactionUseCase(inventoryRepository, businessRepository);
+      const useCase = new CreateInventoryTransactionUseCase(
+        inventoryRepository,
+        businessRepository,
+        userRepository,
+        pushSubscriptionRepository
+      );
 
       const result = await useCase.execute({
         productId: body.productId,

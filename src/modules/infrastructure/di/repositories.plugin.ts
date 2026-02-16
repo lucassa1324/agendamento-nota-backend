@@ -7,6 +7,7 @@ import { DrizzleSettingsRepository } from "../../settings/adapters/out/drizzle/s
 import { DrizzleExpenseRepository } from "../../expenses/adapters/out/drizzle/expense.drizzle.repository";
 import { GalleryDrizzleRepository } from "../../gallery/adapters/out/drizzle/gallery.drizzle.repository";
 import { UserRepository } from "../../user/adapters/out/user.repository";
+import { DrizzlePushSubscriptionRepository } from "../../notifications/adapters/out/drizzle/push-subscription.drizzle.repository";
 
 export const repositoriesPlugin = new Elysia()
   .decorate("businessRepository", new DrizzleBusinessRepository())
@@ -16,4 +17,5 @@ export const repositoriesPlugin = new Elysia()
   .decorate("inventoryRepository", new DrizzleInventoryRepository())
   .decorate("settingsRepository", new DrizzleSettingsRepository())
   .decorate("expenseRepository", new DrizzleExpenseRepository())
-  .decorate("galleryRepository", new GalleryDrizzleRepository());
+  .decorate("galleryRepository", new GalleryDrizzleRepository())
+  .decorate("pushSubscriptionRepository", new DrizzlePushSubscriptionRepository());

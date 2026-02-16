@@ -30,4 +30,8 @@ export class UserRepository {
   async findAll() {
     return await db.select().from(user);
   }
+
+  async update(id: string, data: Partial<User>) {
+    return await db.update(user).set(data).where(eq(user.id, id)).returning();
+  }
 }

@@ -2,12 +2,17 @@ import { IAppointmentRepository } from "../../domain/ports/appointment.repositor
 import { IServiceRepository } from "../../../services/domain/ports/service.repository";
 import { IBusinessRepository } from "../../../business/domain/ports/business.repository";
 import { CreateAppointmentInput } from "../../domain/entities/appointment.entity";
+import { IPushSubscriptionRepository } from "../../../notifications/domain/ports/push-subscription.repository";
+import { UserRepository } from "../../../user/adapters/out/user.repository";
+import { NotificationService } from "../../../notifications/application/notification.service";
 
 export class CreateAppointmentUseCase {
   constructor(
     private appointmentRepository: IAppointmentRepository,
     private serviceRepository: IServiceRepository,
-    private businessRepository: IBusinessRepository
+    private businessRepository: IBusinessRepository,
+    private pushSubscriptionRepository: IPushSubscriptionRepository,
+    private userRepository: UserRepository
   ) { }
 
   async execute(data: CreateAppointmentInput, userId?: string) {
@@ -37,10 +42,10 @@ export class CreateAppointmentUseCase {
       if (service.companyId !== data.companyId) {
         throw new Error(`Service ${service.name} does not belong to this company`);
       }
-      
+
       services.push(service);
       combinedServiceNames.push(service.name);
-      
+
       // Somar preços
       totalPrice += Number(service.price);
 
@@ -59,11 +64,11 @@ export class CreateAppointmentUseCase {
     // o campo 'serviceId' deve conter apenas UM ID válido existente na tabela 'services'.
     // Vamos usar o primeiro ID da lista para a FK, mas salvar TODOS no snapshot.
     const originalServiceId = data.serviceId; // Mantém a string original se precisarmos
-    data.serviceId = serviceIds[0]; 
+    data.serviceId = serviceIds[0];
 
     // Preparar dados com valores somados
     const totalDurationStr = `${String(Math.floor(totalDurationMin / 60)).padStart(2, '0')}:${String(totalDurationMin % 60).padStart(2, '0')}`;
-    
+
     // Atualizar o objeto data com os valores calculados para o snapshot
     data.serviceNameSnapshot = combinedServiceNames.join(', ');
     data.servicePriceSnapshot = totalPrice.toFixed(2);
@@ -145,6 +150,37 @@ export class CreateAppointmentUseCase {
       throw new Error("Selected time slot is already occupied");
     }
 
-    return await this.appointmentRepository.create(data);
+    const newAppointment = await this.appointmentRepository.create(data);
+
+    // Web Push Notification: notify business owner about the new appointment
+    try {
+      const ownerId = business.ownerId;
+      const owner = await this.userRepository.find(ownerId);
+
+      if (owner && owner.notifyNewAppointments) {
+        const notificationService = new NotificationService(this.pushSubscriptionRepository);
+
+        const date = new Date(newAppointment.scheduledAt);
+        const formatter = new Intl.DateTimeFormat('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'America/Sao_Paulo'
+        });
+        const formattedDate = formatter.format(date);
+
+        await notificationService.sendToUser(
+          ownerId,
+          "📅 Novo Agendamento!",
+          `${newAppointment.customerName} agendou ${newAppointment.serviceNameSnapshot} para ${formattedDate}`
+        );
+        console.log(`[WEBPUSH] Notificação de agendamento enviada para ${owner.email}`);
+      }
+    } catch (notifyError: any) {
+      console.error("[WEBPUSH_TRIGGER_ERROR]", notifyError?.message || notifyError);
+    }
+
+    return newAppointment;
   }
 }

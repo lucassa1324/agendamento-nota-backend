@@ -18,6 +18,9 @@ import { settingsController } from "./modules/settings/adapters/in/http/settings
 import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
 import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
 import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
+import { pushController } from "./modules/notifications/adapters/in/http/push.controller";
+import { notificationsController } from "./modules/notifications/adapters/in/http/notifications.controller";
+import { userPreferencesController } from "./modules/user/adapters/in/http/user-preferences.controller";
 import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
 import { staticPlugin } from "@elysiajs/static";
 
@@ -91,6 +94,9 @@ const app = new Elysia()
       .use(settingsController)
       .use(expenseController)
       .use(galleryController)
+      .use(pushController)
+      .use(notificationsController)
+      .use(userPreferencesController)
       .use(masterAdminController)
   )
   .use(staticPlugin({

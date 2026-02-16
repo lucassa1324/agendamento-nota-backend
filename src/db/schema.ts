@@ -20,6 +20,9 @@ export const user = pgTable("user", {
   image: text("image"),
   role: text("role").default("USER").notNull(), // USER ou SUPER_ADMIN
   active: boolean("active").default(true).notNull(),
+  notifyNewAppointments: boolean("notify_new_appointments").default(true).notNull(),
+  notifyCancellations: boolean("notify_cancellations").default(true).notNull(),
+  notifyInventoryAlerts: boolean("notify_inventory_alerts").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -107,6 +110,21 @@ export const accountRelations = relations(account, ({ one }) => ({
     references: [user.id],
   }),
 }));
+
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
 
 export const companies = pgTable("companies", {
   id: text("id").primaryKey(),
@@ -510,6 +528,5 @@ export const fixedExpensesRelations = relations(fixedExpenses, ({ one }) => ({
     references: [companies.id],
   }),
 }));
-
 
 
