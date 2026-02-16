@@ -31,8 +31,19 @@ export class UpdateAppointmentStatusUseCase {
     }
 
     const updatedAppointment = await db.transaction(async (tx) => {
+      // Trava de Segurança: Buscar status atual dentro da transação para evitar estorno duplo (race condition)
+      const [currentAppointment] = await tx
+        .select({ status: appointments.status })
+        .from(appointments)
+        .where(eq(appointments.id, id));
+
+      if (!currentAppointment) {
+        throw new Error("Appointment not found in transaction");
+      }
+
       // 1. Reversão de estoque se necessário
-      if (appointment.status === "COMPLETED" && status !== "COMPLETED") {
+      // Usa o status atual do banco (dentro da tx) em vez do status lido anteriormente
+      if (currentAppointment.status === "COMPLETED" && status !== "COMPLETED") {
         // Buscar itens consumidos pelo serviço com dados do produto
         const resources = await tx
           .select({

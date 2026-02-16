@@ -83,42 +83,55 @@ export class CreateInventoryTransactionUseCase {
     console.log(`[CREATE_TRANSACTION_USECASE] Sucesso: ${input.type} de ${quantity} para ${product.name}. Novo saldo: ${newQty}`);
 
     // 7. Notificação de Estoque Baixo
-    if (input.type === "EXIT" && newQty <= minQty) {
-      try {
-        // Obter dono da empresa
-        const business = await this.businessRepository.findById(input.companyId);
-        if (business) {
-          const owner = await this.userRepository.find(business.ownerId);
-          if (owner && owner.notifyInventoryAlerts) {
-            const notificationService = new NotificationService(this.pushSubscriptionRepository);
+    if (input.type === "EXIT") {
+      let comparisonQty = newQty;
 
-            // Lógica de Conversão para Exibição
-            let displayQty = Math.round(newQty);
-            let displayUnit = product.unit;
-
-            if (product.conversionFactor && product.secondaryUnit) {
-              const factor = Number(product.conversionFactor);
-              if (!isNaN(factor) && factor > 0) {
-                displayQty = Math.round(newQty * factor);
-                displayUnit = product.secondaryUnit;
-              }
-            }
-
-            await notificationService.sendToUser(
-              business.ownerId,
-              "📦 Estoque Baixo!",
-              `O produto ${product.name} atingiu o nível crítico (${displayQty} ${displayUnit}).`
-            );
-          }
+      // Normalização para comparação:
+      // Se o produto tem fator de conversão, assume-se que o minQuantity está na unidade secundária (ex: Unidades)
+      // enquanto o estoque é controlado na unidade principal (ex: Caixas).
+      if (product.conversionFactor && product.secondaryUnit) {
+        const factor = Number(product.conversionFactor);
+        if (!isNaN(factor) && factor > 0) {
+          comparisonQty = newQty * factor;
         }
-      } catch (err) {
-        console.error("[INVENTORY_ALERT] Error sending notification:", err);
       }
-    }
 
-    return {
-      product: updatedProduct,
-      log
-    };
+      if (comparisonQty <= minQty) {
+        try {
+          // Obter dono da empresa
+          const business = await this.businessRepository.findById(input.companyId);
+          if (business) {
+            const owner = await this.userRepository.find(business.ownerId);
+            if (owner && owner.notifyInventoryAlerts) {
+              const notificationService = new NotificationService(this.pushSubscriptionRepository);
+
+              // Lógica de Conversão para Exibição
+              let displayQty = Math.round(newQty);
+              let displayUnit = product.unit;
+
+              if (product.conversionFactor && product.secondaryUnit) {
+                const factor = Number(product.conversionFactor);
+                if (!isNaN(factor) && factor > 0) {
+                  displayQty = Math.round(newQty * factor);
+                  displayUnit = product.secondaryUnit;
+                }
+              }
+
+              await notificationService.sendToUser(
+                business.ownerId,
+                "📦 Estoque Baixo!",
+                `O produto ${product.name} atingiu o nível crítico (${displayQty} ${displayUnit}).`
+              );
+            }
+          }
+        } catch (err) {
+          console.error("[INVENTORY_ALERT] Error sending notification:", err);
+        }
+      }
+
+      return {
+        product: updatedProduct,
+        log
+      };
+    }
   }
-}
