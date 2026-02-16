@@ -14,6 +14,14 @@ export const CreateExpenseDto = t.Object({
     IMPOSTOS: "IMPOSTOS",
     GERAL: "GERAL",
   }),
+  type: t.Optional(t.Enum({
+    FIXO: "FIXO",
+    VARIAVEL: "VARIAVEL",
+    PARCELADO: "PARCELADO",
+  })),
+  totalInstallments: t.Optional(t.Integer()),
+  currentInstallment: t.Optional(t.Integer()),
+  parentId: t.Optional(t.String()),
   dueDate: t.String(), // ISO Date string
   isPaid: t.Optional(t.Boolean()),
 });

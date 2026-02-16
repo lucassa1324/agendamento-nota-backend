@@ -4,6 +4,10 @@ export interface FixedExpense {
   description: string;
   value: string;
   category: "INFRAESTRUTURA" | "UTILIDADES" | "MARKETING" | "PRODUTOS_INSUMOS" | "PESSOAL" | "SISTEMAS_SOFTWARE" | "IMPOSTOS" | "GERAL";
+  type: "FIXO" | "VARIAVEL" | "PARCELADO";
+  totalInstallments?: number;
+  currentInstallment?: number;
+  parentId?: string | null;
   dueDate: Date;
   isPaid: boolean;
   createdAt: Date;
@@ -15,6 +19,10 @@ export interface CreateExpenseInput {
   description: string;
   value: string;
   category: FixedExpense["category"];
+  type?: FixedExpense["type"];
+  totalInstallments?: number;
+  currentInstallment?: number;
+  parentId?: string | null;
   dueDate: Date;
   isPaid?: boolean;
 }

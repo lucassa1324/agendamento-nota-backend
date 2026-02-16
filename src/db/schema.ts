@@ -8,6 +8,7 @@ import {
   index,
   jsonb,
   numeric,
+  integer,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
@@ -350,6 +351,10 @@ export const fixedExpenses = pgTable("fixed_expenses", {
       "GERAL"
     ]
   }).notNull(),
+  type: text("type", { enum: ["FIXO", "VARIAVEL", "PARCELADO"] }).default("FIXO").notNull(),
+  totalInstallments: integer("total_installments").default(1),
+  currentInstallment: integer("current_installment").default(1),
+  parentId: text("parent_id"),
   dueDate: timestamp("due_date").notNull(),
   isPaid: boolean("is_paid").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),

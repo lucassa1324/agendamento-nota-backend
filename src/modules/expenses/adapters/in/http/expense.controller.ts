@@ -2,6 +2,8 @@ import { Elysia, t } from "elysia";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 import { CreateExpenseDto, UpdateExpenseDto } from "../dtos/expense.dto";
+import { CreateExpenseUseCase } from "../../../application/use-cases/create-expense.use-case";
+import { UpdateExpenseUseCase } from "../../../application/use-cases/update-expense.use-case";
 
 export const expenseController = new Elysia({ prefix: "/expenses" })
   .use(authPlugin)
@@ -22,11 +24,14 @@ export const expenseController = new Elysia({ prefix: "/expenses" })
       return { error: "Usuário não vinculado a uma empresa" };
     }
 
-    return await expenseRepository.create({
+    const useCase = new CreateExpenseUseCase(expenseRepository);
+    const result = await useCase.execute({
       ...body,
       companyId: businessId, // Força o companyId do usuário logado
       dueDate: new Date(body.dueDate),
     });
+
+    return result;
   }, {
     body: CreateExpenseDto
   })
@@ -56,21 +61,24 @@ export const expenseController = new Elysia({ prefix: "/expenses" })
   })
   .patch("/:id", async ({ params: { id }, body, expenseRepository, user, set }) => {
     const businessId = user!.businessId;
-    const existing = await expenseRepository.findById(id);
+    const useCase = new UpdateExpenseUseCase(expenseRepository);
 
-    if (!existing) {
-      set.status = 404;
-      return { error: "Expense not found" };
+    try {
+      const updateData: any = { ...body };
+      if (body.dueDate) updateData.dueDate = new Date(body.dueDate);
+
+      return await useCase.execute(id, businessId, updateData);
+    } catch (e: any) {
+      if (e.message === "Expense not found") {
+        set.status = 404;
+        return { error: e.message };
+      }
+      if (e.message === "Unauthorized") {
+        set.status = 403;
+        return { error: e.message };
+      }
+      throw e;
     }
-
-    if (existing.companyId !== businessId) {
-      set.status = 403;
-      return { error: "Não autorizado" };
-    }
-
-    const updateData: any = { ...body };
-    if (body.dueDate) updateData.dueDate = new Date(body.dueDate);
-    return await expenseRepository.update(id, updateData);
   }, {
     body: UpdateExpenseDto
   })
