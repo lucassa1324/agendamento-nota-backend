@@ -9,7 +9,7 @@ import {
 
 export const createBusinessDTO = t.Object({
   name: t.String(),
-  slug: t.String(),
+  slug: t.Optional(t.String()),
 });
 
 export const updateBusinessConfigDTO = t.Object({
