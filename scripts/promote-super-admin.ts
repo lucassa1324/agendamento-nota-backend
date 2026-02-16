@@ -16,9 +16,9 @@ async function promoteToSuperAdmin(email: string) {
 
   await db
     .update(schema.user)
-    .set({ 
+    .set({
       role: "SUPER_ADMIN",
-      active: true 
+      active: true
     })
     .where(eq(schema.user.id, usr.id));
 

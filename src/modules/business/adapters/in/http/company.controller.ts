@@ -17,9 +17,9 @@ export const companyController = new Elysia({ prefix: "/company" })
       // O corpo pode conter campos como hero_title, primary_color, etc.
       // Vamos mapear para a estrutura que o repositório espera ou salvar como JSON direto.
       // Para manter a flexibilidade solicitada, vamos permitir campos diretos e mapear.
-      
+
       const config: any = {};
-      
+
       // Mapeamento básico se vierem campos flat
       if (body.hero_title || body.hero_subtitle) {
         config.home = {
@@ -29,7 +29,7 @@ export const companyController = new Elysia({ prefix: "/company" })
           }
         };
       }
-      
+
       if (body.primary_color || body.font_family) {
         config.layoutGlobal = {
           base_colors: {

@@ -18,7 +18,7 @@ export class GetProfitReportUseCase {
   constructor(
     private expenseRepository: IExpenseRepository,
     private appointmentRepository: IAppointmentRepository
-  ) {}
+  ) { }
 
   async execute(input: GetProfitReportInput): Promise<ProfitReportOutput> {
     const [totalRevenue, totalExpenses] = await Promise.all([

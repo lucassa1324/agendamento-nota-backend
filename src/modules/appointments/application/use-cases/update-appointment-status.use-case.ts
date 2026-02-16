@@ -1,9 +1,12 @@
 import { IAppointmentRepository } from "../../domain/ports/appointment.repository";
-import { AppointmentStatus } from "../../domain/entities/appointment.entity";
+import { AppointmentStatus, Appointment } from "../../domain/entities/appointment.entity";
 import { IBusinessRepository } from "../../../business/domain/ports/business.repository";
 import { UserRepository } from "../../../user/adapters/out/user.repository";
 import { IPushSubscriptionRepository } from "../../../notifications/domain/ports/push-subscription.repository";
 import { NotificationService } from "../../../notifications/application/notification.service";
+import { db } from "../../../infrastructure/drizzle/database";
+import { appointments, serviceResources, inventory, inventoryLogs } from "../../../../db/schema";
+import { eq, sql } from "drizzle-orm";
 
 export class UpdateAppointmentStatusUseCase {
   constructor(
@@ -27,7 +30,47 @@ export class UpdateAppointmentStatusUseCase {
       throw new Error("Unauthorized to update this appointment status");
     }
 
-    const updatedAppointment = await this.appointmentRepository.updateStatus(id, status);
+    const updatedAppointment = await db.transaction(async (tx) => {
+      // 1. Reversão de estoque se necessário
+      if (appointment.status === "COMPLETED" && status !== "COMPLETED") {
+        // Buscar itens consumidos pelo serviço
+        const resources = await tx
+          .select()
+          .from(serviceResources)
+          .where(eq(serviceResources.serviceId, appointment.serviceId));
+
+        for (const resource of resources) {
+          // Incrementar estoque
+          await tx
+            .update(inventory)
+            .set({
+              currentQuantity: sql`${inventory.currentQuantity} + ${resource.quantity}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(inventory.id, resource.inventoryId));
+
+          // Registrar log de entrada (estorno)
+          await tx.insert(inventoryLogs).values({
+            id: crypto.randomUUID(),
+            inventoryId: resource.inventoryId,
+            companyId: appointment.companyId,
+            type: "ENTRY",
+            quantity: resource.quantity,
+            reason: `Estorno automático: Agendamento #${id} revertido`,
+            createdAt: new Date(),
+          });
+        }
+      }
+
+      // 2. Atualizar status do agendamento
+      const [updated] = await tx
+        .update(appointments)
+        .set({ status, updatedAt: new Date() })
+        .where(eq(appointments.id, id))
+        .returning();
+
+      return updated as Appointment;
+    });
 
     // Notificação de Cancelamento
     if (status === "CANCELLED") {
