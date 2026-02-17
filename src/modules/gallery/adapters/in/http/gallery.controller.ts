@@ -107,7 +107,10 @@ export const galleryController = new Elysia({ prefix: "/gallery" })
             return { error: "Não autorizado" };
           }
 
-          const updated = await galleryRepository.update(id, body);
+          const updated = await galleryRepository.update(id, {
+            ...body,
+            order: body.order?.toString()
+          });
           return updated;
         } catch (error: any) {
           console.error("[GALLERY_PATCH_ERROR]:", error);

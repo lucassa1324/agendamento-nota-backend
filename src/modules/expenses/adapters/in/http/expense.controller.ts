@@ -61,6 +61,10 @@ export const expenseController = new Elysia({ prefix: "/expenses" })
   })
   .patch("/:id", async ({ params: { id }, body, expenseRepository, user, set }) => {
     const businessId = user!.businessId;
+    if (!businessId) {
+      set.status = 403;
+      return { error: "Não autorizado" };
+    }
     const useCase = new UpdateExpenseUseCase(expenseRepository);
 
     try {

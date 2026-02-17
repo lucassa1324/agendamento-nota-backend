@@ -1,6 +1,6 @@
 import { db } from "../../../../infrastructure/drizzle/database";
 import { fixedExpenses } from "../../../../../db/schema";
-import { IExpenseRepository, FixedExpense, CreateExpenseInput } from "../../domain/ports/expense.repository";
+import { IExpenseRepository, FixedExpense, CreateExpenseInput } from "../../../domain/ports/expense.repository";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 
 export class DrizzleExpenseRepository implements IExpenseRepository {
