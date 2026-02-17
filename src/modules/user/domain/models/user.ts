@@ -6,6 +6,9 @@ export class User {
     public password: string,
     public createdAt: Date,
     public updatedAt: Date,
-    public deletedAt: Date | null
+    public deletedAt: Date | null,
+    public notifyNewAppointments: boolean = true,
+    public notifyCancellations: boolean = true,
+    public notifyInventoryAlerts: boolean = true
   ) {}
 }
