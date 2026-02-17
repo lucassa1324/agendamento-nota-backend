@@ -17,25 +17,35 @@ export class UpdateAppointmentStatusUseCase {
   ) { }
 
   private extractServiceIds(appointment: Appointment): string[] {
-    const ids = new Set<string>();
-    // Adiciona o ID principal
-    if (appointment.serviceId) ids.add(appointment.serviceId);
+    let ids: string[] = [];
+    let foundInNotes = false;
 
-    // Tenta extrair outros IDs das notas
+    // Tenta extrair IDs das notas (Fonte da Verdade para Multi-Serviços)
     // Formato esperado: "... | IDs: id1,id2,id3" ou "IDs: id1,id2,id3"
     if (appointment.notes) {
       const match = appointment.notes.match(/IDs:\s*([\w\s,-]+)/);
       if (match && match[1]) {
         const extractedIds = match[1].split(',').map(id => id.trim());
+        const validIds: string[] = [];
         extractedIds.forEach(id => {
-          if (id) ids.add(id);
+          if (id) validIds.push(id);
         });
+
+        if (validIds.length > 0) {
+          ids = validIds;
+          foundInNotes = true;
+        }
       }
     }
 
-    const result = Array.from(ids);
-    console.log(`[QUERY_RESOURCES] IDs de serviços encontrados: [${result.join(', ')}]`);
-    return result;
+    // Se NÃO encontrou nada nas notas, usa o ID principal
+    // (Se encontrou nas notas, ignoramos o serviceId principal para evitar duplicação, 
+    // assumindo que a lista das notas já inclui o principal quando ela existe)
+    if (!foundInNotes && appointment.serviceId) {
+      ids.push(appointment.serviceId);
+    }
+
+    return ids;
   }
 
   async execute(id: string, status: AppointmentStatus, userId: string) {
@@ -69,81 +79,150 @@ export class UpdateAppointmentStatusUseCase {
       // 1. Reversão de estoque (COMPLETED -> OUTRO)
       if (currentAppointment.status === "COMPLETED" && status !== "COMPLETED") {
 
-        // Verificação de Idempotência
-        const existingLog = await tx
-          .select()
+        console.log("\n--- 🔍 [INÍCIO AUDITORIA ESTORNO] ---");
+        console.log(`ID Agendamento: ${id}`);
+
+        // BUSCA TODOS OS LOGS (Entrada e Saída) para calcular o saldo real
+        const allLogs = await tx
+          .select({
+            log: inventoryLogs,
+            product: inventory
+          })
           .from(inventoryLogs)
-          .where(sql`${inventoryLogs.reason} LIKE ${`%Agendamento #${id} revertido%`}`)
-          .limit(1);
+          .innerJoin(inventory, eq(inventoryLogs.inventoryId, inventory.id))
+          .where(
+            sql`(${inventoryLogs.reason} LIKE ${`%Agendamento #${id} concluído%`} AND ${inventoryLogs.type} = 'EXIT')
+             OR (${inventoryLogs.reason} LIKE ${`%Agendamento #${id} revertido%`} AND ${inventoryLogs.type} = 'ENTRY')`
+          );
 
-        if (existingLog.length > 0) {
-          console.log(`[IDEMPOTÊNCIA] Estorno já realizado para agendamento #${id}. Pulando reversão de estoque.`);
-        } else {
-          // Buscar itens para TODOS os serviços
-          const resources = await tx
-            .select({
-              resource: serviceResources,
-              product: inventory
-            })
-            .from(serviceResources)
-            .innerJoin(inventory, eq(serviceResources.inventoryId, inventory.id))
-            .where(inArray(serviceResources.serviceId, serviceIds));
+        console.log(`Total de logs encontrados: ${allLogs.length}`);
 
-          // Deduplicação por InventoryID (Pega a maior quantidade definida entre os serviços)
-          const uniqueResources = new Map<string, { resource: typeof serviceResources.$inferSelect, product: typeof inventory.$inferSelect }>();
+        if (allLogs.length > 0) {
+          // Agrupar por InventoryID para calcular o saldo (Saídas - Entradas)
+          const balanceMap = new Map<string, { product: typeof inventory.$inferSelect, balance: number }>();
 
-          for (const item of resources) {
-            const existing = uniqueResources.get(item.resource.inventoryId);
-            if (!existing || Number(item.resource.quantity) > Number(existing.resource.quantity)) {
-              uniqueResources.set(item.resource.inventoryId, item);
+          for (const { log, product } of allLogs) {
+            const current = balanceMap.get(log.inventoryId) || { product, balance: 0 };
+            const logQty = Number(log.quantity);
+
+            if (log.type === 'EXIT') {
+              current.balance += logQty; // O quanto saiu
+            } else if (log.type === 'ENTRY') {
+              current.balance -= logQty; // O quanto já voltou
             }
+
+            balanceMap.set(log.inventoryId, current);
           }
 
-          const itemsToRevert = Array.from(uniqueResources.values());
-          console.log(`[RESOURCES_FOUND] Itens encontrados para reverter: [${itemsToRevert.map(i => `${i.product.name}: ${i.resource.quantity}`).join(', ')}]`);
+          for (const [inventoryId, { product, balance }] of balanceMap.entries()) {
+            // Pequena tolerância para float
+            if (balance > 0.0001) {
+              const quantityToRevert = Number(balance.toFixed(2)); // Arredondamento seguro
 
-          for (const { resource, product } of itemsToRevert) {
-            let quantityToRevert = Number(resource.quantity);
-            const conversionFactor = Number(product.conversionFactor) || 1;
+              console.log(`[EXECUTANDO ESTORNO] Item: ${product.name} | Saldo a devolver: ${quantityToRevert}`);
 
-            console.log(`[AUDITORIA ESTORNO] Agendamento: ${id} | Item: ${product.name} | Qtd Base: ${resource.quantity} ${resource.unit}`);
+              // Incrementar estoque
+              await tx
+                .update(inventory)
+                .set({
+                  currentQuantity: sql`${inventory.currentQuantity} + ${quantityToRevert.toFixed(2)}`,
+                  updatedAt: new Date(),
+                })
+                .where(eq(inventory.id, inventoryId));
 
-            if (product.secondaryUnit && resource.unit === product.secondaryUnit && conversionFactor > 0) {
-              const originalQty = quantityToRevert;
-              quantityToRevert = quantityToRevert / conversionFactor;
-              console.log(`[CONVERSÃO] ${originalQty} ${resource.unit} -> ${quantityToRevert} ${product.unit}`);
+              // Log de Entrada (Reversão)
+              await tx.insert(inventoryLogs).values({
+                id: crypto.randomUUID(),
+                inventoryId: inventoryId,
+                companyId: appointment.companyId,
+                type: "ENTRY",
+                quantity: quantityToRevert.toFixed(2),
+                reason: `Estorno automático: Agendamento #${id} revertido (Saldo Pendente)`,
+                createdAt: new Date(),
+              });
+            } else {
+              console.log(`[SKIP] Item: ${product.name} | Saldo já está zerado ou negativo (${balance}).`);
+            }
+          }
+        } else {
+          // FALLBACK: Se não houver logs (dados legados), recalcular com base nas configurações atuais
+          // Nota: Isso só deve acontecer para agendamentos MUITO antigos sem logs.
+          console.log("⚠️ ATENÇÃO: Nenhum log encontrado. O sistema vai cair no Fallback.");
+
+          // ... (Mantendo a lógica de fallback original para segurança, caso não ache logs)
+          // Mas com verificação extra de idempotência simples
+          const existingLog = await tx
+            .select()
+            .from(inventoryLogs)
+            .where(sql`${inventoryLogs.reason} LIKE ${`%Agendamento #${id} revertido%`}`)
+            .limit(1);
+
+          if (existingLog.length > 0) {
+            console.log("[FALLBACK SKIP] Já existe estorno para este agendamento legado.");
+          } else {
+            // ... (Lógica de fallback original) ...
+            const resources = await tx
+              .select({
+                resource: serviceResources,
+                product: inventory
+              })
+              .from(serviceResources)
+              .innerJoin(inventory, eq(serviceResources.inventoryId, inventory.id))
+              .where(inArray(serviceResources.serviceId, serviceIds));
+
+            const uniqueSharedResources = new Map<string, { resource: typeof serviceResources.$inferSelect, product: typeof inventory.$inferSelect }>();
+            const nonSharedResources: { resource: typeof serviceResources.$inferSelect, product: typeof inventory.$inferSelect }[] = [];
+
+            for (const item of resources) {
+              const isShared = item.product.isShared === true || (item.product.isShared as any) === 'true';
+              if (isShared) {
+                const existing = uniqueSharedResources.get(item.resource.inventoryId);
+                if (!existing || Number(item.resource.quantity) > Number(existing.resource.quantity)) {
+                  uniqueSharedResources.set(item.resource.inventoryId, item);
+                }
+              } else {
+                nonSharedResources.push(item);
+              }
             }
 
-            // Incrementar estoque
-            await tx
-              .update(inventory)
-              .set({
-                currentQuantity: sql`${inventory.currentQuantity} + ${quantityToRevert.toString()}`,
-                updatedAt: new Date(),
-              })
-              .where(eq(inventory.id, resource.inventoryId));
+            const itemsToRevert = [...Array.from(uniqueSharedResources.values()), ...nonSharedResources];
 
-            // Log
-            await tx.insert(inventoryLogs).values({
-              id: crypto.randomUUID(),
-              inventoryId: resource.inventoryId,
-              companyId: appointment.companyId,
-              type: "ENTRY",
-              quantity: quantityToRevert.toString(),
-              reason: `Estorno automático: Agendamento #${id} revertido`,
-              createdAt: new Date(),
-            });
+            for (const { resource, product } of itemsToRevert) {
+              let quantityToRevert = Number(resource.quantity);
+              const conversionFactor = Number(product.conversionFactor) || 1;
+
+              if (product.secondaryUnit && resource.unit === product.secondaryUnit && conversionFactor > 0) {
+                quantityToRevert = quantityToRevert / conversionFactor;
+              }
+
+              await tx
+                .update(inventory)
+                .set({
+                  currentQuantity: sql`${inventory.currentQuantity} + ${quantityToRevert.toFixed(2)}`,
+                  updatedAt: new Date(),
+                })
+                .where(eq(inventory.id, resource.inventoryId));
+
+              await tx.insert(inventoryLogs).values({
+                id: crypto.randomUUID(),
+                inventoryId: resource.inventoryId,
+                companyId: appointment.companyId,
+                type: "ENTRY",
+                quantity: quantityToRevert.toFixed(2),
+                reason: `Estorno automático: Agendamento #${id} revertido (Fallback)`,
+                createdAt: new Date(),
+              });
+            }
           }
         }
+        console.log("--- ✅ [FIM AUDITORIA ESTORNO] ---\n");
       }
 
       // 2. Consumo de estoque (OUTRO -> COMPLETED)
       if (currentAppointment.status !== "COMPLETED" && status === "COMPLETED") {
 
-        // Verificação de Idempotência para Consumo (Evitar duplicidade se clicar 2x rápido)
-        // Verificamos se já existe um log de SAÍDA para este agendamento recentemente?
-        // O ideal é confiar na transação e no status anterior. Se status anterior != COMPLETED, então é a primeira vez.
-        // Mas o usuário pediu "separar canais de validação".
+        // NÃO DELETAMOS MAIS OS LOGS AQUI para manter o histórico e permitir o cálculo de saldo.
+        // A lógica de estorno agora vai usar o saldo real (Saídas - Entradas).
 
         const resources = await tx
           .select({
@@ -154,37 +233,58 @@ export class UpdateAppointmentStatusUseCase {
           .innerJoin(inventory, eq(serviceResources.inventoryId, inventory.id))
           .where(inArray(serviceResources.serviceId, serviceIds));
 
-        // Deduplicação
-        const uniqueResources = new Map<string, { resource: typeof serviceResources.$inferSelect, product: typeof inventory.$inferSelect }>();
+        // Lógica Híbrida: Deduplicação (Shared - Primeiro Item) vs Soma Bruta (Non-Shared)
+        let itemsToConsume: { resource: typeof serviceResources.$inferSelect, product: typeof inventory.$inferSelect }[] = [];
+        const processedSharedItems = new Set<string>();
+
+        // 1. Agrupar recursos por Service ID para garantir processamento na ordem correta
+        const resourcesByService = new Map<string, { resource: typeof serviceResources.$inferSelect, product: typeof inventory.$inferSelect }[]>();
 
         for (const item of resources) {
-          const existing = uniqueResources.get(item.resource.inventoryId);
-          // Lógica de Deduplicação: Manter o maior valor definido para o atendimento único
-          if (!existing || Number(item.resource.quantity) > Number(existing.resource.quantity)) {
-            uniqueResources.set(item.resource.inventoryId, item);
+          const sId = item.resource.serviceId;
+          if (!resourcesByService.has(sId)) {
+            resourcesByService.set(sId, []);
+          }
+          resourcesByService.get(sId)?.push(item);
+        }
+
+        // 2. Iterar sobre os serviços NA ORDEM DO AGENDAMENTO (serviceIds extraídos anteriormente)
+        for (const sId of serviceIds) {
+          const serviceResourcesList = resourcesByService.get(sId) || [];
+
+          for (const item of serviceResourcesList) {
+            // Robustez: Garantir que isShared seja tratado corretamente
+            const isShared = item.product.isShared === true || (item.product.isShared as any) === 'true';
+
+            if (isShared) {
+              // Deduplicação: Contabiliza apenas a primeira ocorrência (regra "Primeiro Item")
+              if (!processedSharedItems.has(item.resource.inventoryId)) {
+                itemsToConsume.push(item);
+                processedSharedItems.add(item.resource.inventoryId);
+              }
+              // Se já foi processado neste agendamento, ignora (não consome novamente)
+            } else {
+              // Soma Bruta: Adiciona à lista normalmente (não compartilhado)
+              itemsToConsume.push(item);
+            }
           }
         }
 
-        const itemsToConsume = Array.from(uniqueResources.values());
-        console.log(`[RESOURCES_FOUND] Itens encontrados para subtrair: [${itemsToConsume.map(i => `${i.product.name}: ${i.resource.quantity}`).join(', ')}]`);
+        const notifiedLowStock = new Set<string>();
 
         for (const { resource, product } of itemsToConsume) {
           let quantityToConsume = Number(resource.quantity);
           const conversionFactor = Number(product.conversionFactor) || 1;
 
-          console.log(`[AUDITORIA CONSUMO] Agendamento: ${id} | Item: ${product.name} | Qtd Base: ${resource.quantity} ${resource.unit}`);
-
           if (product.secondaryUnit && resource.unit === product.secondaryUnit && conversionFactor > 0) {
-            const originalQty = quantityToConsume;
             quantityToConsume = quantityToConsume / conversionFactor;
-            console.log(`[CONVERSÃO] ${originalQty} ${resource.unit} -> ${quantityToConsume} ${product.unit}`);
           }
 
           // Decrementar estoque
           await tx
             .update(inventory)
             .set({
-              currentQuantity: sql`${inventory.currentQuantity} - ${quantityToConsume.toString()}`,
+              currentQuantity: sql`${inventory.currentQuantity} - ${quantityToConsume.toFixed(2)}`, // Arredondamento
               updatedAt: new Date(),
             })
             .where(eq(inventory.id, resource.inventoryId));
@@ -195,10 +295,54 @@ export class UpdateAppointmentStatusUseCase {
             inventoryId: resource.inventoryId,
             companyId: appointment.companyId,
             type: "EXIT",
-            quantity: quantityToConsume.toString(),
-            reason: `Consumo automático: Agendamento #${id} concluído`,
+            quantity: quantityToConsume.toFixed(2), // Arredondamento
+            reason: `Consumo automático: Agendamento #${id} concluído | Modo: ${product.isShared ? 'Deduplicado (Shared)' : 'Bruto'}`,
             createdAt: new Date(),
           });
+
+          const currentQty = Number(product.currentQuantity);
+          const newQty = Number((currentQty - quantityToConsume).toFixed(2)); // Arredondamento
+          const minQty = Number(product.minQuantity);
+
+          // CORREÇÃO: Comparar sempre na Unidade Secundária (Ex: Unidades, não Caixas)
+          let comparisonQty = newQty;
+          let comparisonMin = minQty;
+
+          if (product.conversionFactor && product.secondaryUnit) {
+            const factor = Number(product.conversionFactor);
+            if (!isNaN(factor) && factor > 0) {
+              // Converte o SALDO ATUAL para Unidades (Ex: 0.18 cx -> 18 un)
+              comparisonQty = Number((newQty * factor).toFixed(2));
+
+              // CORREÇÃO: Não converter o Limite Mínimo.
+              // Assumimos que, se o produto tem unidade secundária, o usuário configurou o alerta pensando nela.
+              // Ex: Configurar "10" significa "10 Unidades", não "10 Caixas".
+              comparisonMin = minQty;
+            }
+          }
+
+          console.log(`Testando alerta: Saldo atual ${newQty} ${product.unit} -> ${comparisonQty} ${product.secondaryUnit || product.unit} | Limite (Config) ${minQty} ${product.unit} -> ${comparisonMin} ${product.secondaryUnit || product.unit}`);
+
+          if (comparisonQty <= comparisonMin && !notifiedLowStock.has(product.id)) {
+            try {
+              const owner = await this.userRepository.find(business.ownerId);
+              if (owner && owner.notifyInventoryAlerts) {
+                const notificationService = new NotificationService(this.pushSubscriptionRepository);
+
+                let displayQty = comparisonQty;
+                let displayUnit = product.secondaryUnit || product.unit;
+
+                await notificationService.sendToUser(
+                  business.ownerId,
+                  "📦 Estoque Baixo!",
+                  `O produto ${product.name} atingiu o nível crítico (${displayQty} ${displayUnit}).`
+                );
+                notifiedLowStock.add(product.id);
+              }
+            } catch (err) {
+              console.error("[INVENTORY_ALERT] Error sending notification:", err);
+            }
+          }
         }
       }
 

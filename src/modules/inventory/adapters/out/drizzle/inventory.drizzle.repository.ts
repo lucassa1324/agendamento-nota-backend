@@ -19,6 +19,7 @@ export class DrizzleInventoryRepository implements InventoryRepository {
           unit: data.unit || 'un',
           secondaryUnit: data.secondaryUnit || null,
           conversionFactor: data.conversionFactor?.toString() || null,
+          isShared: data.isShared || false,
         })
         .returning();
 
@@ -43,6 +44,7 @@ export class DrizzleInventoryRepository implements InventoryRepository {
           unit: inventory.unit,
           secondaryUnit: inventory.secondaryUnit,
           conversionFactor: inventory.conversionFactor,
+          isShared: inventory.isShared,
           createdAt: inventory.createdAt,
           updatedAt: inventory.updatedAt,
         })
@@ -71,6 +73,7 @@ export class DrizzleInventoryRepository implements InventoryRepository {
           unit: inventory.unit,
           secondaryUnit: inventory.secondaryUnit,
           conversionFactor: inventory.conversionFactor,
+          isShared: inventory.isShared,
           createdAt: inventory.createdAt,
           updatedAt: inventory.updatedAt,
         })
@@ -115,6 +118,10 @@ export class DrizzleInventoryRepository implements InventoryRepository {
       if (data.secondaryUnit !== undefined) {
         updateData.secondaryUnit = data.secondaryUnit || null;
       }
+      if (data.isShared !== undefined) {
+        console.log(`[DRIZZLE_INVENTORY_REPO] Atualizando isShared para: ${data.isShared}`);
+        updateData.isShared = data.isShared;
+      }
 
       console.log(`[DRIZZLE_INVENTORY_REPO] Objeto final enviado ao Drizzle .set():`, JSON.stringify(updateData, null, 2));
 
@@ -133,6 +140,7 @@ export class DrizzleInventoryRepository implements InventoryRepository {
           unit: inventory.unit,
           secondaryUnit: inventory.secondaryUnit,
           conversionFactor: inventory.conversionFactor,
+          isShared: inventory.isShared,
           createdAt: inventory.createdAt,
           updatedAt: inventory.updatedAt,
         });

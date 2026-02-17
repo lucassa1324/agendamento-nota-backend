@@ -9,6 +9,7 @@ export interface Product {
   unit: string;
   secondaryUnit?: string | null;
   conversionFactor?: string | null;
+  isShared?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -325,6 +325,7 @@ export const inventory = pgTable("inventory", {
   unit: text("unit").notNull(), // Ex: "un", "ml", "g"
   secondaryUnit: text("secondary_unit"),
   conversionFactor: numeric("conversion_factor", { precision: 10, scale: 2 }),
+  isShared: boolean("is_shared").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

@@ -10,6 +10,7 @@ export const CreateProductDTO = t.Object({
   unit: t.Optional(t.String()),
   secondaryUnit: t.Optional(t.Nullable(t.Any())),
   conversionFactor: t.Optional(t.Nullable(t.Any())),
+  isShared: t.Optional(t.Boolean()),
 });
 
 export const UpdateProductDTO = t.Partial(
@@ -22,6 +23,7 @@ export const UpdateProductDTO = t.Partial(
     unit: t.String(),
     secondaryUnit: t.Optional(t.Nullable(t.Any())),
     conversionFactor: t.Optional(t.Nullable(t.Any())),
+    isShared: t.Optional(t.Boolean()),
   })
 );
 
@@ -36,6 +38,7 @@ export const ProductResponseDTO = t.Object({
   unit: t.String(),
   secondaryUnit: t.Optional(t.Nullable(t.String())),
   conversionFactor: t.Optional(t.Nullable(t.String())),
+  isShared: t.Boolean(),
   createdAt: t.Date(),
   updatedAt: t.Date(),
 });

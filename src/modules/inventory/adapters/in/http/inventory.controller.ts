@@ -61,6 +61,8 @@ export const inventoryController = new Elysia({ prefix: "/inventory" })
   .patch("/:id", async ({ params: { id }, body, inventoryRepository, businessRepository, user, set }) => {
     try {
       console.log(`[INVENTORY_CONTROLLER] Atualizando produto ${id}:`, body);
+      // @ts-ignore
+      console.log(`[INVENTORY_CONTROLLER] isShared recebido:`, body.isShared, typeof body.isShared);
       const updateUseCase = new UpdateProductUseCase(inventoryRepository, businessRepository);
       return await updateUseCase.execute(id, body, user!.id);
     } catch (error: any) {

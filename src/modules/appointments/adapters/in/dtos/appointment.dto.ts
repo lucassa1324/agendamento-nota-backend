@@ -21,7 +21,7 @@ export const updateAppointmentStatusDTO = t.Object({
     COMPLETED: "COMPLETED",
     CANCELLED: "CANCELLED",
     POSTPONED: "POSTPONED"
-  } as const)
+  } as const),
 });
 
 export type CreateAppointmentDTO = typeof createAppointmentDTO.static;
