@@ -10,6 +10,6 @@ if (!stripeSecretKey) {
 }
 
 export const stripe = new Stripe(stripeSecretKey || 'sk_test_placeholder', {
-  apiVersion: '2025-01-27.acacia', // Use latest API version available or check Stripe dashboard
+  apiVersion: '2026-01-28.clover', // Use latest API version available or check Stripe dashboard
   typescript: true,
 });
