@@ -11,6 +11,11 @@ export type Business = {
   ownerId: string;
   createdAt: Date;
   updatedAt?: Date;
+  subscriptionStatus?: 'trial' | 'active' | 'past_due' | 'canceled' | 'manual_active';
+  trialEndsAt?: Date;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  accessType?: 'automatic' | 'manual';
   siteCustomization?: BusinessSiteCustomization;
 };
 

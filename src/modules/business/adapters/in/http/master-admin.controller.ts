@@ -84,6 +84,41 @@ export const masterAdminController = new Elysia({ prefix: "/admin/master" })
       active: t.Boolean()
     })
   })
+  .patch("/companies/:id/subscription", async ({ params, body, set }) => {
+    try {
+      const { id } = params;
+      const { status, accessType } = body;
+
+      const [updated] = await db
+        .update(schema.companies)
+        .set({
+          subscriptionStatus: status as any,
+          accessType: accessType as any,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.companies.id, id))
+        .returning();
+
+      if (!updated) {
+        set.status = 404;
+        return { error: "Empresa não encontrada" };
+      }
+
+      return {
+        success: true,
+        message: `Status da assinatura alterado para ${status} (Acesso: ${accessType})`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_SUBSCRIPTION_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao atualizar assinatura: " + error.message };
+    }
+  }, {
+    body: t.Object({
+      status: t.String(),
+      accessType: t.Optional(t.String())
+    })
+  })
   .patch("/users/:id/email", async ({ params, body, set }) => {
     try {
       const { id } = params;

@@ -1,0 +1,302 @@
+import { betterAuth } from "better-auth";
+import { createAuthEndpoint } from "better-auth/api";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { db } from "../drizzle/database";
+import * as schema from "../../../db/schema";
+import { eq } from "drizzle-orm";
+if (!process.env.BETTER_AUTH_SECRET) {
+    console.error("BETTER_AUTH_SECRET is missing!");
+    // Prevent crash during build/link if possible, or fail explicitly
+}
+export const auth = betterAuth({
+    secret: process.env.BETTER_AUTH_SECRET || "placeholder_secret_for_build",
+    emailAndPassword: {
+        enabled: true,
+    },
+    // No Better Auth v1+, a baseURL deve ser a raiz do servidor onde as rotas são montadas.
+    // O prefixo /api/auth é adicionado automaticamente pelo handler.
+    baseURL: process.env.BETTER_AUTH_URL ? process.env.BETTER_AUTH_URL.replace("/api/auth", "") : "http://localhost:3001",
+    trustedOrigins: process.env.TRUSTED_ORIGINS
+        ? process.env.TRUSTED_ORIGINS.split(',')
+        : ["http://localhost:3000", "http://localhost:3001"],
+    advanced: {
+        cookiePrefix: "better-auth",
+        // Desabilitado: o proxy torna a comunicação First-Party
+        crossSubDomainCookies: {
+            enabled: false,
+        },
+        // No Vercel/Produção, useSecureCookies deve ser true para permitir SameSite=None
+        // Em localhost, deve ser false a menos que use HTTPS
+        useSecureCookies: process.env.NODE_ENV === "production",
+        cookies: {
+            sessionToken: {
+                attributes: {
+                    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+                    secure: process.env.NODE_ENV === "production",
+                    httpOnly: true,
+                },
+            },
+        },
+    },
+    session: {
+        expiresIn: 60 * 60 * 24 * 7, // 7 dias
+        updateAge: 60 * 60 * 24, // 1 dia
+        cookieCache: {
+            enabled: false, // Desabilitado em produção serverless para evitar inconsistências
+        },
+        freshAge: 0, // Força a verificação da sessão no banco se houver dúvida
+    },
+    database: drizzleAdapter(db, {
+        provider: "pg",
+        schema: schema,
+    }),
+    user: {
+        additionalFields: {
+            role: {
+                type: "string",
+            },
+            active: {
+                type: "boolean",
+            },
+        },
+    },
+    hooks: {
+        before: async (context) => {
+            // Bloqueia login de usuários inativos
+            if (context.path.includes("/sign-in")) {
+                const body = context.body;
+                if (body && body.email) {
+                    const [usr] = await db
+                        .select()
+                        .from(schema.user)
+                        .where(eq(schema.user.email, body.email))
+                        .limit(1);
+                    if (usr && usr.active === false) {
+                        return {
+                            response: new Response(JSON.stringify({
+                                error: "Account inactive",
+                                message: "Sua conta está desativada. Entre em contato com o administrador."
+                            }), {
+                                status: 403,
+                                headers: new Headers({ "Content-Type": "application/json" }),
+                            }),
+                        };
+                    }
+                }
+            }
+            // Normalização preventiva de headers para evitar erro forEach no Better Auth interno
+            if (context.headers && !(context.headers instanceof Headers)) {
+                try {
+                    context.headers = new Headers(context.headers);
+                }
+                catch (e) { }
+            }
+            const path = context.path || "";
+            // Proteção contra 500 no sign-out se não houver sessão
+            if (path.includes("/sign-out")) {
+                try {
+                    const session = await auth.api.getSession({
+                        headers: context.headers,
+                    });
+                    if (!session) {
+                        return {
+                            response: new Response(JSON.stringify({ success: true }), {
+                                status: 200,
+                                headers: new Headers({ "Content-Type": "application/json" }),
+                            }),
+                        };
+                    }
+                }
+                catch (e) {
+                    console.error("[AUTH_BEFORE_HOOK] Erro ao verificar sessão no sign-out:", e);
+                }
+            }
+            return;
+        },
+        after: async (context) => {
+            const path = context.path || "";
+            let response = context.response || context.context?.returned;
+            try {
+                // Se houver erro, sempre retornamos uma Response com headers válidos
+                if (context.error) {
+                    const isSignIn = path.includes("/sign-in");
+                    const status = isSignIn ? 401 : 500;
+                    const body = isSignIn
+                        ? {
+                            error: context.error?.message || "Authentication failed",
+                            message: "Credenciais inválidas ou erro de autenticação",
+                        }
+                        : { error: context.error?.message || "Internal error" };
+                    return new Response(JSON.stringify(body), {
+                        status,
+                        headers: new Headers({ "Content-Type": "application/json" }),
+                    });
+                }
+                // Se status >= 400, garantimos headers válidos e retornamos
+                if (response && response.status >= 400) {
+                    if (response.headers && !(response.headers instanceof Headers)) {
+                        try {
+                            response.headers = new Headers(response.headers);
+                        }
+                        catch { }
+                    }
+                    return response;
+                }
+                // Fallback seguro para /get-session removido para evitar redundância e erros de parsing de cookie.
+                // A lógica abaixo (ENRIQUECIMENTO DE DADOS) manipulará a resposta original do Better Auth,
+                // que é mais segura e já validou o token corretamente.
+                // Se for sign-out, garantimos um retorno JSON para evitar Unexpected EOF no front
+                if (path.includes("/sign-out")) {
+                    return new Response(JSON.stringify({ success: true }), {
+                        status: 200,
+                        headers: new Headers({ "Content-Type": "application/json" })
+                    });
+                }
+                // Apenas processamos sucesso para caminhos de autenticação específicos
+                const isAuthPath = path.startsWith("/sign-in") ||
+                    path.startsWith("/sign-up") ||
+                    path.startsWith("/get-session");
+                if (!isAuthPath || !response) {
+                    return response;
+                }
+                // --- ENRIQUECIMENTO DE DADOS (BUSINESS / SLUG) ---
+                // Se response for um objeto Response (o que é comum no Better Auth), precisamos ler o body
+                let data = null;
+                let isResponseObject = response instanceof Response;
+                if (isResponseObject) {
+                    try {
+                        data = await response.json();
+                    }
+                    catch (e) {
+                        return response; // Se não for JSON, retorna original
+                    }
+                }
+                else {
+                    data = response;
+                }
+                const user = data.user || data.session?.user;
+                if (user && user.id) {
+                    try {
+                        // BLOQUEIO EM TEMPO REAL: Se o usuário estiver desativado no banco
+                        // Buscamos o status atualizado do usuário
+                        const userStatus = await db
+                            .select({ active: schema.user.active })
+                            .from(schema.user)
+                            .where(eq(schema.user.id, user.id))
+                            .limit(1);
+                        if (userStatus[0] && userStatus[0].active === false) {
+                            console.warn(`[AUTH_BLOCK]: Conta desativada - ${user.email}`);
+                            return new Response(JSON.stringify({
+                                error: "ACCOUNT_SUSPENDED",
+                                message: "Sua conta foi desativada."
+                            }), {
+                                status: 403,
+                                headers: new Headers({ "Content-Type": "application/json" }),
+                            });
+                        }
+                        const results = await db
+                            .select({
+                            id: schema.companies.id,
+                            name: schema.companies.name,
+                            slug: schema.companies.slug,
+                            ownerId: schema.companies.ownerId,
+                            active: schema.companies.active,
+                        })
+                            .from(schema.companies)
+                            .where(eq(schema.companies.ownerId, user.id))
+                            .limit(1);
+                        const userCompany = results[0];
+                        if (userCompany) {
+                            // BLOQUEIO EM TEMPO REAL: Se o estúdio estiver desativado no banco
+                            if (userCompany.active === false && user.role !== "SUPER_ADMIN") {
+                                console.warn(`[AUTH_BLOCK]: Estúdio suspenso - ${userCompany.slug}`);
+                                return new Response(JSON.stringify({
+                                    error: "BUSINESS_SUSPENDED",
+                                    message: "O acesso a este estúdio foi suspenso."
+                                }), {
+                                    status: 403,
+                                    headers: new Headers({ "Content-Type": "application/json" }),
+                                });
+                            }
+                            const companyData = {
+                                id: userCompany.id,
+                                name: userCompany.name,
+                                slug: userCompany.slug,
+                            };
+                            // Injeta os dados no objeto
+                            if (data.user) {
+                                data.user.business = companyData;
+                                data.user.slug = userCompany.slug;
+                                data.user.businessId = userCompany.id;
+                            }
+                            if (data.session && data.session.user) {
+                                data.session.user.business = companyData;
+                                data.session.user.slug = userCompany.slug;
+                                data.session.user.businessId = userCompany.id;
+                            }
+                            console.log(`[AUTH_AFTER_HOOK] Enriquecido com sucesso: ${user.email} -> ${userCompany.slug}`);
+                        }
+                        else {
+                            console.log(`[AUTH_AFTER_HOOK] Nenhuma empresa encontrada para: ${user.email}`);
+                        }
+                    }
+                    catch (dbError) {
+                        console.error(`[AUTH_AFTER_HOOK] Erro ao buscar company:`, dbError);
+                    }
+                }
+                // Se era um Response, retorna um novo Response com os dados enriquecidos
+                if (isResponseObject) {
+                    return new Response(JSON.stringify(data), {
+                        status: response.status,
+                        headers: new Headers(response.headers),
+                    });
+                }
+                return data;
+            }
+            catch (globalError) {
+                console.error(`[AUTH_AFTER_HOOK] Erro crítico:`, globalError);
+                return response;
+            }
+        },
+    },
+    plugins: [
+        {
+            id: "business-data",
+            endpoints: {
+                getBusiness: createAuthEndpoint("/business-info", {
+                    method: "GET",
+                }, async (ctx) => {
+                    const session = ctx.context.session;
+                    if (!session)
+                        return ctx.json({ business: null, slug: null });
+                    const userId = session.user.id;
+                    const results = await db
+                        .select({
+                        id: schema.companies.id,
+                        name: schema.companies.name,
+                        slug: schema.companies.slug,
+                        ownerId: schema.companies.ownerId,
+                        createdAt: schema.companies.createdAt,
+                        updatedAt: schema.companies.updatedAt,
+                        siteCustomization: {
+                            layoutGlobal: schema.companySiteCustomizations.layoutGlobal,
+                            home: schema.companySiteCustomizations.home,
+                            gallery: schema.companySiteCustomizations.gallery,
+                            aboutUs: schema.companySiteCustomizations.aboutUs,
+                            appointmentFlow: schema.companySiteCustomizations.appointmentFlow,
+                        }
+                    })
+                        .from(schema.companies)
+                        .leftJoin(schema.companySiteCustomizations, eq(schema.companies.id, schema.companySiteCustomizations.companyId))
+                        .where(eq(schema.companies.ownerId, userId))
+                        .limit(1);
+                    const userCompany = results[0];
+                    return ctx.json({
+                        business: userCompany || null,
+                        slug: userCompany?.slug || null,
+                    });
+                }),
+            },
+        },
+    ],
+});

@@ -83,11 +83,18 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
 
   async create(data: CreateBusinessInput): Promise<Business> {
     return await db.transaction(async (tx) => {
+      // Calcular data de fim do trial (+14 dias)
+      const trialEndsAt = new Date();
+      trialEndsAt.setDate(trialEndsAt.getDate() + 14);
+
       const [newCompany] = await tx.insert(companies).values({
         id: data.id,
         name: data.name,
         slug: data.slug,
         ownerId: data.ownerId,
+        subscriptionStatus: 'trial',
+        trialEndsAt: trialEndsAt,
+        accessType: 'automatic',
       }).returning();
 
       const [newCustomization] = await tx.insert(companySiteCustomizations).values({
