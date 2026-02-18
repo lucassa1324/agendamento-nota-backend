@@ -22,8 +22,8 @@ import { pushController } from "./modules/notifications/adapters/in/http/push.co
 import { notificationsController } from "./modules/notifications/adapters/in/http/notifications.controller";
 import { userPreferencesController } from "./modules/user/adapters/in/http/user-preferences.controller";
 import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
-import { stripeWebhookController } from "./modules/infrastructure/stripe/webhook.controller";
-import { stripeCheckoutController } from "./modules/infrastructure/stripe/checkout.controller";
+// import { stripeWebhookController } from "./modules/infrastructure/stripe/webhook.controller";
+// import { stripeCheckoutController } from "./modules/infrastructure/stripe/checkout.controller";
 import { staticPlugin } from "@elysiajs/static";
 
 const userRepository = new UserRepository();
@@ -100,8 +100,8 @@ const app = new Elysia()
       .use(notificationsController)
       .use(userPreferencesController)
       .use(masterAdminController)
-      .use(stripeWebhookController)
-      .use(stripeCheckoutController)
+    // .use(stripeWebhookController)
+    // .use(stripeCheckoutController)
   )
   .use(staticPlugin({
     assets: "public",
