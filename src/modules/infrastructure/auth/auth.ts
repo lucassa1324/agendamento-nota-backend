@@ -5,8 +5,13 @@ import { db } from "../drizzle/database";
 import * as schema from "../../../db/schema";
 import { eq } from "drizzle-orm";
 
+if (!process.env.BETTER_AUTH_SECRET) {
+  console.error("BETTER_AUTH_SECRET is missing!");
+  // Prevent crash during build/link if possible, or fail explicitly
+}
+
 export const auth = betterAuth({
-  secret: process.env.BETTER_AUTH_SECRET!,
+  secret: process.env.BETTER_AUTH_SECRET || "placeholder_secret_for_build",
   emailAndPassword: {
     enabled: true,
   },
