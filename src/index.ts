@@ -4,8 +4,8 @@ import { authPlugin } from "./modules/infrastructure/auth/auth-plugin";
 import type { User, Session } from "./modules/infrastructure/auth/auth-plugin";
 import cors from "@elysiajs/cors";
 import { UserController } from "./modules/user/adapters/in/http/user.controller";
-import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
 import { ListUsersUseCase } from "./modules/user/application/use-cases/list-users.use-case";
+import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
 import { UserRepository } from "./modules/user/adapters/out/user.repository";
 import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
 import { serviceController } from "./modules/services/adapters/in/http/service.controller";
@@ -22,6 +22,8 @@ import { pushController } from "./modules/notifications/adapters/in/http/push.co
 import { notificationsController } from "./modules/notifications/adapters/in/http/notifications.controller";
 import { userPreferencesController } from "./modules/user/adapters/in/http/user-preferences.controller";
 import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
+import { stripeWebhookController } from "./modules/infrastructure/stripe/webhook.controller";
+import { stripeCheckoutController } from "./modules/infrastructure/stripe/checkout.controller";
 import { staticPlugin } from "@elysiajs/static";
 
 const userRepository = new UserRepository();
@@ -98,6 +100,8 @@ const app = new Elysia()
       .use(notificationsController)
       .use(userPreferencesController)
       .use(masterAdminController)
+      .use(stripeWebhookController)
+      .use(stripeCheckoutController)
   )
   .use(staticPlugin({
     assets: "public",
@@ -116,6 +120,15 @@ const app = new Elysia()
         message: errorMessage === "BUSINESS_SUSPENDED"
           ? "O acesso a este estúdio foi suspenso."
           : "Sua conta foi desativada."
+      };
+    }
+
+    if (errorMessage === "BILLING_REQUIRED") {
+      set.status = 402;
+      return {
+        error: errorMessage,
+        message: "Assinatura necessária ou trial expirado.",
+        redirect: "/billing-required"
       };
     }
 

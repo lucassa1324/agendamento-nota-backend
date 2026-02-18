@@ -111,25 +111,28 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             slug: schema.companies.slug,
                             ownerId: schema.companies.ownerId,
                             active: schema.companies.active,
+                            subscriptionStatus: schema.companies.subscriptionStatus,
+                            trialEndsAt: schema.companies.trialEndsAt,
+                            accessType: schema.companies.accessType,
                         })
                         .from(schema.companies)
                         .where(eq(schema.companies.ownerId, user.id))
                         .limit(1);
 
                     const userCompany = businessResults[0];
-                    
+
                     // Log de depuração detalhado para diagnosticar problemas de login
                     console.log(`>>> [AUTH_DEBUG] User: ${user.email} (ID: ${user.id})`);
                     if (userCompany) {
-                         console.log(`>>> [AUTH_DEBUG] Business Found -> ID: ${userCompany.id} | Slug: ${userCompany.slug} | Active: ${userCompany.active}`);
+                        console.log(`>>> [AUTH_DEBUG] Business Found -> ID: ${userCompany.id} | Slug: ${userCompany.slug} | Active: ${userCompany.active}`);
                     } else {
-                         console.log(`>>> [AUTH_DEBUG] NO BUSINESS FOUND for this user.`);
+                        console.log(`>>> [AUTH_DEBUG] NO BUSINESS FOUND for this user.`);
                     }
 
                     // 1. BLOQUEIO POR CONTA DE USUÁRIO DESATIVADA (Restritivo)
                     if (user.active === false && !isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
                         console.warn(`[AUTH_BLOCK]: Conta de usuário desativada: ${user.email}`);
-                        
+
                         set.status = 403;
                         throw new Error("ACCOUNT_SUSPENDED");
                     }
@@ -144,13 +147,31 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                         // Se o status for explicitamente false, bloqueia.
                         if (userCompany.active === false && !isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
                             console.warn(`[AUTH_BLOCK]: Acesso negado para estúdio suspenso: ${userCompany.slug} (User: ${user.email})`);
-                            
+
                             set.status = 403;
                             throw new Error("BUSINESS_SUSPENDED");
                         }
+
+                        // 3. BLOQUEIO POR ASSINATURA (SaaS)
+                        // Verifica se o usuário tem permissão de acesso baseado na assinatura
+                        if (!isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
+                            const now = new Date();
+                            const status = userCompany.subscriptionStatus;
+                            const trialEnds = userCompany.trialEndsAt ? new Date(userCompany.trialEndsAt) : null;
+
+                            const isManualActive = status === 'manual_active';
+                            const isActive = status === 'active';
+                            const isTrialValid = status === 'trial' && trialEnds && trialEnds > now;
+
+                            if (!isManualActive && !isActive && !isTrialValid) {
+                                console.warn(`[AUTH_BLOCK]: Acesso negado por falta de pagamento/trial expirado: ${userCompany.slug} (Status: ${status})`);
+                                set.status = 402; // Payment Required
+                                throw new Error("BILLING_REQUIRED");
+                            }
+                        }
                     }
                 } catch (dbError: any) {
-                    if (dbError.message === "BUSINESS_SUSPENDED") {
+                    if (dbError.message === "BUSINESS_SUSPENDED" || dbError.message === "BILLING_REQUIRED") {
                         throw dbError;
                     }
                     console.error(`[AUTH_PLUGIN] Erro ao buscar company:`, dbError);
@@ -163,7 +184,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             };
         } catch (error: any) {
             // Repassa erros de suspensão para o onError global do index.ts
-            if (error.message === "BUSINESS_SUSPENDED" || error.message === "ACCOUNT_SUSPENDED") {
+            if (error.message === "BUSINESS_SUSPENDED" || error.message === "ACCOUNT_SUSPENDED" || error.message === "BILLING_REQUIRED") {
                 throw error;
             }
             console.error("[AUTH_PLUGIN] Erro ao obter sessão:", error);

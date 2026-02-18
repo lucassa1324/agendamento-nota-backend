@@ -12,6 +12,14 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import {
+  DEFAULT_LAYOUT_GLOBAL,
+  DEFAULT_HOME_SECTION,
+  DEFAULT_GALLERY_SECTION,
+  DEFAULT_ABOUT_US_SECTION,
+  DEFAULT_APPOINTMENT_FLOW_SECTION,
+} from "../modules/business/domain/constants/site_customization.defaults";
+
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -137,6 +145,11 @@ export const companies = pgTable("companies", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   active: boolean("active").default(true).notNull(),
+  subscriptionStatus: text("subscription_status").default('trial').notNull(),
+  trialEndsAt: timestamp("trial_ends_at").defaultNow(),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  accessType: text("access_type").default('automatic').notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -157,14 +170,6 @@ export const inventoryLogs = pgTable("inventory_logs", {
     .references(() => companies.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
-
-import {
-  DEFAULT_LAYOUT_GLOBAL,
-  DEFAULT_HOME_SECTION,
-  DEFAULT_GALLERY_SECTION,
-  DEFAULT_ABOUT_US_SECTION,
-  DEFAULT_APPOINTMENT_FLOW_SECTION,
-} from "../modules/business/domain/constants/site_customization.defaults";
 
 export const companySiteCustomizations = pgTable("company_site_customizations", {
   id: text("id").primaryKey(),

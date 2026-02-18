@@ -246,6 +246,9 @@ export const masterAdminController = new Elysia({ prefix: "/admin/master" })
           name: schema.companies.name,
           slug: schema.companies.slug,
           active: schema.companies.active,
+          subscriptionStatus: schema.companies.subscriptionStatus,
+          trialEndsAt: schema.companies.trialEndsAt,
+          accessType: schema.companies.accessType,
           createdAt: schema.companies.createdAt,
           ownerEmail: schema.user.email,
         })
@@ -303,5 +306,40 @@ export const masterAdminController = new Elysia({ prefix: "/admin/master" })
   }, {
     body: t.Object({
       active: t.Boolean()
+    })
+  })
+  .patch("/businesses/:id/subscription", async ({ params, body, set }) => {
+    try {
+      const { id } = params;
+      const { subscriptionStatus, accessType } = body;
+
+      const [updated] = await db
+        .update(schema.companies)
+        .set({
+          subscriptionStatus,
+          accessType: accessType || 'automatic',
+          updatedAt: new Date()
+        })
+        .where(eq(schema.companies.id, id))
+        .returning();
+
+      if (!updated) {
+        set.status = 404;
+        return { error: "Estúdio não encontrado" };
+      }
+
+      return {
+        success: true,
+        message: `Assinatura do estúdio ${updated.name} alterada para ${subscriptionStatus}`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_SUBSCRIPTION_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao atualizar assinatura: " + error.message };
+    }
+  }, {
+    body: t.Object({
+      subscriptionStatus: t.String(),
+      accessType: t.Optional(t.String())
     })
   });
