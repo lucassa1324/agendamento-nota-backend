@@ -9,20 +9,20 @@ import { UserController } from "./modules/user/adapters/in/http/user.controller"
 import { ListUsersUseCase } from "./modules/user/application/use-cases/list-users.use-case";
 import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
 import { UserRepository } from "./modules/user/adapters/out/user.repository";
-import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
-import { serviceController } from "./modules/services/adapters/in/http/service.controller";
-import { reportController } from "./modules/reports/adapters/in/http/report.controller";
-import { businessController } from "./modules/business/adapters/in/http/business.controller";
+// import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
+// import { serviceController } from "./modules/services/adapters/in/http/service.controller";
+// import { reportController } from "./modules/reports/adapters/in/http/report.controller";
+// import { businessController } from "./modules/business/adapters/in/http/business.controller";
 // import { companyController } from "./modules/business/adapters/in/http/company.controller";
-import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
-import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
-import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
-import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
-import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
-import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
-import { pushController } from "./modules/notifications/adapters/in/http/push.controller";
-import { notificationsController } from "./modules/notifications/adapters/in/http/notifications.controller";
-import { userPreferencesController } from "./modules/user/adapters/in/http/user-preferences.controller";
+// import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
+// import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
+// import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
+// import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
+// import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
+// import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
+// import { pushController } from "./modules/notifications/adapters/in/http/push.controller";
+// import { notificationsController } from "./modules/notifications/adapters/in/http/notifications.controller";
+// import { userPreferencesController } from "./modules/user/adapters/in/http/user-preferences.controller";
 import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
 // import { stripeWebhookController } from "./modules/infrastructure/stripe/webhook.controller";
 // import { stripeCheckoutController } from "./modules/infrastructure/stripe/checkout.controller";
@@ -85,23 +85,23 @@ const app = new Elysia()
     console.log(`[LOG] Origin: ${origin}`);
     console.log(`[LOG] Cookie presente: ${cookie ? 'Sim' : 'Não'}`);
   })
-  .use(publicBusinessController)
+  // .use(publicBusinessController)
   .use(userController.registerRoutes())
   .group("/api", (api) =>
     api
-      .use(appointmentController)
-      .use(serviceController)
-      .use(reportController)
-      .use(businessController)
-      // .use(companyController)
-      .use(inventoryController)
-      .use(settingsController)
-      .use(expenseController)
-      .use(galleryController)
-      .use(pushController)
-      .use(notificationsController)
-      .use(userPreferencesController)
-      .use(masterAdminController)
+    // .use(appointmentController)
+    // .use(serviceController)
+    // .use(reportController)
+    // .use(businessController)
+    // .use(companyController)
+    // .use(inventoryController)
+    // .use(settingsController)
+    // .use(expenseController)
+    // .use(galleryController)
+    // .use(pushController)
+    // .use(notificationsController)
+    // .use(userPreferencesController)
+    // .use(masterAdminController)
     // .use(stripeWebhookController)
     // .use(stripeCheckoutController)
   )
