@@ -43,7 +43,7 @@ export const galleryController = new Elysia({ prefix: "/gallery" })
         }
         const services = await serviceRepository.findAllByCompanyId(businessId);
         // Retorna apenas os nomes dos serviços como categorias
-        return services.map(s => ({ id: s.id, name: s.name }));
+        return services.map((s) => ({ id: s.id, name: s.name }));
     }
     catch (error) {
         console.error("[GALLERY_CATEGORIES_ERROR]:", error);
