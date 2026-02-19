@@ -87,15 +87,71 @@ export const masterAdminController = new Elysia({ prefix: "/admin/master" })
   .patch("/companies/:id/subscription", async ({ params, body, set }) => {
     try {
       const { id } = params;
-      const { status, accessType } = body;
+      const { status, accessType, actionType, trialDays } = body;
+
+      let updateData: any = {
+        subscriptionStatus: status as any,
+        accessType: accessType as any,
+        updatedAt: new Date()
+      };
+
+      // Se actionType for fornecido, aplica lógica específica
+      if (actionType) {
+        const [currentCompany] = await db
+          .select()
+          .from(schema.companies)
+          .where(eq(schema.companies.id, id))
+          .limit(1);
+
+        if (!currentCompany) {
+          set.status = 404;
+          return { error: "Empresa não encontrada" };
+        }
+
+        const now = new Date();
+
+        if (actionType === 'manual_custom_days') {
+          // Opção 1: Liberar por X dias (Manual/Fatura)
+          // Define status como 'active' para liberar acesso imediato
+          const daysToAdd = trialDays ? Number(trialDays) : 30;
+          const nextDue = new Date(now);
+          nextDue.setDate(nextDue.getDate() + daysToAdd);
+          
+          updateData.subscriptionStatus = 'active';
+          updateData.accessType = 'manual'; // Marca como manual para diferenciar
+          updateData.trialEndsAt = nextDue;
+
+        } else if (actionType === 'extend_trial_custom') {
+          // Opção 2: Definir Teste (Novo Prazo)
+          // Lógica alterada: Agora define EXATAMENTE os dias a partir de hoje, substituindo o prazo anterior.
+          // Ex: Se faltam 3 dias e defino 4, passa a faltar 4 (não soma 3+4).
+          
+          const daysToAdd = trialDays ? Number(trialDays) : 14;
+          const extendedDate = new Date(now); // Baseado em HOJE
+          extendedDate.setDate(extendedDate.getDate() + daysToAdd);
+
+          updateData.subscriptionStatus = 'trial';
+          updateData.trialEndsAt = extendedDate;
+          // Força o tipo de acesso para 'extended_trial' para diferenciar do 'automatic' (padrão)
+          // O Frontend usará isso para saber que houve uma extensão manual.
+          updateData.accessType = 'extended_trial';
+
+        } else if (actionType === 'automatic') {
+          // Reset Automático: SEMPRE revoga acesso manual/extendido e bloqueia se não houver pagamento.
+          // Independente da idade da empresa, ao voltar para automático, o trial é zerado.
+          const yesterday = new Date(now);
+          yesterday.setDate(yesterday.getDate() - 1);
+
+          updateData.subscriptionStatus = 'past_due';
+          updateData.trialEndsAt = yesterday;
+          updateData.accessType = 'automatic';
+          console.log(`[MASTER_ADMIN] Reset Automático: Trial zerado e acesso bloqueado (sem pagamento).`);
+        }
+      }
 
       const [updated] = await db
         .update(schema.companies)
-        .set({
-          subscriptionStatus: status as any,
-          accessType: accessType as any,
-          updatedAt: new Date()
-        })
+        .set(updateData)
         .where(eq(schema.companies.id, id))
         .returning();
 
@@ -106,7 +162,7 @@ export const masterAdminController = new Elysia({ prefix: "/admin/master" })
 
       return {
         success: true,
-        message: `Status da assinatura alterado para ${status} (Acesso: ${accessType})`
+        message: `Assinatura atualizada via ${actionType || 'direto'}: Status ${updated.subscriptionStatus}, Vence em ${updated.trialEndsAt?.toLocaleDateString()}`
       };
     } catch (error: any) {
       console.error("[MASTER_ADMIN_SUBSCRIPTION_ERROR]:", error);
@@ -116,7 +172,9 @@ export const masterAdminController = new Elysia({ prefix: "/admin/master" })
   }, {
     body: t.Object({
       status: t.String(),
-      accessType: t.Optional(t.String())
+      accessType: t.Optional(t.String()),
+      actionType: t.Optional(t.String()), // 'manual_custom_days' | 'extend_trial_custom' | 'automatic'
+      trialDays: t.Optional(t.Number()) // Quantidade de dias customizável
     })
   })
   .patch("/users/:id/email", async ({ params, body, set }) => {

@@ -132,6 +132,16 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                         const isManualActive = status === 'manual_active';
                         const isActive = status === 'active';
                         const isTrialValid = status === 'trial' && trialEnds && trialEnds > now;
+                        // Auto-expiração do Trial (Lazy Update)
+                        if (status === 'trial' && trialEnds && trialEnds <= now) {
+                            console.warn(`[AUTH_UPDATE]: Trial expirado para ${userCompany.slug}. Atualizando status para 'past_due'.`);
+                            // Atualiza no banco de forma assíncrona (sem await para não travar o request)
+                            db.update(schema.companies)
+                                .set({ subscriptionStatus: 'past_due' })
+                                .where(eq(schema.companies.id, userCompany.id))
+                                .then(() => console.log(`[AUTH_UPDATE_SUCCESS]: Status atualizado para 'past_due' - ${userCompany.slug}`))
+                                .catch(err => console.error(`[AUTH_UPDATE_ERROR]: Falha ao atualizar status - ${userCompany.slug}`, err));
+                        }
                         if (!isManualActive && !isActive && !isTrialValid) {
                             console.warn(`[AUTH_BLOCK]: Acesso negado por falta de pagamento/trial expirado: ${userCompany.slug} (Status: ${status})`);
                             set.status = 402; // Payment Required

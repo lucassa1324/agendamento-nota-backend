@@ -18,7 +18,7 @@ export const auth = betterAuth({
     baseURL: process.env.BETTER_AUTH_URL ? process.env.BETTER_AUTH_URL.replace("/api/auth", "") : "http://localhost:3001",
     trustedOrigins: process.env.TRUSTED_ORIGINS
         ? process.env.TRUSTED_ORIGINS.split(',')
-        : ["http://localhost:3000", "http://localhost:3001"],
+        : ["http://localhost:3000", "http://localhost:3001", "https://agendamento-nota-front.vercel.app"],
     advanced: {
         cookiePrefix: "better-auth",
         // Desabilitado: o proxy torna a comunicação First-Party

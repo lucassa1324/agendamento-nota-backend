@@ -1,3 +1,4 @@
+console.log("Servidor iniciando com sucesso!");
 import { Elysia } from "elysia";
 import { auth } from "./modules/infrastructure/auth/auth";
 import cors from "@elysiajs/cors";
@@ -9,7 +10,6 @@ import { appointmentController } from "./modules/appointments/adapters/in/http/a
 import { serviceController } from "./modules/services/adapters/in/http/service.controller";
 import { reportController } from "./modules/reports/adapters/in/http/report.controller";
 import { businessController } from "./modules/business/adapters/in/http/business.controller";
-import { companyController } from "./modules/business/adapters/in/http/company.controller";
 import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
 import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
 import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
@@ -21,6 +21,7 @@ import { notificationsController } from "./modules/notifications/adapters/in/htt
 import { userPreferencesController } from "./modules/user/adapters/in/http/user-preferences.controller";
 // import { stripeWebhookController } from "./modules/infrastructure/stripe/webhook.controller";
 // import { stripeCheckoutController } from "./modules/infrastructure/stripe/checkout.controller";
+import { asaasWebhookController } from "./modules/infrastructure/payment/asaas.webhook.controller";
 import { staticPlugin } from "@elysiajs/static";
 const userRepository = new UserRepository();
 const createUserUseCase = new CreateUserUseCase(userRepository);
@@ -80,18 +81,18 @@ const app = new Elysia()
     .use(serviceController)
     .use(reportController)
     .use(businessController)
-    .use(companyController)
+    // .use(companyController)
     .use(inventoryController)
     .use(settingsController)
     .use(expenseController)
     .use(galleryController)
+    .use(masterAdminController)
     .use(pushController)
     .use(notificationsController)
     .use(userPreferencesController)
-    .use(masterAdminController)
-// .use(stripeWebhookController)
-// .use(stripeCheckoutController)
-)
+    // .use(stripeWebhookController)
+    // .use(stripeCheckoutController)
+    .use(asaasWebhookController))
     .use(staticPlugin({
     assets: "public",
     prefix: "/public",

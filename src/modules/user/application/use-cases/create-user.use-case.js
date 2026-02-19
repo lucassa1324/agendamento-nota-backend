@@ -24,12 +24,16 @@ export class CreateUserUseCase {
                 };
             }
             const slug = await generateUniqueSlug(data.studioName);
+            const trialEndsAt = new Date();
+            trialEndsAt.setDate(trialEndsAt.getDate() + 14);
             const result = await db.transaction(async (tx) => {
                 const [newCompany] = await tx.insert(companies).values({
                     id: crypto.randomUUID(),
                     name: data.studioName,
                     slug,
                     ownerId: alreadyExists.id,
+                    trialEndsAt: trialEndsAt,
+                    subscriptionStatus: 'trial',
                 }).returning();
                 await tx.insert(companySiteCustomizations).values({
                     id: crypto.randomUUID(),
@@ -41,12 +45,16 @@ export class CreateUserUseCase {
                 const code = err?.code || err?.cause?.code;
                 if (code === "23505") {
                     const fallbackSlug = await generateUniqueSlug(`${data.studioName}-${Date.now()}`);
+                    const trialEndsAt = new Date();
+                    trialEndsAt.setDate(trialEndsAt.getDate() + 14);
                     const result = await db.transaction(async (tx) => {
                         const [newCompany] = await tx.insert(companies).values({
                             id: crypto.randomUUID(),
                             name: data.studioName,
                             slug: fallbackSlug,
                             ownerId: alreadyExists.id,
+                            trialEndsAt: trialEndsAt,
+                            subscriptionStatus: 'trial',
                         }).returning();
                         await tx.insert(companySiteCustomizations).values({
                             id: crypto.randomUUID(),
@@ -86,13 +94,17 @@ export class CreateUserUseCase {
         await db.update(user).set({ role: finalRole }).where(eq(user.id, response.user.id));
         console.log(`[USER_REGISTER_USE_CASE] Role '${finalRole}' aplicada ao usuário ${response.user.id}`);
         const slug = await generateUniqueSlug(data.studioName);
-        const { newCompany, finalSlug } = await db.transaction(async (tx) => {
+        const trialEndsAt = new Date();
+        trialEndsAt.setDate(trialEndsAt.getDate() + 14);
+        const result = await db.transaction(async (tx) => {
             await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, response.user.id));
             const [created] = await tx.insert(companies).values({
                 id: crypto.randomUUID(),
                 name: data.studioName,
                 slug,
                 ownerId: response.user.id,
+                trialEndsAt: trialEndsAt,
+                subscriptionStatus: 'trial',
             }).returning();
             await tx.insert(companySiteCustomizations).values({
                 id: crypto.randomUUID(),
@@ -103,6 +115,8 @@ export class CreateUserUseCase {
             const code = err?.code || err?.cause?.code;
             if (code === "23505") {
                 const fallbackSlug = await generateUniqueSlug(`${data.studioName}-${Date.now()}`);
+                const trialEndsAt = new Date();
+                trialEndsAt.setDate(trialEndsAt.getDate() + 14);
                 const result = await db.transaction(async (tx) => {
                     await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, response.user.id));
                     const [created] = await tx.insert(companies).values({
@@ -110,6 +124,8 @@ export class CreateUserUseCase {
                         name: data.studioName,
                         slug: fallbackSlug,
                         ownerId: response.user.id,
+                        trialEndsAt: trialEndsAt,
+                        subscriptionStatus: 'trial',
                     }).returning();
                     await tx.insert(companySiteCustomizations).values({
                         id: crypto.randomUUID(),
