@@ -89,8 +89,8 @@ const app = new Elysia()
   .group("/api", (api) =>
     api
       .use(businessController)
-      .use(serviceController)
-      .use(appointmentController)
+    // .use(serviceController)
+    // .use(appointmentController)
     // .use(companyController)
     // .use(inventoryController)
     // .use(settingsController)
