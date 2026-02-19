@@ -13,10 +13,6 @@ import {
 } from "../../../../business/adapters/in/dtos/site_customization.dto";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
-import sharp from "sharp";
-import { join } from "path";
-import { writeFile, mkdir } from "fs/promises";
-import { existsSync } from "fs";
 
 export const settingsController = new Elysia({ prefix: "/settings" })
   .use(authPlugin)
@@ -132,18 +128,10 @@ export const settingsController = new Elysia({ prefix: "/settings" })
             return { error: "Você não tem permissão para esta empresa." };
           }
 
-          // Converter o arquivo (Blob/File) para Base64 para salvar no banco
-          // Como desenvolvedor sênior, recomendo limitar o tamanho para não sobrecarregar o banco
           const arrayBuffer = await file.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
 
-          // Otimização: Usamos o Sharp apenas para garantir o formato e tamanho, mas em memória
-          const optimizedBuffer = await sharp(buffer)
-            .resize(400, 400, { fit: "inside", withoutEnlargement: true })
-            .webp({ quality: 80 })
-            .toBuffer();
-
-          const base64Logo = `data:image/webp;base64,${optimizedBuffer.toString('base64')}`;
+          const base64Logo = `data:image/webp;base64,${buffer.toString('base64')}`;
 
           // Atualizar o banco de dados com a string Base64 na coluna logoUrl
           const saveSettingsUseCase = new SaveSettingsUseCase(settingsRepository);
