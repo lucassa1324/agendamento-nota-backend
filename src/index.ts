@@ -78,7 +78,7 @@ const app = new Elysia()
       preflight: true
     })
   )
-  // .mount(auth.handler)
+  .mount(auth.handler)
   .use(authPlugin)
   .onBeforeHandle(({ request }) => {
     const origin = request.headers.get('origin');
