@@ -9,12 +9,12 @@ import { UserController } from "./modules/user/adapters/in/http/user.controller"
 import { ListUsersUseCase } from "./modules/user/application/use-cases/list-users.use-case";
 import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
 import { UserRepository } from "./modules/user/adapters/out/user.repository";
-// import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
-// import { serviceController } from "./modules/services/adapters/in/http/service.controller";
+import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
+import { serviceController } from "./modules/services/adapters/in/http/service.controller";
 // import { reportController } from "./modules/reports/adapters/in/http/report.controller";
-// import { businessController } from "./modules/business/adapters/in/http/business.controller";
+import { businessController } from "./modules/business/adapters/in/http/business.controller";
 // import { companyController } from "./modules/business/adapters/in/http/company.controller";
-// import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
+import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
 // import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
 // import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
 // import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
@@ -82,19 +82,15 @@ const app = new Elysia()
   .use(authPlugin)
   .onBeforeHandle(({ request }) => {
     const origin = request.headers.get('origin');
-    const cookie = request.headers.get('cookie');
-    console.log(`\n[LOG] ${request.method} ${request.url}`);
-    console.log(`[LOG] Origin: ${origin}`);
-    console.log(`[LOG] Cookie presente: ${cookie ? 'Sim' : 'Não'}`);
+    // console.log(`[REQUEST] ${request.method} ${request.url} | Origin: ${origin}`);
   })
-  // .use(publicBusinessController)
+  .use(publicBusinessController)
   .use(userController.registerRoutes())
   .group("/api", (api) =>
     api
-    // .use(appointmentController)
-    // .use(serviceController)
-    // .use(reportController)
-    // .use(businessController)
+      .use(businessController)
+      .use(serviceController)
+      .use(appointmentController)
     // .use(companyController)
     // .use(inventoryController)
     // .use(settingsController)
