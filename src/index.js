@@ -59,6 +59,8 @@ const app = new Elysia()
     preflight: true
 }))
     .mount(auth.handler)
+    // COMPATIBILIDADE: Captura rota duplicada /api/auth/api/auth gerada erroneamente pelo frontend
+    .group("/api/auth", (app) => app.mount(auth.handler))
     .use(authPlugin)
     .onBeforeHandle(({ request }) => {
     const origin = request.headers.get('origin');
@@ -84,9 +86,9 @@ const app = new Elysia()
 // .use(asaasWebhookController)
 )
     // .use(staticPlugin({
-    // assets: "public",
-    // prefix: "/public",
-    // alwaysStatic: false,
+    //   assets: "public",
+    //   prefix: "/public",
+    //   alwaysStatic: false,
     // }))
     .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString() }))
     .onError(({ code, error, set, body }) => {

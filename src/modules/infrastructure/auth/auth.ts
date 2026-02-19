@@ -171,14 +171,11 @@ export const auth = betterAuth({
           return response;
         }
 
+        // Se response for null/undefined, significa que o Better Auth não retornou nada.
+        // Isso não deveria acontecer para /get-session se a sessão for válida.
+        // Se acontecer, retornamos null para evitar loops infinitos de chamadas recursivas.
         if (!response) {
-          const sessionData = await auth.api.getSession({
-            headers: context.headers,
-          });
-          response = new Response(JSON.stringify(sessionData ?? {}), {
-            status: 200,
-            headers: new Headers({ "Content-Type": "application/json" }),
-          });
+          return response; 
         }
 
         // --- ENRIQUECIMENTO DE DADOS (BUSINESS / SLUG) ---
@@ -210,13 +207,21 @@ export const auth = betterAuth({
 
             if (userStatus[0] && userStatus[0].active === false) {
               console.warn(`[AUTH_BLOCK]: Conta desativada - ${user.email}`);
-              return new Response(JSON.stringify({
+              const errorBody = {
                 error: "ACCOUNT_SUSPENDED",
                 message: "Sua conta foi desativada."
-              }), {
-                status: 403,
-                headers: new Headers({ "Content-Type": "application/json" }),
-              });
+              };
+              
+              if (isResponseObject) {
+                return new Response(JSON.stringify(errorBody), {
+                  status: 403,
+                  headers: new Headers({ "Content-Type": "application/json" }),
+                });
+              }
+              // Para chamadas internas (API), retornamos o erro ou null
+              // Mas como é um hook, se retornarmos um objeto com erro, o Better Auth pode não entender.
+              // Vamos retornar null para invalidar a sessão na chamada interna.
+              return null;
             }
 
             const results = await db
@@ -239,14 +244,19 @@ export const auth = betterAuth({
               // BLOQUEIO EM TEMPO REAL: Se o estúdio estiver desativado no banco
               if (userCompany.active === false && user.role !== "SUPER_ADMIN") {
                 console.warn(`[AUTH_BLOCK]: Estúdio suspenso - ${userCompany.slug}`);
-
-                return new Response(JSON.stringify({
+                
+                const errorBody = {
                   error: "BUSINESS_SUSPENDED",
                   message: "O acesso a este estúdio foi suspenso."
-                }), {
-                  status: 403,
-                  headers: new Headers({ "Content-Type": "application/json" }),
-                });
+                };
+
+                if (isResponseObject) {
+                   return new Response(JSON.stringify(errorBody), {
+                    status: 403,
+                    headers: new Headers({ "Content-Type": "application/json" }),
+                  });
+                }
+                return null;
               }
 
               // Cálculo de dias restantes (Trial)
@@ -297,11 +307,10 @@ export const auth = betterAuth({
           });
         }
 
-        const safeHeaders = new Headers({ "Content-Type": "application/json" });
-        return new Response(JSON.stringify(data), {
-          status: 200,
-          headers: safeHeaders,
-        });
+        // Para chamadas internas (API), retornamos o objeto enriquecido diretamente
+        // Isso evita que auth.api.getSession() receba um objeto Response
+        return data;
+
       } catch (globalError) {
         console.error(`[AUTH_AFTER_HOOK] Erro crítico:`, globalError);
         return response;

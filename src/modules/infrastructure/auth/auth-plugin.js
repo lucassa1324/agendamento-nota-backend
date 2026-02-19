@@ -9,6 +9,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
         // Exceção para rotas do Master Admin
         const isMasterRoute = path.startsWith("/api/admin/master");
         const isAuthRoute = path.startsWith("/api/auth");
+        const isHealthRoute = path.startsWith("/api/health");
         const authHeader = request.headers.get("authorization");
         const cookieHeader = request.headers.get("cookie");
         const headers = new Headers(request.headers);
@@ -106,7 +107,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     console.log(`>>> [AUTH_DEBUG] NO BUSINESS FOUND for this user.`);
                 }
                 // 1. BLOQUEIO POR CONTA DE USUÁRIO DESATIVADA (Restritivo)
-                if (user.active === false && !isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
+                if (user.active === false && !isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                     console.warn(`[AUTH_BLOCK]: Conta de usuário desativada: ${user.email}`);
                     set.status = 403;
                     throw new Error("ACCOUNT_SUSPENDED");
@@ -129,14 +130,14 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     user.businessId = userCompany.id;
                     // 2. BLOQUEIO POR ESTÚDIO (BUSINESS) DESATIVADO (Restritivo)
                     // Se o status for explicitamente false, bloqueia.
-                    if (userCompany.active === false && !isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
+                    if (userCompany.active === false && !isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                         console.warn(`[AUTH_BLOCK]: Acesso negado para estúdio suspenso: ${userCompany.slug} (User: ${user.email})`);
                         set.status = 403;
                         throw new Error("BUSINESS_SUSPENDED");
                     }
                     // 3. BLOQUEIO POR ASSINATURA (SaaS)
                     // Verifica se o usuário tem permissão de acesso baseado na assinatura
-                    if (!isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
+                    if (!isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                         const now = new Date();
                         const status = userCompany.subscriptionStatus;
                         const trialEnds = userCompany.trialEndsAt ? new Date(userCompany.trialEndsAt) : null;

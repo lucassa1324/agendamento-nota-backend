@@ -20,6 +20,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             // Exceção para rotas do Master Admin
             const isMasterRoute = path.startsWith("/api/admin/master");
             const isAuthRoute = path.startsWith("/api/auth");
+            const isHealthRoute = path.startsWith("/api/health");
 
             const authHeader = request.headers.get("authorization");
             const cookieHeader = request.headers.get("cookie");
@@ -130,7 +131,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     }
 
                     // 1. BLOQUEIO POR CONTA DE USUÁRIO DESATIVADA (Restritivo)
-                    if (user.active === false && !isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
+                    if (user.active === false && !isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                         console.warn(`[AUTH_BLOCK]: Conta de usuário desativada: ${user.email}`);
 
                         set.status = 403;
@@ -157,7 +158,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                         // 2. BLOQUEIO POR ESTÚDIO (BUSINESS) DESATIVADO (Restritivo)
                         // Se o status for explicitamente false, bloqueia.
-                        if (userCompany.active === false && !isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
+                        if (userCompany.active === false && !isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                             console.warn(`[AUTH_BLOCK]: Acesso negado para estúdio suspenso: ${userCompany.slug} (User: ${user.email})`);
 
                             set.status = 403;
@@ -166,7 +167,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                         // 3. BLOQUEIO POR ASSINATURA (SaaS)
                         // Verifica se o usuário tem permissão de acesso baseado na assinatura
-                        if (!isMasterRoute && !isAuthRoute && user.role !== "SUPER_ADMIN") {
+                        if (!isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                             const now = new Date();
                             const status = userCompany.subscriptionStatus;
                             const trialEnds = userCompany.trialEndsAt ? new Date(userCompany.trialEndsAt) : null;
@@ -189,16 +190,16 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             // Se o acesso manual venceu, ele deve "voltar para o automático" (bloqueio se não pagou)
                             if (isManualActive && trialEnds && trialEnds <= now) {
                                 console.warn(`[AUTH_UPDATE]: Acesso Manual expirado para ${userCompany.slug}. Revertendo para 'past_due' (Automático).`);
-                                
+
                                 db.update(schema.companies)
-                                    .set({ 
+                                    .set({
                                         subscriptionStatus: 'past_due',
-                                        accessType: 'automatic' 
+                                        accessType: 'automatic'
                                     })
                                     .where(eq(schema.companies.id, userCompany.id))
                                     .then(() => console.log(`[AUTH_UPDATE_SUCCESS]: Reset de Manual para Automático/PastDue - ${userCompany.slug}`))
                                     .catch(err => console.error(`[AUTH_UPDATE_ERROR]: Falha ao resetar status - ${userCompany.slug}`, err));
-                                
+
                                 isManualActive = false; // Invalida o acesso manual para cair no bloqueio abaixo
                             }
 
@@ -211,7 +212,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                     .where(eq(schema.companies.id, userCompany.id))
                                     .then(() => console.log(`[AUTH_UPDATE_SUCCESS]: Status atualizado para 'past_due' - ${userCompany.slug}`))
                                     .catch(err => console.error(`[AUTH_UPDATE_ERROR]: Falha ao atualizar status - ${userCompany.slug}`, err));
-                                
+
                                 // Bloqueia imediatamente após detectar a expiração
                                 set.status = 402;
                                 throw new Error("BILLING_REQUIRED");
