@@ -280,9 +280,10 @@ export const auth = betterAuth({
 
         // Se era um Response, retorna um novo Response com os dados enriquecidos
         if (isResponseObject) {
+          const newHeaders = new Headers(response.headers || {});
           return new Response(JSON.stringify(data), {
             status: response.status,
-            headers: new Headers(response.headers),
+            headers: newHeaders,
           });
         }
 
