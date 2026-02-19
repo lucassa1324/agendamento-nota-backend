@@ -90,7 +90,7 @@ const app = new Elysia()
   .use(userController.registerRoutes())
   .group("/api", (api) =>
     api
-      .use(appointmentController)
+    // .use(appointmentController)
     // .use(serviceController)
     // .use(reportController)
     // .use(businessController)
