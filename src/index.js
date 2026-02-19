@@ -14,7 +14,7 @@ import { publicBusinessController } from "./modules/business/adapters/in/http/pu
 // import { stripeWebhookController } from "./modules/infrastructure/stripe/webhook.controller";
 // import { stripeCheckoutController } from "./modules/infrastructure/stripe/checkout.controller";
 // import { asaasWebhookController } from "./modules/infrastructure/payment/asaas.webhook.controller";
-import { staticPlugin } from "@elysiajs/static";
+// import { staticPlugin } from "@elysiajs/static";
 const userRepository = new UserRepository();
 const createUserUseCase = new CreateUserUseCase(userRepository);
 const listUsersUseCase = new ListUsersUseCase(userRepository);
@@ -83,11 +83,12 @@ const app = new Elysia()
 // .use(stripeCheckoutController)
 // .use(asaasWebhookController)
 )
-    .use(staticPlugin({
-    assets: "public",
-    prefix: "/public",
-    alwaysStatic: false,
-}))
+    // .use(staticPlugin({
+    // assets: "public",
+    // prefix: "/public",
+    // alwaysStatic: false,
+    // }))
+    .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString() }))
     .onError(({ code, error, set, body }) => {
     console.error(`\n[ERROR] ${code}:`, error);
     const errorMessage = error instanceof Error ? error.message : "";
