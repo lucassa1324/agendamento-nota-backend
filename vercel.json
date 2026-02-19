@@ -3,8 +3,12 @@
   "bunVersion": "1.x",
   "rewrites": [
     {
-      "source": "/api/auth/api/:match*",
+      "source": "/api/auth/api/auth/:match*",
       "destination": "/api/auth/:match*"
+    },
+    {
+      "source": "/api/auth/api/:match*",
+      "destination": "/api/:match*"
     }
   ]
 }
