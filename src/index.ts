@@ -9,8 +9,8 @@ import { UserController } from "./modules/user/adapters/in/http/user.controller"
 import { ListUsersUseCase } from "./modules/user/application/use-cases/list-users.use-case";
 import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
 import { UserRepository } from "./modules/user/adapters/out/user.repository";
-import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
-import { serviceController } from "./modules/services/adapters/in/http/service.controller";
+// import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
+// import { serviceController } from "./modules/services/adapters/in/http/service.controller";
 // import { reportController } from "./modules/reports/adapters/in/http/report.controller";
 import { businessController } from "./modules/business/adapters/in/http/business.controller";
 import { companyController } from "./modules/business/adapters/in/http/company.controller";
@@ -90,8 +90,8 @@ const app = new Elysia()
   .use(userController.registerRoutes())
   .group("/api", (api) =>
     api
-      .use(appointmentController)
-      .use(serviceController)
+      // .use(appointmentController)
+      // .use(serviceController)
       // .use(reportController)
       .use(businessController)
     // .use(companyController)
@@ -149,7 +149,7 @@ const app = new Elysia()
       code,
     };
   })
-  .get("/", () => "Elysia funcionando - Core Business Active!")
+  .get("/", () => "Elysia funcionando - Business Controller Only!")
   .get("/diagnostics/headers", async ({ request }) => {
     const origin = request.headers.get("origin") || null;
     const cookie = request.headers.get("cookie") || null;
