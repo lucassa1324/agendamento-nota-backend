@@ -1,14 +1,14 @@
 console.log("Servidor iniciando com sucesso!");
 
 import { Elysia } from "elysia";
-// import { auth } from "./modules/infrastructure/auth/auth";
-// import { authPlugin } from "./modules/infrastructure/auth/auth-plugin";
-// import type { User, Session } from "./modules/infrastructure/auth/auth-plugin";
+import { auth } from "./modules/infrastructure/auth/auth";
+import { authPlugin } from "./modules/infrastructure/auth/auth-plugin";
+import type { User, Session } from "./modules/infrastructure/auth/auth-plugin";
 import cors from "@elysiajs/cors";
-// import { UserController } from "./modules/user/adapters/in/http/user.controller";
-// import { ListUsersUseCase } from "./modules/user/application/use-cases/list-users.use-case";
-// import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
-// import { UserRepository } from "./modules/user/adapters/out/user.repository";
+import { UserController } from "./modules/user/adapters/in/http/user.controller";
+import { ListUsersUseCase } from "./modules/user/application/use-cases/list-users.use-case";
+import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
+import { UserRepository } from "./modules/user/adapters/out/user.repository";
 // import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
 // import { serviceController } from "./modules/services/adapters/in/http/service.controller";
 // import { reportController } from "./modules/reports/adapters/in/http/report.controller";
@@ -23,16 +23,16 @@ import cors from "@elysiajs/cors";
 // import { pushController } from "./modules/notifications/adapters/in/http/push.controller";
 // import { notificationsController } from "./modules/notifications/adapters/in/http/notifications.controller";
 // import { userPreferencesController } from "./modules/user/adapters/in/http/user-preferences.controller";
-// import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
+import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
 // import { stripeWebhookController } from "./modules/infrastructure/stripe/webhook.controller";
 // import { stripeCheckoutController } from "./modules/infrastructure/stripe/checkout.controller";
 // import { asaasWebhookController } from "./modules/infrastructure/payment/asaas.webhook.controller";
 import { staticPlugin } from "@elysiajs/static";
 
-// const userRepository = new UserRepository();
-// const createUserUseCase = new CreateUserUseCase(userRepository);
-// const listUsersUseCase = new ListUsersUseCase(userRepository);
-// const userController = new UserController(createUserUseCase, listUsersUseCase);
+const userRepository = new UserRepository();
+const createUserUseCase = new CreateUserUseCase(userRepository);
+const listUsersUseCase = new ListUsersUseCase(userRepository);
+const userController = new UserController(createUserUseCase, listUsersUseCase);
 
 const app = new Elysia()
   .use(
@@ -79,6 +79,7 @@ const app = new Elysia()
     })
   )
   // .mount(auth.handler)
+  .use(authPlugin)
   .onBeforeHandle(({ request }) => {
     const origin = request.headers.get('origin');
     const cookie = request.headers.get('cookie');
@@ -87,7 +88,7 @@ const app = new Elysia()
     console.log(`[LOG] Cookie presente: ${cookie ? 'Sim' : 'Não'}`);
   })
   // .use(publicBusinessController)
-  // .use(userController.registerRoutes())
+  .use(userController.registerRoutes())
   .group("/api", (api) =>
     api
     // .use(appointmentController)
@@ -149,13 +150,13 @@ const app = new Elysia()
       code,
     };
   })
-  .get("/", () => "Elysia funcionando - HELLO WORLD PURO!")
+  .get("/", () => "Elysia funcionando - User & Auth ativados!")
   .get("/diagnostics/headers", async ({ request }) => {
     const origin = request.headers.get("origin") || null;
     const cookie = request.headers.get("cookie") || null;
     const authorization = request.headers.get("authorization") || null;
     const userAgent = request.headers.get("user-agent") || null;
-    // const session = await auth.api.getSession({ headers: request.headers });
+    const session = await auth.api.getSession({ headers: request.headers });
     return {
       method: request.method,
       origin,
@@ -163,21 +164,20 @@ const app = new Elysia()
       cookiePreview: cookie ? `${cookie.slice(0, 80)}${cookie.length > 80 ? "..." : ""}` : null,
       authorizationPresent: !!authorization,
       userAgent,
-      sessionFound: false, // !!session,
-      userId: null, // session?.user?.id || null,
+      sessionFound: !!session,
+      userId: session?.user?.id || null,
     };
   })
   .get("/user", async ({ request, set }) => {
     // Para a rota /user, precisamos validar a sessão manualmente ou usar o plugin localmente
-    // const session = await auth.api.getSession({
-    //   headers: request.headers,
-    // });
-    // if (!session) {
-    //   set.status = 401;
-    //   return { error: "Unauthorized" };
-    // }
-    // return session.user;
-    return { message: "Rota user desativada para teste" };
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+    if (!session) {
+      set.status = 401;
+      return { error: "Unauthorized" };
+    }
+    return session.user;
   });
 
 export default app;
