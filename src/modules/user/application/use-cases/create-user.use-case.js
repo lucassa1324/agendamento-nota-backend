@@ -139,8 +139,8 @@ export class CreateUserUseCase {
         });
         return {
             ...response,
-            business: newCompany,
-            slug: finalSlug
+            business: result.newCompany,
+            slug: result.finalSlug
         };
     }
 }

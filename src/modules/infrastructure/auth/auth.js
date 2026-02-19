@@ -201,6 +201,8 @@ export const auth = betterAuth({
                             slug: schema.companies.slug,
                             ownerId: schema.companies.ownerId,
                             active: schema.companies.active,
+                            subscriptionStatus: schema.companies.subscriptionStatus,
+                            trialEndsAt: schema.companies.trialEndsAt,
                         })
                             .from(schema.companies)
                             .where(eq(schema.companies.ownerId, user.id))
@@ -218,10 +220,21 @@ export const auth = betterAuth({
                                     headers: new Headers({ "Content-Type": "application/json" }),
                                 });
                             }
+                            // Cálculo de dias restantes (Trial)
+                            const now = new Date();
+                            let daysLeft = 0;
+                            if (userCompany.trialEndsAt) {
+                                const end = new Date(userCompany.trialEndsAt);
+                                const diffTime = end.getTime() - now.getTime();
+                                daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            }
                             const companyData = {
                                 id: userCompany.id,
                                 name: userCompany.name,
                                 slug: userCompany.slug,
+                                subscriptionStatus: userCompany.subscriptionStatus,
+                                trialEndsAt: userCompany.trialEndsAt,
+                                daysLeft: daysLeft
                             };
                             // Injeta os dados no objeto
                             if (data.user) {
@@ -276,6 +289,9 @@ export const auth = betterAuth({
                         name: schema.companies.name,
                         slug: schema.companies.slug,
                         ownerId: schema.companies.ownerId,
+                        active: schema.companies.active,
+                        subscriptionStatus: schema.companies.subscriptionStatus,
+                        trialEndsAt: schema.companies.trialEndsAt,
                         createdAt: schema.companies.createdAt,
                         updatedAt: schema.companies.updatedAt,
                         siteCustomization: {
@@ -291,8 +307,15 @@ export const auth = betterAuth({
                         .where(eq(schema.companies.ownerId, userId))
                         .limit(1);
                     const userCompany = results[0];
+                    let daysLeft = 0;
+                    if (userCompany && userCompany.trialEndsAt) {
+                        const now = new Date();
+                        const end = new Date(userCompany.trialEndsAt);
+                        const diffTime = end.getTime() - now.getTime();
+                        daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    }
                     return ctx.json({
-                        business: userCompany || null,
+                        business: userCompany ? { ...userCompany, daysLeft } : null,
                         slug: userCompany?.slug || null,
                     });
                 }),

@@ -112,8 +112,19 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     throw new Error("ACCOUNT_SUSPENDED");
                 }
                 if (userCompany) {
-                    // INJEÇÃO CRÍTICA: Garante que o objeto user tenha os dados do business
-                    user.business = userCompany;
+                    // Cálculo de dias restantes (Trial)
+                    const now = new Date();
+                    let daysLeft = 0;
+                    if (userCompany.trialEndsAt) {
+                        const end = new Date(userCompany.trialEndsAt);
+                        const diffTime = end.getTime() - now.getTime();
+                        daysLeft = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+                    }
+                    // INJEÇÃO CRÍTICA: Garante que o objeto user tenha os dados do business e daysLeft
+                    user.business = {
+                        ...userCompany,
+                        daysLeft
+                    };
                     user.slug = userCompany.slug; // Fundamental para o redirecionamento no Front
                     user.businessId = userCompany.id;
                     // 2. BLOQUEIO POR ESTÚDIO (BUSINESS) DESATIVADO (Restritivo)
@@ -129,18 +140,44 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                         const now = new Date();
                         const status = userCompany.subscriptionStatus;
                         const trialEnds = userCompany.trialEndsAt ? new Date(userCompany.trialEndsAt) : null;
-                        const isManualActive = status === 'manual_active';
+                        // 🚨 BLOQUEIO EXPLÍCITO DE INADIMPLÊNCIA (PAST_DUE)
+                        // Se o status for 'past_due', bloqueia imediatamente, ignorando datas.
+                        // Isso garante que resets manuais para 'Automático' (que setam past_due) funcionem na hora.
+                        if (status === 'past_due' || status === 'inactive' || status === 'canceled') {
+                            console.warn(`[AUTH_BLOCK]: Acesso negado por status inválido (${status}): ${userCompany.slug}`);
+                            set.status = 402;
+                            throw new Error("BILLING_REQUIRED");
+                        }
                         const isActive = status === 'active';
                         const isTrialValid = status === 'trial' && trialEnds && trialEnds > now;
-                        // Auto-expiração do Trial (Lazy Update)
+                        // Adicionando 'manual' como status válido (usado no master-admin.controller.ts)
+                        let isManualActive = status === 'manual' || status === 'manual_active';
+                        // 1. Auto-expiração do Manual (Lazy Update)
+                        // Se o acesso manual venceu, ele deve "voltar para o automático" (bloqueio se não pagou)
+                        if (isManualActive && trialEnds && trialEnds <= now) {
+                            console.warn(`[AUTH_UPDATE]: Acesso Manual expirado para ${userCompany.slug}. Revertendo para 'past_due' (Automático).`);
+                            db.update(schema.companies)
+                                .set({
+                                subscriptionStatus: 'past_due',
+                                accessType: 'automatic'
+                            })
+                                .where(eq(schema.companies.id, userCompany.id))
+                                .then(() => console.log(`[AUTH_UPDATE_SUCCESS]: Reset de Manual para Automático/PastDue - ${userCompany.slug}`))
+                                .catch(err => console.error(`[AUTH_UPDATE_ERROR]: Falha ao resetar status - ${userCompany.slug}`, err));
+                            isManualActive = false; // Invalida o acesso manual para cair no bloqueio abaixo
+                        }
+                        // 2. Auto-expiração do Trial (Lazy Update)
                         if (status === 'trial' && trialEnds && trialEnds <= now) {
                             console.warn(`[AUTH_UPDATE]: Trial expirado para ${userCompany.slug}. Atualizando status para 'past_due'.`);
-                            // Atualiza no banco de forma assíncrona (sem await para não travar o request)
+                            // Atualiza no banco de forma assíncrona
                             db.update(schema.companies)
                                 .set({ subscriptionStatus: 'past_due' })
                                 .where(eq(schema.companies.id, userCompany.id))
                                 .then(() => console.log(`[AUTH_UPDATE_SUCCESS]: Status atualizado para 'past_due' - ${userCompany.slug}`))
                                 .catch(err => console.error(`[AUTH_UPDATE_ERROR]: Falha ao atualizar status - ${userCompany.slug}`, err));
+                            // Bloqueia imediatamente após detectar a expiração
+                            set.status = 402;
+                            throw new Error("BILLING_REQUIRED");
                         }
                         if (!isManualActive && !isActive && !isTrialValid) {
                             console.warn(`[AUTH_BLOCK]: Acesso negado por falta de pagamento/trial expirado: ${userCompany.slug} (Status: ${status})`);
