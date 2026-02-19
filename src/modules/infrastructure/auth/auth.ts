@@ -167,8 +167,18 @@ export const auth = betterAuth({
           path.startsWith("/sign-up") ||
           path.startsWith("/get-session");
 
-        if (!isAuthPath || !response) {
+        if (!isAuthPath) {
           return response;
+        }
+
+        if (!response) {
+          const sessionData = await auth.api.getSession({
+            headers: context.headers,
+          });
+          response = new Response(JSON.stringify(sessionData ?? {}), {
+            status: 200,
+            headers: new Headers({ "Content-Type": "application/json" }),
+          });
         }
 
         // --- ENRIQUECIMENTO DE DADOS (BUSINESS / SLUG) ---
