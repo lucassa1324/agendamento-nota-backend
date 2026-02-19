@@ -287,7 +287,11 @@ export const auth = betterAuth({
           });
         }
 
-        return data;
+        const safeHeaders = new Headers({ "Content-Type": "application/json" });
+        return new Response(JSON.stringify(data), {
+          status: 200,
+          headers: safeHeaders,
+        });
       } catch (globalError) {
         console.error(`[AUTH_AFTER_HOOK] Erro crítico:`, globalError);
         return response;
