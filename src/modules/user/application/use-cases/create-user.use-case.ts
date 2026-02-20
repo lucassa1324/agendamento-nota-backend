@@ -105,7 +105,7 @@ export class CreateUserUseCase {
 
     // Atualiza a role do usuário se fornecida, caso contrário define como "ADMIN" por padrão para quem vem da landing page
     const finalRole = data.role || "ADMIN";
-    await db.update(user).set({ role: finalRole }).where(eq(user.id, response.user.id));
+    await db.update(user).set({ role: finalRole, active: true }).where(eq(user.id, response.user.id));
     console.log(`[USER_REGISTER_USE_CASE] Role '${finalRole}' aplicada ao usuário ${response.user.id}`);
 
     const slug = await generateUniqueSlug(data.studioName);
