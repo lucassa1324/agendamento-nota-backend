@@ -4,22 +4,30 @@ import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.p
 export const publicBusinessController = () => new Elysia({ prefix: "/api/business" })
   .use(repositoriesPlugin)
   .get("/slug/:slug", async ({ params: { slug }, set, businessRepository, settingsRepository, userRepository }) => {
-    console.log(`[PUBLIC_BUSINESS_FETCH] Buscando dados para o slug: ${slug}`);
+    // Normalização de entrada para evitar erros de case/espaços
+    const normalizedSlug = slug.trim().toLowerCase();
+    
+    console.log(`[PUBLIC_BUSINESS_FETCH] Buscando dados para o slug (RAW): '${slug}'`);
+    console.log(`[PUBLIC_BUSINESS_FETCH] Buscando dados para o slug (NORMALIZED): '${normalizedSlug}'`);
 
     // Forçar o navegador a não usar cache para garantir que as cores novas apareçam
     set.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate";
     set.headers["Pragma"] = "no-cache";
     set.headers["Expires"] = "0";
 
-    const business = await businessRepository.findBySlug(slug);
+    // Busca usando o slug normalizado
+    const business = await businessRepository.findBySlug(normalizedSlug);
 
     if (!business) {
-      console.log(`[PUBLIC_BUSINESS_FETCH] Empresa não encontrada para o slug: ${slug}`);
+      console.error(`[PUBLIC_BUSINESS_FETCH] ❌ ERRO 404: Empresa não encontrada para o slug: '${normalizedSlug}'`);
       set.status = 404;
-      return { error: "Business not found" };
+      return { 
+        error: "Business not found",
+        message: `Nenhum estúdio encontrado com o endereço '${normalizedSlug}'. Verifique se o link está correto.`
+      };
     }
 
-    console.log(`[PUBLIC_BUSINESS_FETCH] Dados retornados do banco para o slug: ${slug}`);
+    console.log(`[PUBLIC_BUSINESS_FETCH] ✅ SUCESSO: Dados encontrados para: ${business.name} (ID: ${business.id})`);
 
     // --- ENRIQUECIMENTO DE DADOS DE CONTATO (REQ-FIX-CONTACT-NULL) ---
     // Busca o perfil para tentar obter e-mail e telefone configurados
