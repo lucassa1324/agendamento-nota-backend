@@ -16,7 +16,7 @@ import { publicBusinessController } from "./modules/business/adapters/in/http/pu
 import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
 import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
 import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
-// import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
+import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
 import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
 // import { stripeWebhookController } from "./modules/infrastructure/stripe/webhook.controller";
 // import { stripeCheckoutController } from "./modules/infrastructure/stripe/checkout.controller";
@@ -28,26 +28,15 @@ const listUsersUseCase = new ListUsersUseCase(userRepository);
 const userController = new UserController(createUserUseCase, listUsersUseCase);
 const app = new Elysia()
     .use(cors({
-    origin: (request) => {
-        const origin = request.headers.get('origin');
-        if (!origin)
-            return true;
-        const allowedOrigins = [
-            'http://localhost:3000',
-            'http://127.0.0.1:3000',
-            'https://agendamento-nota-front.vercel.app',
-            'https://landingpage-agendamento-front.vercel.app'
-        ];
-        if (allowedOrigins.includes(origin))
-            return origin;
-        if (origin.endsWith('.localhost:3000') || /^http:\/\/localhost:\d+$/.test(origin)) {
-            return origin;
-        }
-        if (origin.endsWith('.vercel.app')) {
-            return origin;
-        }
-        return false;
-    },
+    origin: [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'https://agendamento-nota-front.vercel.app',
+        'https://landingpage-agendamento-front.vercel.app',
+        /\.localhost:3000$/,
+        /^http:\/\/localhost:\d+$/,
+        /\.vercel\.app$/
+    ],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     credentials: true, // Força Access-Control-Allow-Credentials: true
     allowedHeaders: [
@@ -86,9 +75,7 @@ const app = new Elysia()
     .use(inventoryController)
     .use(expenseController)
     .use(masterAdminController)
-// .use(expenseController)
-// .use(galleryController)
-// .use(masterAdminController)
+    .use(galleryController)
 // .use(pushController)
 // .use(notificationsController)
 // .use(userPreferencesController)

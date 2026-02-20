@@ -37,29 +37,15 @@ const userController = new UserController(createUserUseCase, listUsersUseCase);
 const app = new Elysia()
   .use(
     cors({
-      origin: (request) => {
-        const origin = request.headers.get('origin');
-        if (!origin) return true;
-
-        const allowedOrigins = [
-          'http://localhost:3000',
-          'http://127.0.0.1:3000',
-          'https://agendamento-nota-front.vercel.app',
-          'https://landingpage-agendamento-front.vercel.app'
-        ];
-
-        if (allowedOrigins.includes(origin)) return origin;
-
-        if (origin.endsWith('.localhost:3000') || /^http:\/\/localhost:\d+$/.test(origin)) {
-          return origin;
-        }
-
-        if (origin.endsWith('.vercel.app')) {
-          return origin;
-        }
-
-        return false;
-      },
+      origin: [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'https://agendamento-nota-front.vercel.app',
+        'https://landingpage-agendamento-front.vercel.app',
+        /\.localhost:3000$/,
+        /^http:\/\/localhost:\d+$/,
+        /\.vercel\.app$/
+      ],
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
       credentials: true, // Força Access-Control-Allow-Credentials: true
       allowedHeaders: [
