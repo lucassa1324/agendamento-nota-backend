@@ -37,7 +37,7 @@ export const auth = betterAuth({
                 name: "better-auth.session_token",
                 attributes: {
                     sameSite: "none", // Obrigatório para cross-domain
-                    secure: true,     // Obrigatório para SameSite=None
+                    secure: true, // Obrigatório para SameSite=None
                     httpOnly: true,
                 },
             },
@@ -208,14 +208,14 @@ export const auth = betterAuth({
                         }
                         const results = await db
                             .select({
-                                id: schema.companies.id,
-                                name: schema.companies.name,
-                                slug: schema.companies.slug,
-                                ownerId: schema.companies.ownerId,
-                                active: schema.companies.active,
-                                subscriptionStatus: schema.companies.subscriptionStatus,
-                                trialEndsAt: schema.companies.trialEndsAt,
-                            })
+                            id: schema.companies.id,
+                            name: schema.companies.name,
+                            slug: schema.companies.slug,
+                            ownerId: schema.companies.ownerId,
+                            active: schema.companies.active,
+                            subscriptionStatus: schema.companies.subscriptionStatus,
+                            trialEndsAt: schema.companies.trialEndsAt,
+                        })
                             .from(schema.companies)
                             .where(eq(schema.companies.ownerId, user.id))
                             .limit(1);
@@ -299,23 +299,23 @@ export const auth = betterAuth({
                     const userId = session.user.id;
                     const results = await db
                         .select({
-                            id: schema.companies.id,
-                            name: schema.companies.name,
-                            slug: schema.companies.slug,
-                            ownerId: schema.companies.ownerId,
-                            active: schema.companies.active,
-                            subscriptionStatus: schema.companies.subscriptionStatus,
-                            trialEndsAt: schema.companies.trialEndsAt,
-                            createdAt: schema.companies.createdAt,
-                            updatedAt: schema.companies.updatedAt,
-                            siteCustomization: {
-                                layoutGlobal: schema.companySiteCustomizations.layoutGlobal,
-                                home: schema.companySiteCustomizations.home,
-                                gallery: schema.companySiteCustomizations.gallery,
-                                aboutUs: schema.companySiteCustomizations.aboutUs,
-                                appointmentFlow: schema.companySiteCustomizations.appointmentFlow,
-                            }
-                        })
+                        id: schema.companies.id,
+                        name: schema.companies.name,
+                        slug: schema.companies.slug,
+                        ownerId: schema.companies.ownerId,
+                        active: schema.companies.active,
+                        subscriptionStatus: schema.companies.subscriptionStatus,
+                        trialEndsAt: schema.companies.trialEndsAt,
+                        createdAt: schema.companies.createdAt,
+                        updatedAt: schema.companies.updatedAt,
+                        siteCustomization: {
+                            layoutGlobal: schema.companySiteCustomizations.layoutGlobal,
+                            home: schema.companySiteCustomizations.home,
+                            gallery: schema.companySiteCustomizations.gallery,
+                            aboutUs: schema.companySiteCustomizations.aboutUs,
+                            appointmentFlow: schema.companySiteCustomizations.appointmentFlow,
+                        }
+                    })
                         .from(schema.companies)
                         .leftJoin(schema.companySiteCustomizations, eq(schema.companies.id, schema.companySiteCustomizations.companyId))
                         .where(eq(schema.companies.ownerId, userId))
