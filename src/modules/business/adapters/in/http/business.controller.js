@@ -11,7 +11,7 @@ import { GetOperatingHoursUseCase } from "../../../application/use-cases/get-ope
 import { CreateAgendaBlockUseCase } from "../../../application/use-cases/create-agenda-block.use-case";
 import { ListAgendaBlocksUseCase } from "../../../application/use-cases/list-agenda-blocks.use-case";
 import { DeleteAgendaBlockUseCase } from "../../../application/use-cases/delete-agenda-block.use-case";
-export const businessController = new Elysia({ prefix: "/business" })
+export const businessController = () => new Elysia({ prefix: "/business" })
     .use(repositoriesPlugin)
     .use(authPlugin)
     .onError(({ code, error, set }) => {
@@ -29,6 +29,76 @@ export const businessController = new Elysia({ prefix: "/business" })
 })
     // Rotas Públicas (Sem necessidade de Token)
     .group("", (publicGroup) => publicGroup
+    .get("/debug-slug/:slug", async ({ params: { slug }, businessRepository }) => {
+    const normalizedSlug = slug.trim().toLowerCase();
+    console.log(`[DEBUG_SLUG] Buscando: '${normalizedSlug}'`);
+    const business = await businessRepository.findBySlug(normalizedSlug);
+    return {
+        original: slug,
+        normalized: normalizedSlug,
+        found: !!business,
+        data: business ? { id: business.id, name: business.name, slug: business.slug } : null
+    };
+})
+    .get("/slug/:slug", async ({ params: { slug }, set, businessRepository, settingsRepository, userRepository }) => {
+    // Normalização de entrada para evitar erros de case/espaços
+    const normalizedSlug = slug.trim().toLowerCase();
+    console.log(`[BUSINESS_CONTROLLER] Buscando dados para o slug (RAW): '${slug}'`);
+    console.log(`[BUSINESS_CONTROLLER] Buscando dados para o slug (NORMALIZED): '${normalizedSlug}'`);
+    // Forçar o navegador a não usar cache para garantir que as cores novas apareçam
+    set.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate";
+    set.headers["Pragma"] = "no-cache";
+    set.headers["Expires"] = "0";
+    // Busca usando o slug normalizado
+    const business = await businessRepository.findBySlug(normalizedSlug);
+    if (!business) {
+        console.error(`[BUSINESS_CONTROLLER] ❌ ERRO 404: Empresa não encontrada para o slug: '${normalizedSlug}'`);
+        set.status = 404;
+        return {
+            error: "Business not found",
+            message: `Nenhum estúdio encontrado com o endereço '${normalizedSlug}'. Verifique se o link está correto.`
+        };
+    }
+    console.log(`[BUSINESS_CONTROLLER] ✅ SUCESSO: Dados encontrados para: ${business.name} (ID: ${business.id})`);
+    // --- ENRIQUECIMENTO DE DADOS DE CONTATO (REQ-FIX-CONTACT-NULL) ---
+    // Busca o perfil para tentar obter e-mail e telefone configurados
+    const profile = await settingsRepository.findByBusinessId(business.id);
+    // 1. Resolução de E-mail (Prioridade: Perfil > Dono da Conta)
+    let publicEmail = profile?.email || null;
+    if (!publicEmail && business.ownerId) {
+        // Fallback: Busca e-mail do dono da conta
+        try {
+            const owner = await userRepository.find(business.ownerId);
+            if (owner) {
+                publicEmail = owner.email;
+            }
+        }
+        catch (err) {
+            console.error(`[BUSINESS_CONTROLLER] Erro ao buscar owner para fallback de email:`, err);
+        }
+    }
+    // 2. Resolução de Telefone (Prioridade: Perfil > Cadastro da Empresa)
+    const publicPhone = profile?.phone || business.contact || null;
+    const customization = business.siteCustomization;
+    const primaryColor = customization?.layoutGlobal?.siteColors?.primary ||
+        customization?.layoutGlobal?.base_colors?.primary ||
+        'Padrão';
+    console.log(`[BUSINESS_CONTROLLER] Cor Primária no Banco:`, primaryColor);
+    console.log(`[BUSINESS_CONTROLLER] Contato resolvido - Email: ${publicEmail}, Phone: ${publicPhone}`);
+    // Retorna objeto com estrutura garantida para o Front-end
+    return {
+        ...business,
+        email: publicEmail, // Email na raiz conforme solicitado
+        contact: {
+            email: publicEmail,
+            phone: publicPhone
+        }
+    };
+}, {
+    params: t.Object({
+        slug: t.String()
+    })
+})
     .get("/settings/:companyId", async ({ params: { companyId }, businessRepository, set }) => {
     try {
         console.log(`>>> [BACK_PUBLIC_ACCESS] Buscando horários para a empresa: ${companyId}`);

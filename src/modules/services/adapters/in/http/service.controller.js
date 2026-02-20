@@ -3,7 +3,7 @@ import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 import { CreateServiceUseCase } from "../../../application/use-cases/create-service.use-case";
 import { createServiceDTO } from "../dtos/service.dto";
-export const serviceController = new Elysia({ prefix: "/services" })
+export const serviceController = () => new Elysia({ prefix: "/services" })
     .use(repositoriesPlugin)
     .use(authPlugin)
     // --- ROTAS PÚBLICAS ---

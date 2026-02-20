@@ -1,27 +1,23 @@
-console.log("Servidor iniciando com sucesso!");
+console.log("[STARTUP] Inicializando Back-end (DEBUG-SLUG-FIXED)");
 import { Elysia } from "elysia";
 import { auth } from "./modules/infrastructure/auth/auth";
 import { authPlugin } from "./modules/infrastructure/auth/auth-plugin";
 import cors from "@elysiajs/cors";
+// IMPORTS ESTÁTICOS - Garante carregamento na inicialização
 import { UserController } from "./modules/user/adapters/in/http/user.controller";
 import { ListUsersUseCase } from "./modules/user/application/use-cases/list-users.use-case";
 import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
 import { UserRepository } from "./modules/user/adapters/out/user.repository";
-import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
+import { businessController } from "./modules/business/adapters/in/http/business.controller";
 import { serviceController } from "./modules/services/adapters/in/http/service.controller";
 import { reportController } from "./modules/reports/adapters/in/http/report.controller";
-import { businessController } from "./modules/business/adapters/in/http/business.controller";
-// import { companyController } from "./modules/business/adapters/in/http/company.controller";
-import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
-import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
+import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
 import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
+import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
 import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
-import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
 import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
-// import { stripeWebhookController } from "./modules/infrastructure/stripe/webhook.controller";
-// import { stripeCheckoutController } from "./modules/infrastructure/stripe/checkout.controller";
-// import { asaasWebhookController } from "./modules/infrastructure/payment/asaas.webhook.controller";
-// import { staticPlugin } from "@elysiajs/static";
+import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
+// Instanciação de Dependências Globais
 const userRepository = new UserRepository();
 const createUserUseCase = new CreateUserUseCase(userRepository);
 const listUsersUseCase = new ListUsersUseCase(userRepository);
@@ -47,48 +43,51 @@ const app = new Elysia()
         "X-Requested-With",
         "Cache-Control"
     ],
-    exposeHeaders: ["Set-Cookie", "set-cookie", "Authorization"],
+    exposeHeaders: ["Set-Cookie", "set-cookie", "Authorization", "Cache-Control"],
     preflight: true
 }))
+    // Força NO-CACHE em todas as respostas da API para evitar loops de redirecionamento fantasma
+    .onRequest(({ set }) => {
+    set.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate";
+    set.headers["Pragma"] = "no-cache";
+    set.headers["Expires"] = "0";
+    set.headers["Surrogate-Control"] = "no-store";
+})
     .mount(auth.handler)
     // COMPATIBILIDADE: Captura rota duplicada /api/auth/api/auth gerada erroneamente pelo frontend
     .group("/api/auth", (app) => app.mount(auth.handler))
-    .get("/get-session", async ({ request }) => {
-    const session = await auth.api.getSession({
-        headers: request.headers,
-    });
-    return session || { session: null, user: null };
+    .get("/get-session", async ({ request, set }) => {
+    try {
+        // console.log("[GET-SESSION] Verificando sessão...");
+        const session = await auth.api.getSession({
+            headers: request.headers,
+        });
+        // console.log("[GET-SESSION] Resultado:", session ? "Sessão Válida" : "Sem Sessão");
+        return session || { session: null, user: null };
+    }
+    catch (error) {
+        console.error("[GET-SESSION] ERRO FATAL:", error);
+        // Em caso de erro, retorna nulo para evitar loop de login no frontend
+        return { session: null, user: null };
+    }
 })
     .use(authPlugin)
     .onBeforeHandle(({ request }) => {
-    const origin = request.headers.get('origin');
-    // console.log(`[REQUEST] ${request.method} ${request.url} | Origin: ${origin}`);
+    const origin = request.headers.get("origin");
 })
-    .use(publicBusinessController)
+    // Registro de Rotas (Síncrono)
     .use(userController.registerRoutes())
     .group("/api", (api) => api
-    .use(businessController)
-    .use(serviceController)
-    .use(reportController)
+    .use(businessController())
+    .use(serviceController())
+    .use(reportController())
     .use(appointmentController())
-    .use(settingsController)
-    .use(inventoryController)
-    .use(expenseController)
-    .use(masterAdminController)
-    .use(galleryController)
-// .use(pushController)
-// .use(notificationsController)
-// .use(userPreferencesController)
-// .use(stripeWebhookController)
-// .use(stripeCheckoutController)
-// .use(asaasWebhookController)
-)
-    // .use(staticPlugin({
-    //   assets: "public",
-    //   prefix: "/public",
-    //   alwaysStatic: false,
-    // }))
-    .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString() }))
+    .use(settingsController())
+    .use(inventoryController())
+    .use(expenseController())
+    .use(masterAdminController())
+    .use(galleryController()))
+    .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString(), version: "DEBUG-SLUG-FIXED" }))
     .onError(({ code, error, set, body }) => {
     console.error(`\n[ERROR] ${code}:`, error);
     const errorMessage = error instanceof Error ? error.message : "";
@@ -96,9 +95,7 @@ const app = new Elysia()
         set.status = 403;
         return {
             error: errorMessage,
-            message: errorMessage === "BUSINESS_SUSPENDED"
-                ? "O acesso a este estúdio foi suspenso."
-                : "Sua conta foi desativada."
+            message: errorMessage === "BUSINESS_SUSPENDED" ? "O acesso a este estúdio foi suspenso." : "Sua conta foi desativada.",
         };
     }
     if (errorMessage === "BILLING_REQUIRED") {
@@ -106,14 +103,14 @@ const app = new Elysia()
         return {
             error: errorMessage,
             message: "Assinatura necessária ou trial expirado.",
-            redirect: "/billing-required"
+            redirect: "/billing-required",
         };
     }
-    if (code === 'VALIDATION') {
+    if (code === "VALIDATION") {
         console.error("[VALIDATION_ERROR_DETAILS]:", JSON.stringify(error.all, null, 2));
         return {
             error: "Erro de validação nos dados enviados",
-            details: error.all
+            details: error.all,
         };
     }
     return {
@@ -121,7 +118,7 @@ const app = new Elysia()
         code,
     };
 })
-    .get("/", () => "Elysia funcionando - User & Auth ativados!")
+    .get("/", () => "Elysia funcionando - User & Auth ativados! (DEBUG-SLUG-FIXED)")
     .get("/diagnostics/headers", async ({ request }) => {
     const origin = request.headers.get("origin") || null;
     const cookie = request.headers.get("cookie") || null;
@@ -140,7 +137,6 @@ const app = new Elysia()
     };
 })
     .get("/user", async ({ request, set }) => {
-    // Para a rota /user, precisamos validar a sessão manualmente ou usar o plugin localmente
     const session = await auth.api.getSession({
         headers: request.headers,
     });

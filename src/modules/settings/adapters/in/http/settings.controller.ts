@@ -4,13 +4,6 @@ import { SaveSettingsUseCase } from "../../../application/use-cases/save-setting
 import { GetSiteCustomizationUseCase } from "../../../application/use-cases/get-site-customization.use-case";
 import { UpdateSiteCustomizationUseCase } from "../../../application/use-cases/update-site-customization.use-case";
 import { SaveSettingsDTO } from "../dtos/settings.dto";
-import {
-  LayoutGlobalDTO,
-  HomeSectionDTO,
-  GallerySectionDTO,
-  AboutUsSectionDTO,
-  AppointmentFlowSectionDTO,
-} from "../../../../business/adapters/in/dtos/site_customization.dto";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 

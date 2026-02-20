@@ -4,7 +4,7 @@ import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.p
 import { CreateExpenseDto, UpdateExpenseDto } from "../dtos/expense.dto";
 import { CreateExpenseUseCase } from "../../../application/use-cases/create-expense.use-case";
 import { UpdateExpenseUseCase } from "../../../application/use-cases/update-expense.use-case";
-export const expenseController = new Elysia({ prefix: "/expenses" })
+export const expenseController = () => new Elysia({ prefix: "/expenses" })
     .use(authPlugin)
     .use(repositoriesPlugin)
     .onBeforeHandle(({ user, set, request }) => {

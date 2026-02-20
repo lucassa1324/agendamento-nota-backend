@@ -1,6 +1,6 @@
 import { db } from "../../../../infrastructure/drizzle/database";
 import { companies, companySiteCustomizations, operatingHours, agendaBlocks } from "../../../../../db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ilike } from "drizzle-orm";
 export class DrizzleBusinessRepository {
     async findAllByUserId(userId) {
         const results = await db
@@ -43,7 +43,8 @@ export class DrizzleBusinessRepository {
         })
             .from(companies)
             .leftJoin(companySiteCustomizations, eq(companies.id, companySiteCustomizations.companyId))
-            .where(eq(companies.slug, slug))
+            // Busca case-insensitive para garantir que "Studio-X" encontre "studio-x"
+            .where(ilike(companies.slug, slug))
             .limit(1);
         return result[0] || null;
     }

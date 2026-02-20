@@ -5,42 +5,38 @@ import { db } from "../drizzle/database";
 import * as schema from "../../../db/schema";
 import { eq } from "drizzle-orm";
 if (!process.env.BETTER_AUTH_SECRET) {
-    console.error("BETTER_AUTH_SECRET is missing!");
-    // Prevent crash during build/link if possible, or fail explicitly
+    console.warn("BETTER_AUTH_SECRET is missing! Using dev secret.");
 }
+// Melhor resolução da URL base para Vercel
+const getBaseUrl = () => {
+    if (process.env.BETTER_AUTH_URL)
+        return process.env.BETTER_AUTH_URL;
+    if (process.env.VERCEL_URL)
+        return `https://${process.env.VERCEL_URL}`;
+    return "http://localhost:3000";
+};
+const baseURL = getBaseUrl();
 export const auth = betterAuth({
     secret: process.env.BETTER_AUTH_SECRET || "placeholder_secret_for_build",
     emailAndPassword: {
         enabled: true,
     },
-    // No Better Auth v1+, a baseURL deve ser a raiz do servidor onde as rotas são montadas.
-    // O prefixo /api/auth é adicionado automaticamente pelo handler.
-    baseURL: process.env.BETTER_AUTH_URL ? process.env.BETTER_AUTH_URL.replace("/api/auth", "") : "http://localhost:3001",
-    trustedOrigins: process.env.TRUSTED_ORIGINS
-        ? process.env.TRUSTED_ORIGINS.split(',')
-        : ["http://localhost:3000", "http://localhost:3001", "https://agendamento-nota-front.vercel.app"],
+    baseURL,
+    trustedOrigins: [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://agendamento-nota-front.vercel.app",
+        "https://landingpage-agendamento-front.vercel.app"
+    ],
     advanced: {
-        cookiePrefix: "better-auth",
-        crossSubDomainCookies: {
-            enabled: false,
-        },
-        // No Vercel/Produção, useSecureCookies deve ser true para permitir SameSite=None
-        // Em localhost, deve ser false a menos que use HTTPS
-        useSecureCookies: true, // Força Secure para permitir SameSite=None em cross-domain
+        // Configuração OBRIGATÓRIA para Vercel (Cross-Site)
+        // Front em agendamento-nota-front.vercel.app
+        // Back em agendamento-nota-backend.vercel.app
+        useSecureCookies: true,
         defaultCookieAttributes: {
-            sameSite: "none",
-            secure: true,
+            sameSite: "none", // Permite envio entre domínios diferentes
+            secure: true, // Obrigatório quando sameSite é none
             httpOnly: true,
-        },
-        cookies: {
-            sessionToken: {
-                name: "better-auth.session_token",
-                attributes: {
-                    sameSite: "none", // Obrigatório para cross-domain
-                    secure: true, // Obrigatório para SameSite=None
-                    httpOnly: true,
-                },
-            },
         },
     },
     session: {

@@ -6,7 +6,7 @@ import { UpdateSiteCustomizationUseCase } from "../../../application/use-cases/u
 import { SaveSettingsDTO } from "../dtos/settings.dto";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
-export const settingsController = new Elysia({ prefix: "/settings" })
+export const settingsController = () => new Elysia({ prefix: "/settings" })
     .use(authPlugin)
     .use(repositoriesPlugin)
     // --- ROTAS PÚBLICAS ---
