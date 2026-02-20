@@ -1,74 +1,31 @@
-console.log("Servidor iniciando com sucesso!");
+console.log("[STARTUP] Inicializando Back-end (DEBUG-SLUG-FIXED)");
 
 import { Elysia } from "elysia";
 import { auth } from "./modules/infrastructure/auth/auth";
 import { authPlugin } from "./modules/infrastructure/auth/auth-plugin";
 import cors from "@elysiajs/cors";
 
-const setupRoutes = async (app: Elysia) => {
-  console.log("[SETUP_ROUTES] Iniciando carregamento das rotas");
+// IMPORTS ESTÁTICOS - Garante carregamento na inicialização
+import { UserController } from "./modules/user/adapters/in/http/user.controller";
+import { ListUsersUseCase } from "./modules/user/application/use-cases/list-users.use-case";
+import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
+import { UserRepository } from "./modules/user/adapters/out/user.repository";
 
-  console.log("[SETUP_ROUTES] Importando ./modules/user/adapters/in/http/user.controller");
-  const { UserController } = await import("./modules/user/adapters/in/http/user.controller");
+import { businessController } from "./modules/business/adapters/in/http/business.controller";
+import { serviceController } from "./modules/services/adapters/in/http/service.controller";
+import { reportController } from "./modules/reports/adapters/in/http/report.controller";
+import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
+import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
+import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
+import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
+import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
+import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
 
-  console.log("[SETUP_ROUTES] Importando ./modules/user/application/use-cases/list-users.use-case");
-  const { ListUsersUseCase } = await import("./modules/user/application/use-cases/list-users.use-case");
-
-  console.log("[SETUP_ROUTES] Importando ./modules/user/application/use-cases/create-user.use-case");
-  const { CreateUserUseCase } = await import("./modules/user/application/use-cases/create-user.use-case");
-
-  console.log("[SETUP_ROUTES] Importando ./modules/user/adapters/out/user.repository");
-  const { UserRepository } = await import("./modules/user/adapters/out/user.repository");
-
-  const userRepository = new UserRepository();
-  const createUserUseCase = new CreateUserUseCase(userRepository);
-  const listUsersUseCase = new ListUsersUseCase(userRepository);
-  const userController = new UserController(createUserUseCase, listUsersUseCase);
-
-  console.log("[SETUP_ROUTES] Importando ./modules/business/adapters/in/http/business.controller");
-  const { businessController } = await import("./modules/business/adapters/in/http/business.controller");
-
-  console.log("[SETUP_ROUTES] Importando ./modules/services/adapters/in/http/service.controller");
-  const { serviceController } = await import("./modules/services/adapters/in/http/service.controller");
-
-  console.log("[SETUP_ROUTES] Importando ./modules/reports/adapters/in/http/report.controller");
-  const { reportController } = await import("./modules/reports/adapters/in/http/report.controller");
-
-  console.log("[SETUP_ROUTES] Importando ./modules/appointments/adapters/in/http/appointment.controller");
-  const { appointmentController } = await import("./modules/appointments/adapters/in/http/appointment.controller");
-
-  console.log("[SETUP_ROUTES] Importando ./modules/settings/adapters/in/http/settings.controller");
-  const { settingsController } = await import("./modules/settings/adapters/in/http/settings.controller");
-
-  console.log("[SETUP_ROUTES] Importando ./modules/inventory/adapters/in/http/inventory.controller");
-  const { inventoryController } = await import("./modules/inventory/adapters/in/http/inventory.controller");
-
-  console.log("[SETUP_ROUTES] Importando ./modules/expenses/adapters/in/http/expense.controller");
-  const { expenseController } = await import("./modules/expenses/adapters/in/http/expense.controller");
-
-  console.log("[SETUP_ROUTES] Importando ./modules/business/adapters/in/http/master-admin.controller");
-  const { masterAdminController } = await import("./modules/business/adapters/in/http/master-admin.controller");
-
-  console.log("[SETUP_ROUTES] Importando ./modules/gallery/adapters/in/http/gallery.controller");
-  const { galleryController } = await import("./modules/gallery/adapters/in/http/gallery.controller");
-
-  console.log("[SETUP_ROUTES] Registrando rotas no app");
-
-  return app
-    .use(userController.registerRoutes())
-    .group("/api", (api) =>
-      api
-        .use(businessController())
-        .use(serviceController())
-        .use(reportController())
-        .use(appointmentController())
-        .use(settingsController())
-        .use(inventoryController())
-        .use(expenseController())
-        .use(masterAdminController())
-        .use(galleryController())
-    );
-};
+// Instanciação de Dependências Globais
+const userRepository = new UserRepository();
+const createUserUseCase = new CreateUserUseCase(userRepository);
+const listUsersUseCase = new ListUsersUseCase(userRepository);
+const userController = new UserController(createUserUseCase, listUsersUseCase);
 
 const app = new Elysia()
   .use(
@@ -108,11 +65,11 @@ const app = new Elysia()
   .group("/api/auth", (app) => app.mount(auth.handler))
   .get("/get-session", async ({ request, set }) => {
     try {
-      console.log("[GET-SESSION] Verificando sessão...");
+      // console.log("[GET-SESSION] Verificando sessão...");
       const session = await auth.api.getSession({
         headers: request.headers,
       });
-      console.log("[GET-SESSION] Resultado:", session ? "Sessão Válida" : "Sem Sessão");
+      // console.log("[GET-SESSION] Resultado:", session ? "Sessão Válida" : "Sem Sessão");
       return session || { session: null, user: null };
     } catch (error) {
       console.error("[GET-SESSION] ERRO FATAL:", error);
@@ -124,8 +81,21 @@ const app = new Elysia()
   .onBeforeHandle(({ request }) => {
     const origin = request.headers.get("origin");
   })
-  .use(setupRoutes)
-  .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString() }))
+  // Registro de Rotas (Síncrono)
+  .use(userController.registerRoutes())
+  .group("/api", (api) =>
+    api
+      .use(businessController())
+      .use(serviceController())
+      .use(reportController())
+      .use(appointmentController())
+      .use(settingsController())
+      .use(inventoryController())
+      .use(expenseController())
+      .use(masterAdminController())
+      .use(galleryController())
+  )
+  .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString(), version: "DEBUG-SLUG-FIXED" }))
   .onError(({ code, error, set, body }) => {
     console.error(`\n[ERROR] ${code}:`, error);
 
@@ -161,7 +131,7 @@ const app = new Elysia()
       code,
     };
   })
-  .get("/", () => "Elysia funcionando - User & Auth ativados!")
+  .get("/", () => "Elysia funcionando - User & Auth ativados! (DEBUG-SLUG-FIXED)")
   .get("/diagnostics/headers", async ({ request }) => {
     const origin = request.headers.get("origin") || null;
     const cookie = request.headers.get("cookie") || null;
