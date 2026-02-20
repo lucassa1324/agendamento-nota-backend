@@ -19,7 +19,7 @@ import { inventoryController } from "./modules/inventory/adapters/in/http/invent
 import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
 // import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
 // import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
-// import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
+import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
 // import { pushController } from "./modules/notifications/adapters/in/http/push.controller";
 // import { notificationsController } from "./modules/notifications/adapters/in/http/notifications.controller";
 // import { userPreferencesController } from "./modules/user/adapters/in/http/user-preferences.controller";
@@ -101,6 +101,7 @@ const app = new Elysia()
       .use(appointmentController())
       .use(settingsController)
       .use(inventoryController)
+      .use(masterAdminController)
     // .use(expenseController)
     // .use(galleryController)
     // .use(masterAdminController)
