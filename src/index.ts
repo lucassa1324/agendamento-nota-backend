@@ -15,7 +15,7 @@ import { serviceController } from "./modules/services/adapters/in/http/service.c
 import { businessController } from "./modules/business/adapters/in/http/business.controller";
 // import { companyController } from "./modules/business/adapters/in/http/company.controller";
 import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
-// import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
+import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
 import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
 // import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
 // import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
@@ -100,6 +100,7 @@ const app = new Elysia()
       .use(serviceController)
       .use(appointmentController())
       .use(settingsController)
+      .use(inventoryController)
     // .use(expenseController)
     // .use(galleryController)
     // .use(masterAdminController)
