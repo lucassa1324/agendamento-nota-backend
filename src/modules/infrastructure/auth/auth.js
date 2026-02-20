@@ -157,13 +157,13 @@ export const auth = betterAuth({
                     path.startsWith("/sign-up") ||
                     path.startsWith("/get-session");
                 if (!isAuthPath) {
-                    return response;
+                    return response || {};
                 }
+                // Se response for null/undefined, significa que o Better Auth não retornou nada.
+                // Isso não deveria acontecer para /get-session se a sessão for válida.
+                // Se acontecer, retornamos um objeto vazio para evitar crash no Better Auth (TypeError: null is not an object).
                 if (!response) {
-                    return new Response(JSON.stringify({}), {
-                        status: 200,
-                        headers: new Headers({ "Content-Type": "application/json" }),
-                    });
+                    return {};
                 }
                 // --- ENRIQUECIMENTO DE DADOS (BUSINESS / SLUG) ---
                 // Se response for um objeto Response (o que é comum no Better Auth), precisamos ler o body
@@ -277,7 +277,7 @@ export const auth = betterAuth({
             }
             catch (globalError) {
                 console.error(`[AUTH_AFTER_HOOK] Erro crítico:`, globalError);
-                return response;
+                return response || {};
             }
         },
     },

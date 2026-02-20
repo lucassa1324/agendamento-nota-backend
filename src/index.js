@@ -61,6 +61,12 @@ const app = new Elysia()
     .mount(auth.handler)
     // COMPATIBILIDADE: Captura rota duplicada /api/auth/api/auth gerada erroneamente pelo frontend
     .group("/api/auth", (app) => app.mount(auth.handler))
+    .get("/get-session", async ({ request }) => {
+    const session = await auth.api.getSession({
+        headers: request.headers,
+    });
+    return session || { session: null, user: null };
+})
     .use(authPlugin)
     .onBeforeHandle(({ request }) => {
     const origin = request.headers.get('origin');

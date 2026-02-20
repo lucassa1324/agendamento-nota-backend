@@ -3,11 +3,8 @@ import { DrizzleBusinessRepository } from "../../business/adapters/out/drizzle/b
 import { DrizzleAppointmentRepository } from "../../appointments/adapters/out/drizzle/appointment.drizzle.repository";
 import { DrizzleServiceRepository } from "../../services/adapters/out/drizzle/service.drizzle.repository";
 // import { DrizzleInventoryRepository } from "../../inventory/adapters/out/drizzle/inventory.drizzle.repository";
-// import { DrizzleSettingsRepository } from "../../settings/adapters/out/drizzle/settings.drizzle.repository";
-// import { DrizzleExpenseRepository } from "../../expenses/adapters/out/drizzle/expense.drizzle.repository";
-// import { GalleryDrizzleRepository } from "../../gallery/adapters/out/drizzle/gallery.drizzle.repository";
+import { DrizzleSettingsRepository } from "../../settings/adapters/out/drizzle/settings.drizzle.repository";
 import { UserRepository } from "../../user/adapters/out/user.repository";
-// import { DrizzlePushSubscriptionRepository } from "../../notifications/adapters/out/drizzle/push-subscription.drizzle.repository";
 
 export const repositoriesPlugin = new Elysia()
   .decorate("businessRepository", new DrizzleBusinessRepository())
@@ -15,7 +12,7 @@ export const repositoriesPlugin = new Elysia()
   .decorate("appointmentRepository", new DrizzleAppointmentRepository())
   .decorate("serviceRepository", new DrizzleServiceRepository())
   .decorate("inventoryRepository", {} as any)
-  .decorate("settingsRepository", {} as any)
+  .decorate("settingsRepository", new DrizzleSettingsRepository())
   .decorate("expenseRepository", {} as any)
   .decorate("galleryRepository", {} as any)
   .decorate("pushSubscriptionRepository", {} as any);
