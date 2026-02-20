@@ -18,7 +18,7 @@ import { publicBusinessController } from "./modules/business/adapters/in/http/pu
 import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
 import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
 import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
-// import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
+import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
 import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
 // import { pushController } from "./modules/notifications/adapters/in/http/push.controller";
 // import { notificationsController } from "./modules/notifications/adapters/in/http/notifications.controller";
@@ -104,9 +104,7 @@ const app = new Elysia()
       .use(inventoryController)
       .use(expenseController)
       .use(masterAdminController)
-    // .use(expenseController)
-    // .use(galleryController)
-    // .use(masterAdminController)
+      .use(galleryController)
     // .use(pushController)
     // .use(notificationsController)
     // .use(userPreferencesController)
