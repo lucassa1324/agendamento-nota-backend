@@ -3,7 +3,7 @@ import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 import { createGalleryImageDTO, updateGalleryImageDTO } from "../dtos/gallery.dto";
 
-export const galleryController = new Elysia({ prefix: "/gallery" })
+export const galleryController = () => new Elysia({ prefix: "/gallery" })
   .use(repositoriesPlugin)
   // Grupo Público (Acesso sem autenticação)
   .group("/public", (app) =>

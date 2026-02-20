@@ -3,7 +3,7 @@ import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 import { GetProfitReportUseCase } from "../../../application/use-cases/get-profit-report.use-case";
 
-export const reportController = new Elysia({ prefix: "/reports" })
+export const reportController = () => new Elysia({ prefix: "/reports" })
   .use(authPlugin)
   .use(repositoriesPlugin)
   .onBeforeHandle(({ user, set, request }) => {

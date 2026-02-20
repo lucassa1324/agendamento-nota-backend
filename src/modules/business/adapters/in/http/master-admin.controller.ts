@@ -5,7 +5,7 @@ import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
 import { eq, sql, count } from "drizzle-orm";
 
-export const masterAdminController = new Elysia({ prefix: "/admin/master" })
+export const masterAdminController = () => new Elysia({ prefix: "/admin/master" })
   .use(authPlugin)
   .guard({
     isMaster: true

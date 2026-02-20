@@ -14,7 +14,7 @@ import {
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 
-export const settingsController = new Elysia({ prefix: "/settings" })
+export const settingsController = () => new Elysia({ prefix: "/settings" })
   .use(authPlugin)
   .use(repositoriesPlugin)
   // --- ROTAS PÚBLICAS ---

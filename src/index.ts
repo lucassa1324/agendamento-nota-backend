@@ -29,10 +29,35 @@ import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plu
 // import { asaasWebhookController } from "./modules/infrastructure/payment/asaas.webhook.controller";
 // import { staticPlugin } from "@elysiajs/static";
 
-const userRepository = new UserRepository();
-const createUserUseCase = new CreateUserUseCase(userRepository);
-const listUsersUseCase = new ListUsersUseCase(userRepository);
-const userController = new UserController(createUserUseCase, listUsersUseCase);
+// Função para configurar as rotas e evitar dependências circulares na inicialização
+const setupRoutes = (app: Elysia) => {
+  const userRepository = new UserRepository();
+  const createUserUseCase = new CreateUserUseCase(userRepository);
+  const listUsersUseCase = new ListUsersUseCase(userRepository);
+  const userController = new UserController(createUserUseCase, listUsersUseCase);
+
+  return app
+    .use(publicBusinessController())
+    .use(userController.registerRoutes())
+    .group("/api", (api) =>
+      api
+        .use(businessController())
+        .use(serviceController())
+        .use(reportController())
+        .use(appointmentController())
+        .use(settingsController())
+        .use(inventoryController())
+        .use(expenseController())
+        .use(masterAdminController())
+        .use(galleryController())
+      // .use(pushController())
+      // .use(notificationsController())
+      // .use(userPreferencesController())
+      // .use(stripeWebhookController())
+      // .use(stripeCheckoutController())
+      // .use(asaasWebhookController())
+    );
+};
 
 const app = new Elysia()
   .use(
@@ -74,26 +99,8 @@ const app = new Elysia()
     const origin = request.headers.get('origin');
     // console.log(`[REQUEST] ${request.method} ${request.url} | Origin: ${origin}`);
   })
-  .use(publicBusinessController)
-  .use(userController.registerRoutes())
-  .group("/api", (api) =>
-    api
-      .use(businessController)
-      .use(serviceController)
-      .use(reportController)
-      .use(appointmentController())
-      .use(settingsController)
-      .use(inventoryController)
-      .use(expenseController)
-      .use(masterAdminController)
-      .use(galleryController)
-    // .use(pushController)
-    // .use(notificationsController)
-    // .use(userPreferencesController)
-    // .use(stripeWebhookController)
-    // .use(stripeCheckoutController)
-    // .use(asaasWebhookController)
-  )
+  // Inicializa as rotas através da função setupRoutes
+  .use(setupRoutes)
   // .use(staticPlugin({
   //   assets: "public",
   //   prefix: "/public",
@@ -153,6 +160,7 @@ const app = new Elysia()
       userAgent,
       sessionFound: !!session,
       userId: session?.user?.id || null,
+      
     };
   })
   .get("/user", async ({ request, set }) => {

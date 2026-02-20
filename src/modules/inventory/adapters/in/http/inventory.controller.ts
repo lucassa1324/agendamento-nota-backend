@@ -8,7 +8,7 @@ import { DeleteProductUseCase } from "../../../application/use-cases/delete-prod
 import { CreateInventoryTransactionUseCase } from "../../../application/use-cases/create-inventory-transaction.use-case";
 import { CreateProductDTO, UpdateProductDTO, CreateTransactionDTO } from "../dtos/inventory.dto";
 
-export const inventoryController = new Elysia({ prefix: "/inventory" })
+export const inventoryController = () => new Elysia({ prefix: "/inventory" })
   .use(repositoriesPlugin)
   .use(authPlugin)
   .onBeforeHandle(({ user, set }) => {

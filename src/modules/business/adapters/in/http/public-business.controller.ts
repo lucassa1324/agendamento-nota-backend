@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 
-export const publicBusinessController = new Elysia({ prefix: "/api/business" })
+export const publicBusinessController = () => new Elysia({ prefix: "/api/business" })
   .use(repositoriesPlugin)
   .get("/slug/:slug", async ({ params: { slug }, set, businessRepository, settingsRepository, userRepository }) => {
     console.log(`[PUBLIC_BUSINESS_FETCH] Buscando dados para o slug: ${slug}`);
