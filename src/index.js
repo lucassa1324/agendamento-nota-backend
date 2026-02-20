@@ -7,7 +7,7 @@ import { UserController } from "./modules/user/adapters/in/http/user.controller"
 import { ListUsersUseCase } from "./modules/user/application/use-cases/list-users.use-case";
 import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
 import { UserRepository } from "./modules/user/adapters/out/user.repository";
-import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
+// import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
 import { serviceController } from "./modules/services/adapters/in/http/service.controller";
 // import { reportController } from "./modules/reports/adapters/in/http/report.controller";
 import { businessController } from "./modules/business/adapters/in/http/business.controller";
@@ -81,7 +81,6 @@ const app = new Elysia()
     .group("/api", (api) => api
     .use(businessController)
     .use(serviceController)
-    .use(appointmentController)
     // .use(companyController)
     // .use(inventoryController)
     .use(settingsController)
