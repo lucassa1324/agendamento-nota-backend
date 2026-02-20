@@ -6,7 +6,6 @@ import { CreateAppointmentUseCase } from "../../../application/use-cases/create-
 import { UpdateAppointmentStatusUseCase } from "../../../application/use-cases/update-appointment-status.use-case";
 import { DeleteAppointmentUseCase } from "../../../application/use-cases/delete-appointment.use-case";
 import { GetOperatingHoursUseCase } from "../../../../business/application/use-cases/get-operating-hours.use-case";
-import { createAppointmentDTO, updateAppointmentStatusDTO } from "../dtos/appointment.dto";
 
 export function appointmentController() {
   return new Elysia({ prefix: "/appointments" })
@@ -207,7 +206,19 @@ export function appointmentController() {
           };
         }
       }, {
-        body: createAppointmentDTO
+        body: t.Object({
+          companyId: t.String(),
+          serviceId: t.String(),
+          customerId: t.Optional(t.Nullable(t.String())),
+          scheduledAt: t.String(),
+          customerName: t.String(),
+          customerEmail: t.String(),
+          customerPhone: t.String(),
+          serviceNameSnapshot: t.String(),
+          servicePriceSnapshot: t.String(),
+          serviceDurationSnapshot: t.String(),
+          notes: t.Optional(t.String()),
+        })
       })
   )
   // Rotas Privadas
@@ -263,7 +274,15 @@ export function appointmentController() {
           return { error: error.message };
         }
       }, {
-        body: updateAppointmentStatusDTO
+        body: t.Object({
+          status: t.Enum({
+            PENDING: "PENDING",
+            CONFIRMED: "CONFIRMED",
+            COMPLETED: "COMPLETED",
+            CANCELLED: "CANCELLED",
+            POSTPONED: "POSTPONED"
+          } as const),
+        })
       })
       .delete("/:id", async ({ params: { id }, appointmentRepository, businessRepository, user, set }) => {
         try {
