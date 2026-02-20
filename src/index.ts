@@ -108,12 +108,21 @@ const app = new Elysia()
     set.headers["Surrogate-Control"] = "no-store";
   })
   .mount(auth.handler)
+  // COMPATIBILIDADE: Captura rota duplicada /api/auth/api/auth gerada erroneamente pelo frontend
   .group("/api/auth", (app) => app.mount(auth.handler))
-  .get("/get-session", async ({ request }) => {
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
-    return session || { session: null, user: null };
+  .get("/get-session", async ({ request, set }) => {
+    try {
+      console.log("[GET-SESSION] Verificando sessão...");
+      const session = await auth.api.getSession({
+        headers: request.headers,
+      });
+      console.log("[GET-SESSION] Resultado:", session ? "Sessão Válida" : "Sem Sessão");
+      return session || { session: null, user: null };
+    } catch (error) {
+      console.error("[GET-SESSION] ERRO FATAL:", error);
+      // Em caso de erro, retorna nulo para evitar loop de login no frontend
+      return { session: null, user: null };
+    }
   })
   .use(authPlugin)
   .onBeforeHandle(({ request }) => {
