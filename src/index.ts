@@ -25,9 +25,6 @@ const setupRoutes = async (app: Elysia) => {
   const listUsersUseCase = new ListUsersUseCase(userRepository);
   const userController = new UserController(createUserUseCase, listUsersUseCase);
 
-  console.log("[SETUP_ROUTES] Importando ./modules/business/adapters/in/http/public-business.controller");
-  const { publicBusinessController } = await import("./modules/business/adapters/in/http/public-business.controller");
-
   console.log("[SETUP_ROUTES] Importando ./modules/business/adapters/in/http/business.controller");
   const { businessController } = await import("./modules/business/adapters/in/http/business.controller");
 
@@ -58,7 +55,6 @@ const setupRoutes = async (app: Elysia) => {
   console.log("[SETUP_ROUTES] Registrando rotas no app");
 
   return app
-    .use(publicBusinessController())
     .use(userController.registerRoutes())
     .group("/api", (api) =>
       api
