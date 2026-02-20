@@ -78,21 +78,35 @@ const app = new Elysia()
   .use(
     cors({
       origin: [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://agendamento-nota-front.vercel.app",
-        "https://landingpage-agendamento-front.vercel.app",
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'https://agendamento-nota-front.vercel.app',
+        'https://landingpage-agendamento-front.vercel.app',
         /\.localhost:3000$/,
         /^http:\/\/localhost:\d+$/,
-        /\.vercel\.app$/,
+        /\.vercel\.app$/
       ],
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-      credentials: true,
-      allowedHeaders: ["Content-Type", "Authorization", "Cookie", "set-cookie", "X-Requested-With", "Cache-Control"],
-      exposeHeaders: ["Set-Cookie", "set-cookie", "Authorization"],
-      preflight: true,
+      credentials: true, // Força Access-Control-Allow-Credentials: true
+      allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "Cookie",
+        "set-cookie",
+        "X-Requested-With",
+        "Cache-Control"
+      ],
+      exposeHeaders: ["Set-Cookie", "set-cookie", "Authorization", "Cache-Control"],
+      preflight: true
     })
   )
+  // Força NO-CACHE em todas as respostas da API para evitar loops de redirecionamento fantasma
+  .onRequest(({ set }) => {
+    set.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate";
+    set.headers["Pragma"] = "no-cache";
+    set.headers["Expires"] = "0";
+    set.headers["Surrogate-Control"] = "no-store";
+  })
   .mount(auth.handler)
   .group("/api/auth", (app) => app.mount(auth.handler))
   .get("/get-session", async ({ request }) => {
