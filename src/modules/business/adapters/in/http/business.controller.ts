@@ -31,6 +31,17 @@ export const businessController = () => new Elysia({ prefix: "/business" })
   // Rotas Públicas (Sem necessidade de Token)
   .group("", (publicGroup) =>
     publicGroup
+      .get("/debug-slug/:slug", async ({ params: { slug }, businessRepository }) => {
+          const normalizedSlug = slug.trim().toLowerCase();
+          console.log(`[DEBUG_SLUG] Buscando: '${normalizedSlug}'`);
+          const business = await businessRepository.findBySlug(normalizedSlug);
+          return {
+              original: slug,
+              normalized: normalizedSlug,
+              found: !!business,
+              data: business ? { id: business.id, name: business.name, slug: business.slug } : null
+          };
+      })
       .get("/slug/:slug", async ({ params: { slug }, set, businessRepository, settingsRepository, userRepository }) => {
         // Normalização de entrada para evitar erros de case/espaços
         const normalizedSlug = slug.trim().toLowerCase();
