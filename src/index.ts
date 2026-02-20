@@ -48,18 +48,14 @@ const app = new Elysia()
           'https://landingpage-agendamento-front.vercel.app'
         ];
 
-        // 1. Permite origens exatas da lista
-        if (allowedOrigins.includes(origin)) return true;
+        if (allowedOrigins.includes(origin)) return origin;
 
-        // 2. Permite qualquer subdomínio de localhost (ex: lucas-studio.localhost:3000)
-        // O regex cobre http://localhost:PORTA e http://*.localhost:PORTA
         if (origin.endsWith('.localhost:3000') || /^http:\/\/localhost:\d+$/.test(origin)) {
-          return true;
+          return origin;
         }
 
-        // 3. Permite subdomínios da Vercel
         if (origin.endsWith('.vercel.app')) {
-          return true;
+          return origin;
         }
 
         return false;
