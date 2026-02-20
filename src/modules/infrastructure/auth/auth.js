@@ -21,22 +21,27 @@ export const auth = betterAuth({
         : ["http://localhost:3000", "http://localhost:3001", "https://agendamento-nota-front.vercel.app"],
     advanced: {
         cookiePrefix: "better-auth",
-        // Desabilitado: o proxy torna a comunicação First-Party
         crossSubDomainCookies: {
             enabled: false,
         },
-    // No Vercel/Produção, useSecureCookies deve ser true para permitir SameSite=None
-    // Em localhost, deve ser false a menos que use HTTPS
-    useSecureCookies: true, // Força Secure para permitir SameSite=None em cross-domain
-    cookies: {
-      sessionToken: {
-        attributes: {
-          sameSite: "none", // Obrigatório para cross-domain
-          secure: true,     // Obrigatório para SameSite=None
-          httpOnly: true,
+        // No Vercel/Produção, useSecureCookies deve ser true para permitir SameSite=None
+        // Em localhost, deve ser false a menos que use HTTPS
+        useSecureCookies: true, // Força Secure para permitir SameSite=None em cross-domain
+        defaultCookieAttributes: {
+            sameSite: "none",
+            secure: true,
+            httpOnly: true,
         },
-      },
-    },
+        cookies: {
+            sessionToken: {
+                name: "better-auth.session_token",
+                attributes: {
+                    sameSite: "none", // Obrigatório para cross-domain
+                    secure: true,     // Obrigatório para SameSite=None
+                    httpOnly: true,
+                },
+            },
+        },
     },
     session: {
         expiresIn: 60 * 60 * 24 * 7, // 7 dias
@@ -203,14 +208,14 @@ export const auth = betterAuth({
                         }
                         const results = await db
                             .select({
-                            id: schema.companies.id,
-                            name: schema.companies.name,
-                            slug: schema.companies.slug,
-                            ownerId: schema.companies.ownerId,
-                            active: schema.companies.active,
-                            subscriptionStatus: schema.companies.subscriptionStatus,
-                            trialEndsAt: schema.companies.trialEndsAt,
-                        })
+                                id: schema.companies.id,
+                                name: schema.companies.name,
+                                slug: schema.companies.slug,
+                                ownerId: schema.companies.ownerId,
+                                active: schema.companies.active,
+                                subscriptionStatus: schema.companies.subscriptionStatus,
+                                trialEndsAt: schema.companies.trialEndsAt,
+                            })
                             .from(schema.companies)
                             .where(eq(schema.companies.ownerId, user.id))
                             .limit(1);
@@ -294,23 +299,23 @@ export const auth = betterAuth({
                     const userId = session.user.id;
                     const results = await db
                         .select({
-                        id: schema.companies.id,
-                        name: schema.companies.name,
-                        slug: schema.companies.slug,
-                        ownerId: schema.companies.ownerId,
-                        active: schema.companies.active,
-                        subscriptionStatus: schema.companies.subscriptionStatus,
-                        trialEndsAt: schema.companies.trialEndsAt,
-                        createdAt: schema.companies.createdAt,
-                        updatedAt: schema.companies.updatedAt,
-                        siteCustomization: {
-                            layoutGlobal: schema.companySiteCustomizations.layoutGlobal,
-                            home: schema.companySiteCustomizations.home,
-                            gallery: schema.companySiteCustomizations.gallery,
-                            aboutUs: schema.companySiteCustomizations.aboutUs,
-                            appointmentFlow: schema.companySiteCustomizations.appointmentFlow,
-                        }
-                    })
+                            id: schema.companies.id,
+                            name: schema.companies.name,
+                            slug: schema.companies.slug,
+                            ownerId: schema.companies.ownerId,
+                            active: schema.companies.active,
+                            subscriptionStatus: schema.companies.subscriptionStatus,
+                            trialEndsAt: schema.companies.trialEndsAt,
+                            createdAt: schema.companies.createdAt,
+                            updatedAt: schema.companies.updatedAt,
+                            siteCustomization: {
+                                layoutGlobal: schema.companySiteCustomizations.layoutGlobal,
+                                home: schema.companySiteCustomizations.home,
+                                gallery: schema.companySiteCustomizations.gallery,
+                                aboutUs: schema.companySiteCustomizations.aboutUs,
+                                appointmentFlow: schema.companySiteCustomizations.appointmentFlow,
+                            }
+                        })
                         .from(schema.companies)
                         .leftJoin(schema.companySiteCustomizations, eq(schema.companies.id, schema.companySiteCustomizations.companyId))
                         .where(eq(schema.companies.ownerId, userId))

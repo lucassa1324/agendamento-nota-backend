@@ -23,15 +23,20 @@ export const auth = betterAuth({
     : ["http://localhost:3000", "http://localhost:3001", "https://agendamento-nota-front.vercel.app"],
   advanced: {
     cookiePrefix: "better-auth",
-    // Desabilitado: o proxy torna a comunicação First-Party
     crossSubDomainCookies: {
       enabled: false,
     },
     // No Vercel/Produção, useSecureCookies deve ser true para permitir SameSite=None
     // Em localhost, deve ser false a menos que use HTTPS
     useSecureCookies: true, // Força Secure para permitir SameSite=None em cross-domain
+    defaultCookieAttributes: {
+      sameSite: "none",
+      secure: true,
+      httpOnly: true,
+    },
     cookies: {
       sessionToken: {
+        name: "better-auth.session_token",
         attributes: {
           sameSite: "none", // Obrigatório para cross-domain
           secure: true,     // Obrigatório para SameSite=None
