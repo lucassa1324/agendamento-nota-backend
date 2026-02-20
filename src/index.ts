@@ -3,38 +3,59 @@ console.log("Servidor iniciando com sucesso!");
 import { Elysia } from "elysia";
 import { auth } from "./modules/infrastructure/auth/auth";
 import { authPlugin } from "./modules/infrastructure/auth/auth-plugin";
-import type { User, Session } from "./modules/infrastructure/auth/auth-plugin";
 import cors from "@elysiajs/cors";
-import { UserController } from "./modules/user/adapters/in/http/user.controller";
-import { ListUsersUseCase } from "./modules/user/application/use-cases/list-users.use-case";
-import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
-import { UserRepository } from "./modules/user/adapters/out/user.repository";
-import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
-import { serviceController } from "./modules/services/adapters/in/http/service.controller";
-import { reportController } from "./modules/reports/adapters/in/http/report.controller";
-import { businessController } from "./modules/business/adapters/in/http/business.controller";
-// import { companyController } from "./modules/business/adapters/in/http/company.controller";
-import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
-import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
-import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
-import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
-import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
-import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
-// import { pushController } from "./modules/notifications/adapters/in/http/push.controller";
-// import { notificationsController } from "./modules/notifications/adapters/in/http/notifications.controller";
-// import { userPreferencesController } from "./modules/user/adapters/in/http/user-preferences.controller";
-import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
-// import { stripeWebhookController } from "./modules/infrastructure/stripe/webhook.controller";
-// import { stripeCheckoutController } from "./modules/infrastructure/stripe/checkout.controller";
-// import { asaasWebhookController } from "./modules/infrastructure/payment/asaas.webhook.controller";
-// import { staticPlugin } from "@elysiajs/static";
 
-// Função para configurar as rotas e evitar dependências circulares na inicialização
-const setupRoutes = (app: Elysia) => {
+const setupRoutes = async (app: Elysia) => {
+  console.log("[SETUP_ROUTES] Iniciando carregamento das rotas");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/user/adapters/in/http/user.controller");
+  const { UserController } = await import("./modules/user/adapters/in/http/user.controller");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/user/application/use-cases/list-users.use-case");
+  const { ListUsersUseCase } = await import("./modules/user/application/use-cases/list-users.use-case");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/user/application/use-cases/create-user.use-case");
+  const { CreateUserUseCase } = await import("./modules/user/application/use-cases/create-user.use-case");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/user/adapters/out/user.repository");
+  const { UserRepository } = await import("./modules/user/adapters/out/user.repository");
+
   const userRepository = new UserRepository();
   const createUserUseCase = new CreateUserUseCase(userRepository);
   const listUsersUseCase = new ListUsersUseCase(userRepository);
   const userController = new UserController(createUserUseCase, listUsersUseCase);
+
+  console.log("[SETUP_ROUTES] Importando ./modules/business/adapters/in/http/public-business.controller");
+  const { publicBusinessController } = await import("./modules/business/adapters/in/http/public-business.controller");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/business/adapters/in/http/business.controller");
+  const { businessController } = await import("./modules/business/adapters/in/http/business.controller");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/services/adapters/in/http/service.controller");
+  const { serviceController } = await import("./modules/services/adapters/in/http/service.controller");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/reports/adapters/in/http/report.controller");
+  const { reportController } = await import("./modules/reports/adapters/in/http/report.controller");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/appointments/adapters/in/http/appointment.controller");
+  const { appointmentController } = await import("./modules/appointments/adapters/in/http/appointment.controller");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/settings/adapters/in/http/settings.controller");
+  const { settingsController } = await import("./modules/settings/adapters/in/http/settings.controller");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/inventory/adapters/in/http/inventory.controller");
+  const { inventoryController } = await import("./modules/inventory/adapters/in/http/inventory.controller");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/expenses/adapters/in/http/expense.controller");
+  const { expenseController } = await import("./modules/expenses/adapters/in/http/expense.controller");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/business/adapters/in/http/master-admin.controller");
+  const { masterAdminController } = await import("./modules/business/adapters/in/http/master-admin.controller");
+
+  console.log("[SETUP_ROUTES] Importando ./modules/gallery/adapters/in/http/gallery.controller");
+  const { galleryController } = await import("./modules/gallery/adapters/in/http/gallery.controller");
+
+  console.log("[SETUP_ROUTES] Registrando rotas no app");
 
   return app
     .use(publicBusinessController())
@@ -50,12 +71,6 @@ const setupRoutes = (app: Elysia) => {
         .use(expenseController())
         .use(masterAdminController())
         .use(galleryController())
-      // .use(pushController())
-      // .use(notificationsController())
-      // .use(userPreferencesController())
-      // .use(stripeWebhookController())
-      // .use(stripeCheckoutController())
-      // .use(asaasWebhookController())
     );
 };
 
@@ -63,30 +78,22 @@ const app = new Elysia()
   .use(
     cors({
       origin: [
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-        'https://agendamento-nota-front.vercel.app',
-        'https://landingpage-agendamento-front.vercel.app',
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://agendamento-nota-front.vercel.app",
+        "https://landingpage-agendamento-front.vercel.app",
         /\.localhost:3000$/,
         /^http:\/\/localhost:\d+$/,
-        /\.vercel\.app$/
+        /\.vercel\.app$/,
       ],
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-      credentials: true, // Força Access-Control-Allow-Credentials: true
-      allowedHeaders: [
-        "Content-Type",
-        "Authorization",
-        "Cookie",
-        "set-cookie",
-        "X-Requested-With",
-        "Cache-Control"
-      ],
+      credentials: true,
+      allowedHeaders: ["Content-Type", "Authorization", "Cookie", "set-cookie", "X-Requested-With", "Cache-Control"],
       exposeHeaders: ["Set-Cookie", "set-cookie", "Authorization"],
-      preflight: true
+      preflight: true,
     })
   )
   .mount(auth.handler)
-  // COMPATIBILIDADE: Captura rota duplicada /api/auth/api/auth gerada erroneamente pelo frontend
   .group("/api/auth", (app) => app.mount(auth.handler))
   .get("/get-session", async ({ request }) => {
     const session = await auth.api.getSession({
@@ -96,16 +103,9 @@ const app = new Elysia()
   })
   .use(authPlugin)
   .onBeforeHandle(({ request }) => {
-    const origin = request.headers.get('origin');
-    // console.log(`[REQUEST] ${request.method} ${request.url} | Origin: ${origin}`);
+    const origin = request.headers.get("origin");
   })
-  // Inicializa as rotas através da função setupRoutes
   .use(setupRoutes)
-  // .use(staticPlugin({
-  //   assets: "public",
-  //   prefix: "/public",
-  //   alwaysStatic: false,
-  // }))
   .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString() }))
   .onError(({ code, error, set, body }) => {
     console.error(`\n[ERROR] ${code}:`, error);
@@ -116,9 +116,7 @@ const app = new Elysia()
       set.status = 403;
       return {
         error: errorMessage,
-        message: errorMessage === "BUSINESS_SUSPENDED"
-          ? "O acesso a este estúdio foi suspenso."
-          : "Sua conta foi desativada."
+        message: errorMessage === "BUSINESS_SUSPENDED" ? "O acesso a este estúdio foi suspenso." : "Sua conta foi desativada.",
       };
     }
 
@@ -127,15 +125,15 @@ const app = new Elysia()
       return {
         error: errorMessage,
         message: "Assinatura necessária ou trial expirado.",
-        redirect: "/billing-required"
+        redirect: "/billing-required",
       };
     }
 
-    if (code === 'VALIDATION') {
-      console.error("[VALIDATION_ERROR_DETAILS]:", JSON.stringify(error.all, null, 2));
+    if (code === "VALIDATION") {
+      console.error("[VALIDATION_ERROR_DETAILS]:", JSON.stringify((error as any).all, null, 2));
       return {
         error: "Erro de validação nos dados enviados",
-        details: error.all
+        details: (error as any).all,
       };
     }
 
@@ -160,11 +158,9 @@ const app = new Elysia()
       userAgent,
       sessionFound: !!session,
       userId: session?.user?.id || null,
-      
     };
   })
   .get("/user", async ({ request, set }) => {
-    // Para a rota /user, precisamos validar a sessão manualmente ou usar o plugin localmente
     const session = await auth.api.getSession({
       headers: request.headers,
     });
