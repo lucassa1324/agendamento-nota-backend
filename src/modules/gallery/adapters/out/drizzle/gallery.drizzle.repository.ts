@@ -5,6 +5,7 @@ import { GalleryRepository } from "../../../domain/ports/gallery.repository";
 import { eq, and, asc } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 
+// Repository implementation for Gallery using Drizzle ORM
 export class GalleryDrizzleRepository implements GalleryRepository {
   async save(image: Omit<GalleryImage, "id" | "createdAt" | "updatedAt">): Promise<GalleryImage> {
     const id = uuidv4();

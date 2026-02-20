@@ -2,6 +2,7 @@ import { db } from "../../../../infrastructure/drizzle/database";
 import { galleryImages } from "../../../../../db/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
+// Repository implementation for Gallery using Drizzle ORM
 export class GalleryDrizzleRepository {
     async save(image) {
         const id = uuidv4();
