@@ -1,0 +1,163 @@
+console.log("Servidor iniciando com sucesso!");
+import { Elysia } from "elysia";
+import { auth } from "./modules/infrastructure/auth/auth";
+import { authPlugin } from "./modules/infrastructure/auth/auth-plugin";
+import cors from "@elysiajs/cors";
+import { UserController } from "./modules/user/adapters/in/http/user.controller";
+import { ListUsersUseCase } from "./modules/user/application/use-cases/list-users.use-case";
+import { CreateUserUseCase } from "./modules/user/application/use-cases/create-user.use-case";
+import { UserRepository } from "./modules/user/adapters/out/user.repository";
+import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
+import { serviceController } from "./modules/services/adapters/in/http/service.controller";
+// import { reportController } from "./modules/reports/adapters/in/http/report.controller";
+import { businessController } from "./modules/business/adapters/in/http/business.controller";
+// import { companyController } from "./modules/business/adapters/in/http/company.controller";
+import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
+// import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
+import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
+// import { stripeWebhookController } from "./modules/infrastructure/stripe/webhook.controller";
+// import { stripeCheckoutController } from "./modules/infrastructure/stripe/checkout.controller";
+// import { asaasWebhookController } from "./modules/infrastructure/payment/asaas.webhook.controller";
+// import { staticPlugin } from "@elysiajs/static";
+const userRepository = new UserRepository();
+const createUserUseCase = new CreateUserUseCase(userRepository);
+const listUsersUseCase = new ListUsersUseCase(userRepository);
+const userController = new UserController(createUserUseCase, listUsersUseCase);
+const app = new Elysia()
+    .use(cors({
+    origin: (request) => {
+        const origin = request.headers.get('origin');
+        if (!origin)
+            return true;
+        const allowedOrigins = [
+            'http://localhost:3000',
+            'http://127.0.0.1:3000',
+            'https://agendamento-nota-front.vercel.app',
+            'https://landingpage-agendamento-front.vercel.app'
+        ];
+        // 1. Permite origens exatas da lista
+        if (allowedOrigins.includes(origin))
+            return true;
+        // 2. Permite qualquer subdomínio de localhost (ex: lucas-studio.localhost:3000)
+        // O regex cobre http://localhost:PORTA e http://*.localhost:PORTA
+        if (origin.endsWith('.localhost:3000') || /^http:\/\/localhost:\d+$/.test(origin)) {
+            return true;
+        }
+        // 3. Permite subdomínios da Vercel
+        if (origin.endsWith('.vercel.app')) {
+            return true;
+        }
+        return false;
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    credentials: true, // Força Access-Control-Allow-Credentials: true
+    allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "Cookie",
+        "set-cookie",
+        "X-Requested-With",
+        "Cache-Control"
+    ],
+    exposeHeaders: ["Set-Cookie", "set-cookie", "Authorization"],
+    preflight: true
+}))
+    .mount(auth.handler)
+    // COMPATIBILIDADE: Captura rota duplicada /api/auth/api/auth gerada erroneamente pelo frontend
+    .group("/api/auth", (app) => app.mount(auth.handler))
+    .get("/get-session", async ({ request }) => {
+    const session = await auth.api.getSession({
+        headers: request.headers,
+    });
+    return session || { session: null, user: null };
+})
+    .use(authPlugin)
+    .onBeforeHandle(({ request }) => {
+    const origin = request.headers.get('origin');
+    // console.log(`[REQUEST] ${request.method} ${request.url} | Origin: ${origin}`);
+})
+    .use(publicBusinessController)
+    .use(userController.registerRoutes())
+    .group("/api", (api) => api
+    .use(businessController)
+    .use(serviceController)
+    .use(appointmentController())
+    .use(settingsController)
+// .use(expenseController)
+// .use(galleryController)
+// .use(masterAdminController)
+// .use(pushController)
+// .use(notificationsController)
+// .use(userPreferencesController)
+// .use(stripeWebhookController)
+// .use(stripeCheckoutController)
+// .use(asaasWebhookController)
+)
+    // .use(staticPlugin({
+    //   assets: "public",
+    //   prefix: "/public",
+    //   alwaysStatic: false,
+    // }))
+    .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString() }))
+    .onError(({ code, error, set, body }) => {
+    console.error(`\n[ERROR] ${code}:`, error);
+    const errorMessage = error instanceof Error ? error.message : "";
+    if (errorMessage === "BUSINESS_SUSPENDED" || errorMessage === "ACCOUNT_SUSPENDED") {
+        set.status = 403;
+        return {
+            error: errorMessage,
+            message: errorMessage === "BUSINESS_SUSPENDED"
+                ? "O acesso a este estúdio foi suspenso."
+                : "Sua conta foi desativada."
+        };
+    }
+    if (errorMessage === "BILLING_REQUIRED") {
+        set.status = 402;
+        return {
+            error: errorMessage,
+            message: "Assinatura necessária ou trial expirado.",
+            redirect: "/billing-required"
+        };
+    }
+    if (code === 'VALIDATION') {
+        console.error("[VALIDATION_ERROR_DETAILS]:", JSON.stringify(error.all, null, 2));
+        return {
+            error: "Erro de validação nos dados enviados",
+            details: error.all
+        };
+    }
+    return {
+        error: error instanceof Error ? error.message : "Unknown error",
+        code,
+    };
+})
+    .get("/", () => "Elysia funcionando - User & Auth ativados!")
+    .get("/diagnostics/headers", async ({ request }) => {
+    const origin = request.headers.get("origin") || null;
+    const cookie = request.headers.get("cookie") || null;
+    const authorization = request.headers.get("authorization") || null;
+    const userAgent = request.headers.get("user-agent") || null;
+    const session = await auth.api.getSession({ headers: request.headers });
+    return {
+        method: request.method,
+        origin,
+        cookiePresent: !!cookie,
+        cookiePreview: cookie ? `${cookie.slice(0, 80)}${cookie.length > 80 ? "..." : ""}` : null,
+        authorizationPresent: !!authorization,
+        userAgent,
+        sessionFound: !!session,
+        userId: session?.user?.id || null,
+    };
+})
+    .get("/user", async ({ request, set }) => {
+    // Para a rota /user, precisamos validar a sessão manualmente ou usar o plugin localmente
+    const session = await auth.api.getSession({
+        headers: request.headers,
+    });
+    if (!session) {
+        set.status = 401;
+        return { error: "Unauthorized" };
+    }
+    return session.user;
+});
+export default app;
