@@ -8,7 +8,7 @@ import { DeleteAppointmentUseCase } from "../../../application/use-cases/delete-
 import { GetOperatingHoursUseCase } from "../../../../business/application/use-cases/get-operating-hours.use-case";
 import { createAppointmentDTO, updateAppointmentStatusDTO } from "../dtos/appointment.dto";
 
-export const appointmentController = new Elysia({ prefix: "/appointments" })
+export const appointmentController = () => new Elysia({ prefix: "/appointments" })
   .use(repositoriesPlugin)
   .use(authPlugin)
   .onError(({ code, error, set }) => {
