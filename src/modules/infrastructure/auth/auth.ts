@@ -29,12 +29,12 @@ export const auth = betterAuth({
     },
     // No Vercel/Produção, useSecureCookies deve ser true para permitir SameSite=None
     // Em localhost, deve ser false a menos que use HTTPS
-    useSecureCookies: process.env.NODE_ENV === "production",
+    useSecureCookies: true, // Força Secure para permitir SameSite=None em cross-domain
     cookies: {
       sessionToken: {
         attributes: {
-          sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-          secure: process.env.NODE_ENV === "production",
+          sameSite: "none", // Obrigatório para cross-domain
+          secure: true,     // Obrigatório para SameSite=None
           httpOnly: true,
         },
       },

@@ -65,7 +65,7 @@ const app = new Elysia()
         return false;
       },
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-      credentials: true,
+      credentials: true, // Força Access-Control-Allow-Credentials: true
       allowedHeaders: [
         "Content-Type",
         "Authorization",

@@ -1,0 +1,9 @@
+[33mcommit e211c9d7018a8945b6f8c749a99a59a8829244d0[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: Lucas Sá <lucassa1324@gmail.com>
+Date:   Fri Feb 20 08:09:35 2026 -0300
+
+    fix_auth_settings
+
+ src/modules/user/application/use-cases/create-user.use-case.js | 2 [32m+[m[31m-[m
+ src/modules/user/application/use-cases/create-user.use-case.ts | 2 [32m+[m[31m-[m
+ 2 files changed, 2 insertions(+), 2 deletions(-)

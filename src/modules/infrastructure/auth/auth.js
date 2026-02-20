@@ -25,18 +25,18 @@ export const auth = betterAuth({
         crossSubDomainCookies: {
             enabled: false,
         },
-        // No Vercel/Produção, useSecureCookies deve ser true para permitir SameSite=None
-        // Em localhost, deve ser false a menos que use HTTPS
-        useSecureCookies: process.env.NODE_ENV === "production",
-        cookies: {
-            sessionToken: {
-                attributes: {
-                    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-                    secure: process.env.NODE_ENV === "production",
-                    httpOnly: true,
-                },
-            },
+    // No Vercel/Produção, useSecureCookies deve ser true para permitir SameSite=None
+    // Em localhost, deve ser false a menos que use HTTPS
+    useSecureCookies: true, // Força Secure para permitir SameSite=None em cross-domain
+    cookies: {
+      sessionToken: {
+        attributes: {
+          sameSite: "none", // Obrigatório para cross-domain
+          secure: true,     // Obrigatório para SameSite=None
+          httpOnly: true,
         },
+      },
+    },
     },
     session: {
         expiresIn: 60 * 60 * 24 * 7, // 7 dias
