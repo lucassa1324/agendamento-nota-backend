@@ -16,7 +16,7 @@ import { businessController } from "./modules/business/adapters/in/http/business
 // import { companyController } from "./modules/business/adapters/in/http/company.controller";
 import { publicBusinessController } from "./modules/business/adapters/in/http/public-business.controller";
 // import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
-// import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
+import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
 // import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
 // import { galleryController } from "./modules/gallery/adapters/in/http/gallery.controller";
 // import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";
@@ -97,11 +97,11 @@ const app = new Elysia()
   .group("/api", (api) =>
     api
       .use(businessController)
-    // .use(serviceController)
-    // .use(appointmentController)
+      .use(serviceController)
+      .use(appointmentController)
     // .use(companyController)
     // .use(inventoryController)
-    // .use(settingsController)
+      .use(settingsController)
     // .use(expenseController)
     // .use(galleryController)
     // .use(masterAdminController)
