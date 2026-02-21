@@ -137,6 +137,13 @@ const startServer = () => {
           return { session: null, user: null };
         }
       })
+      .get("/diagnostics/headers", ({ request }) => {
+        return {
+          url: request.url,
+          headers: Object.fromEntries(request.headers.entries()),
+          cookies: request.headers.get('cookie')
+        };
+      })
       .use(authPlugin)
       .use(userController.registerRoutes())
       .group("/api", (api) =>
