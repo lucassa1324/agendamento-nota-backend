@@ -123,6 +123,37 @@ const startServer = () => {
               return new Response(null, { status: 204 });
             }
           })
+          .mapResponse(({ response }) => {
+            if (response instanceof Response) {
+              const setCookie = response.headers.get("set-cookie");
+              if (setCookie && !setCookie.toLowerCase().includes("partitioned")) {
+                const newHeaders = new Headers(response.headers);
+                const headersAny = newHeaders as any;
+
+                // Tenta usar getSetCookie (Node 18+ / Bun) para lidar com múltiplos cookies corretamente
+                if (typeof headersAny.getSetCookie === 'function') {
+                  const cookies = headersAny.getSetCookie();
+                  newHeaders.delete("set-cookie");
+                  for (const cookie of cookies) {
+                    if (!cookie.toLowerCase().includes("partitioned")) {
+                      newHeaders.append("set-cookie", cookie + "; Partitioned");
+                    } else {
+                      newHeaders.append("set-cookie", cookie);
+                    }
+                  }
+                } else {
+                  // Fallback simples
+                  newHeaders.set("set-cookie", setCookie + "; Partitioned");
+                }
+
+                return new Response(response.body, {
+                  status: response.status,
+                  statusText: response.statusText,
+                  headers: newHeaders
+                });
+              }
+            }
+          })
           .mount(auth.handler)
       )
       .get("/get-session", async ({ request }) => {

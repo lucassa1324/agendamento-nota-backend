@@ -46,6 +46,7 @@ export const auth = betterAuth({
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
       path: "/",
+      partitioned: process.env.NODE_ENV === "production", // Atributo CHIPS para Safari/Chrome
     },
   },
   session: {
