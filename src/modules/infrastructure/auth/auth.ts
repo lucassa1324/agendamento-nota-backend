@@ -45,6 +45,7 @@ export const auth = betterAuth({
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
+      path: "/",
     },
   },
   session: {
