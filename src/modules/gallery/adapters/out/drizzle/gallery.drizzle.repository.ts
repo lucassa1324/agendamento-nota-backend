@@ -3,12 +3,12 @@ import { galleryImages } from "../../../../../db/schema";
 import { GalleryImage } from "../../../domain/entities/gallery.entity";
 import { GalleryRepository } from "../../../domain/ports/gallery.repository";
 import { eq, and, asc } from "drizzle-orm";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "crypto";
 
 // Repository implementation for Gallery using Drizzle ORM
 export class GalleryDrizzleRepository implements GalleryRepository {
   async save(image: Omit<GalleryImage, "id" | "createdAt" | "updatedAt">): Promise<GalleryImage> {
-    const id = uuidv4();
+    const id = randomUUID();
     const [result] = await db
       .insert(galleryImages)
       .values({

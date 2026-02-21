@@ -1,11 +1,11 @@
 import { db } from "../../../../infrastructure/drizzle/database";
 import { galleryImages } from "../../../../../db/schema";
 import { eq, and, asc } from "drizzle-orm";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "crypto";
 // Repository implementation for Gallery using Drizzle ORM
 export class GalleryDrizzleRepository {
     async save(image) {
-        const id = uuidv4();
+        const id = randomUUID();
         const [result] = await db
             .insert(galleryImages)
             .values({
