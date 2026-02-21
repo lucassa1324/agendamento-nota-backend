@@ -10,9 +10,15 @@ export class NotificationService {
         }
         const payload = JSON.stringify({
             title,
-            body: message, // Standard Web Push format often uses 'body', but 'message' can be custom. Using 'body' for compatibility.
-            message // Keeping 'message' just in case frontend expects it specifically.
+            body: message,
+            icon: "/android-chrome-192x192.png",
+            badge: '/badge.png',
+            data: {
+                url: "/",
+                timestamp: Date.now()
+            }
         });
+        console.log(`[NOTIFICATION_SERVICE] Enviando payload: ${payload}`);
         let sentCount = 0;
         let failedCount = 0;
         for (const sub of subscriptions) {

@@ -9,6 +9,10 @@ export class User {
     public deletedAt: Date | null,
     public notifyNewAppointments: boolean = true,
     public notifyCancellations: boolean = true,
-    public notifyInventoryAlerts: boolean = true
+    public notifyInventoryAlerts: boolean = true,
+    public accountStatus: string = "ACTIVE",
+    public cancellationRequestedAt: Date | null = null,
+    public retentionEndsAt: Date | null = null,
+    public lastRetentionDiscountAt: Date | null = null
   ) {}
 }

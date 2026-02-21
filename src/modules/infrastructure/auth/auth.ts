@@ -28,13 +28,18 @@ export const auth = betterAuth({
     "http://localhost:3000",
     "http://localhost:3001",
     "https://agendamento-nota-front.vercel.app",
-    "https://landingpage-agendamento-front.vercel.app"
+    "https://landingpage-agendamento-front.vercel.app",
+    ...(process.env.VERCEL_URL ? [`https://${process.env.VERCEL_URL}`] : []),
+    ...(process.env.NEXT_PUBLIC_VERCEL_URL ? [`https://${process.env.NEXT_PUBLIC_VERCEL_URL}`] : []),
+    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : [])
+    // Better Auth não suporta regex aqui, mas suporta * em algumas versões
+    // Se falhar, precisaremos adicionar manualmente os subdomínios conhecidos ou confiar no CORS do Elysia
   ],
   advanced: {
     // Configuração OBRIGATÓRIA para Vercel (Cross-Site)
     // Front em agendamento-nota-front.vercel.app
     // Back em agendamento-nota-backend.vercel.app
-    useSecureCookies: true, 
+    useSecureCookies: true,
     defaultCookieAttributes: {
       sameSite: "none", // Permite envio entre domínios diferentes
       secure: true,     // Obrigatório quando sameSite é none

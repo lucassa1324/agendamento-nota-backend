@@ -6,6 +6,20 @@ import { UpdateSiteCustomizationUseCase } from "../../../application/use-cases/u
 import { SaveSettingsDTO } from "../dtos/settings.dto";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
+import { uploadToB2 } from "../../../../infrastructure/storage/b2.storage";
+
+const getExtensionFromMime = (mimeType?: string) => {
+  if (!mimeType) return "bin";
+  const map: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/svg+xml": "svg"
+  };
+  return map[mimeType] || "bin";
+};
 
 export const settingsController = () => new Elysia({ prefix: "/settings" })
   .use(authPlugin)
@@ -123,18 +137,24 @@ export const settingsController = () => new Elysia({ prefix: "/settings" })
 
           const arrayBuffer = await file.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
+          const extension = getExtensionFromMime(file.type);
+          const key = `logos/${businessId}/${crypto.randomUUID()}.${extension}`;
 
-          const base64Logo = `data:image/webp;base64,${buffer.toString('base64')}`;
+          const logoUrl = await uploadToB2({
+            buffer,
+            contentType: file.type || "application/octet-stream",
+            key,
+            cacheControl: "public, max-age=31536000"
+          });
 
-          // Atualizar o banco de dados com a string Base64 na coluna logoUrl
           const saveSettingsUseCase = new SaveSettingsUseCase(settingsRepository);
-          await saveSettingsUseCase.execute(businessId, { logoUrl: base64Logo });
+          await saveSettingsUseCase.execute(businessId, { logoUrl });
 
-          console.log(`[SETTINGS_CONTROLLER] Logo salva no banco de dados como Base64 para businessId: ${businessId}`);
+          console.log(`[SETTINGS_CONTROLLER] Logo salva no banco de dados para businessId: ${businessId}`);
 
           return {
             success: true,
-            logoUrl: base64Logo
+            logoUrl
           };
         } catch (error: any) {
           console.error("[SETTINGS_LOGO_UPLOAD_ERROR]:", error);

@@ -124,13 +124,28 @@ export class CreateAppointmentUseCase {
       new Date(new Date(scheduledAt).setHours(23, 59, 59, 999))
     );
 
+    // Converte a data do agendamento para o timezone local (simulando a mesma lógica do banco/visualização)
+    // Se o scheduledAt já vier em UTC (com Z), o getHours() vai pegar a hora local do servidor.
+    // O ideal é normalizar tudo para minutos absolutos do dia.
+
+    // Assumindo que scheduledAt é um Date objeto
     const appStartMin = (scheduledAt.getHours() * 60) + scheduledAt.getMinutes();
     const appEndMin = appStartMin + totalDurationMin;
 
     const hasConflict = existingAppointments.some(app => {
       if (app.status === 'CANCELLED') return false;
 
-      const existingStart = (app.scheduledAt.getHours() * 60) + app.scheduledAt.getMinutes();
+      // Converter data do banco (que vem como string ou Date UTC) para Date objeto
+      const dbDate = new Date(app.scheduledAt);
+
+      // Ajuste crucial: Se a data do banco for diferente da data do novo agendamento (ex: dia diferente), ignora
+      // Isso evita conflitos falsos se o filtro findAllByCompanyId retornar dias errados por fuso horário
+      if (dbDate.getDate() !== scheduledAt.getDate() || dbDate.getMonth() !== scheduledAt.getMonth()) {
+        return false;
+      }
+
+      const existingStart = (dbDate.getHours() * 60) + dbDate.getMinutes();
+
       let existingDuration = 30;
       if (app.serviceDurationSnapshot) {
         if (app.serviceDurationSnapshot.includes(':')) {
@@ -143,6 +158,9 @@ export class CreateAppointmentUseCase {
       const existingEnd = existingStart + existingDuration;
 
       // Sobreposição: (NovoInício < ExistenteFim) E (NovoFim > ExistenteInício)
+      // Ajuste para permitir "encostar":
+      // Se NovoFim == ExistenteInício -> OK (ex: acaba 10:00, outro começa 10:00)
+      // Se NovoInício == ExistenteFim -> OK (ex: começa 11:00, outro acaba 11:00)
       return appStartMin < existingEnd && appEndMin > existingStart;
     });
 

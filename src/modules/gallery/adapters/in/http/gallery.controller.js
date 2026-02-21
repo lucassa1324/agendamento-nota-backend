@@ -2,6 +2,21 @@ import { Elysia, t } from "elysia";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 import { createGalleryImageDTO, updateGalleryImageDTO } from "../dtos/gallery.dto";
+import { uploadToB2 } from "../../../../infrastructure/storage/b2.storage";
+import crypto from "crypto";
+const getExtensionFromMime = (mimeType) => {
+    if (!mimeType)
+        return "bin";
+    const map = {
+        "image/png": "png",
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/webp": "webp",
+        "image/gif": "gif",
+        "image/svg+xml": "svg"
+    };
+    return map[mimeType] || "bin";
+};
 export const galleryController = () => new Elysia({ prefix: "/gallery" })
     .use(repositoriesPlugin)
     // Grupo Público (Acesso sem autenticação)
@@ -74,12 +89,31 @@ export const galleryController = () => new Elysia({ prefix: "/gallery" })
             set.status = 401;
             return { error: "Usuário não vinculado a uma empresa" };
         }
+        const file = body.file;
+        let imageUrl = body.imageUrl;
+        if (!imageUrl && file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            const extension = getExtensionFromMime(file.type);
+            const key = `gallery/${businessId}/${crypto.randomUUID()}.${extension}`;
+            imageUrl = await uploadToB2({
+                buffer,
+                contentType: file.type || "application/octet-stream",
+                key,
+                cacheControl: "public, max-age=31536000"
+            });
+        }
+        if (!imageUrl) {
+            set.status = 400;
+            return { error: "imageUrl ou file é obrigatório" };
+        }
         const image = await galleryRepository.save({
             ...body,
             businessId,
+            imageUrl,
             title: body.title || null,
             category: body.category || null,
-            showInHome: body.showInHome || false,
+            showInHome: body.showInHome === "true" || body.showInHome === true,
             order: (body.order || "0").toString(),
         });
         return image;
@@ -105,6 +139,7 @@ export const galleryController = () => new Elysia({ prefix: "/gallery" })
         }
         const updated = await galleryRepository.update(id, {
             ...body,
+            showInHome: body.showInHome === "true" || body.showInHome === true,
             order: body.order?.toString()
         });
         return updated;

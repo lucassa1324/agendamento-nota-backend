@@ -11,6 +11,7 @@
     "db:studio": "bunx drizzle-kit studio"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.995.0",
     "@elysiajs/cors": "^1.4.1",
     "@elysiajs/static": "^1.4.7",
     "@types/node": "^25.2.1",

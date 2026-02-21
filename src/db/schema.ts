@@ -32,6 +32,10 @@ export const user = pgTable("user", {
   notifyNewAppointments: boolean("notify_new_appointments").default(true).notNull(),
   notifyCancellations: boolean("notify_cancellations").default(true).notNull(),
   notifyInventoryAlerts: boolean("notify_inventory_alerts").default(true).notNull(),
+  accountStatus: text("account_status").default("ACTIVE").notNull(),
+  cancellationRequestedAt: timestamp("cancellation_requested_at"),
+  retentionEndsAt: timestamp("retention_ends_at"),
+  lastRetentionDiscountAt: timestamp("last_retention_discount_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -133,6 +137,16 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
     .defaultNow()
     .$onUpdate(() => new Date())
     .notNull(),
+});
+
+export const accountCancellationFeedback = pgTable("account_cancellation_feedback", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  reason: text("reason").notNull(),
+  details: text("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const companies = pgTable("companies", {

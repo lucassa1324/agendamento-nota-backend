@@ -1,39 +1,54 @@
-import { Elysia, t } from "elysia";
-import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
+import { Elysia } from "elysia";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
+import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
+import { webpush } from "../../../application/webpush";
 
-export const pushController = new Elysia({ prefix: "/push" })
-  .use(authPlugin)
+export const pushController = () => new Elysia({ prefix: "/push" })
   .use(repositoriesPlugin)
+  .use(authPlugin)
   .onBeforeHandle(({ user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "Unauthorized" };
     }
   })
-  .post("/subscriptions", async ({ body, user, pushSubscriptionRepository, set }) => {
-    try {
-      const { endpoint, keys } = body;
-      const p256dh = keys?.p256dh;
-      const auth = keys?.auth;
+  .post("/subscriptions", async ({ user, body, pushSubscriptionRepository }) => {
+    let subscription: any = (body as any).subscription || body;
 
-      if (!endpoint || !p256dh || !auth) {
-        set.status = 400;
-        return { error: "Invalid subscription payload" };
-      }
-
-      const saved = await pushSubscriptionRepository.upsert(user!.id, endpoint, p256dh, auth);
-      return saved;
-    } catch (error: any) {
-      set.status = 500;
-      return { error: error.message || "Internal Server Error" };
+    if ((body as any).endpoint && (body as any).keys) {
+        subscription = body;
     }
-  }, {
-    body: t.Object({
-      endpoint: t.String(),
-      keys: t.Object({
-        p256dh: t.String(),
-        auth: t.String()
-      })
-    })
+
+    if (!subscription || !subscription.endpoint) {
+      console.error("[PUSH_CONTROLLER] Payload inválido recebido:", JSON.stringify(body));
+      throw new Error("Invalid subscription object");
+    }
+
+    console.log(`[PUSH_CONTROLLER] Registrando nova inscrição para user: ${user!.id}`);
+
+    await pushSubscriptionRepository.upsert(
+      user!.id,
+      subscription.endpoint,
+      subscription.keys.p256dh,
+      subscription.keys.auth
+    );
+
+    const payload = JSON.stringify({
+      title: "Notificações Ativadas",
+      body: "Você receberá atualizações sobre seus agendamentos.",
+      icon: '/android-chrome-192x192.png',
+      data: {
+        url: '/',
+        timestamp: Date.now()
+      }
+    });
+
+    try {
+      await webpush.sendNotification(subscription, payload);
+      console.log("[PUSH_CONTROLLER] Notificação de boas-vindas enviada com sucesso.");
+    } catch (error) {
+      console.error("[PUSH_CONTROLLER] Erro ao enviar boas-vindas:", error);
+    }
+
+    return { success: true };
   });
