@@ -16,6 +16,8 @@ const getBaseUrl = () => {
   return "http://localhost:3000";
 };
 
+// Em ambiente Vercel com Proxy, precisamos confiar no host que vem do cabeçalho
+// para que o Better Auth gere as URLs de redirecionamento corretas
 const baseURL = getBaseUrl();
 
 export const auth = betterAuth({
@@ -23,7 +25,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
-  baseURL,
+  // baseURL: baseURL, // REMOVIDO: Deixe o Better Auth inferir ou use trustedOrigins
   trustedOrigins: [
     "http://localhost:3000",
     "http://localhost:3001",
@@ -31,9 +33,8 @@ export const auth = betterAuth({
     "https://landingpage-agendamento-front.vercel.app",
     ...(process.env.VERCEL_URL ? [`https://${process.env.VERCEL_URL}`] : []),
     ...(process.env.NEXT_PUBLIC_VERCEL_URL ? [`https://${process.env.NEXT_PUBLIC_VERCEL_URL}`] : []),
-    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : [])
-    // Better Auth não suporta regex aqui, mas suporta * em algumas versões
-    // Se falhar, precisaremos adicionar manualmente os subdomínios conhecidos ou confiar no CORS do Elysia
+    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+    "https://agendamento-nota-front.vercel.app/api-proxy" // Adicionado explicitamente o caminho do proxy
   ],
   advanced: {
     // Configuração OBRIGATÓRIA para Vercel (Cross-Site) em Produção
