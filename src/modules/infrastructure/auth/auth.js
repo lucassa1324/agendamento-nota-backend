@@ -40,11 +40,10 @@ export const auth = betterAuth({
         // Em localhost, usamos configurações mais relaxadas para evitar problemas com SSL/HTTP
         useSecureCookies: process.env.NODE_ENV === "production",
         defaultCookieAttributes: {
-            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+            sameSite: "lax",
             secure: process.env.NODE_ENV === "production",
             httpOnly: true,
-            path: "/",
-            partitioned: process.env.NODE_ENV === "production", // Atributo CHIPS para Safari/Chrome
+            path: "/"
         },
     },
     session: {

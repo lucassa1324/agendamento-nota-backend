@@ -7,8 +7,8 @@ const { webkit } = require('playwright');
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  const email = "evellyn@gmail.com";
-  const password = "123123123";
+  const email = "test.safari.1771714118882@example.com";
+  const password = "Password123!";
   const backendUrl = "https://agendamento-nota-backend.vercel.app";
   const frontendUrl = "https://agendamento-nota-front.vercel.app";
 
@@ -47,55 +47,65 @@ const { webkit } = require('playwright');
 
     // Monitor network responses to capture Set-Cookie
     page.on('response', async response => {
-        const url = response.url();
-        if (url.includes('/api/auth/sign-in/email')) {
-            console.log(`Intercepted response from ${url}`);
-            const headers = await response.allHeaders();
-            console.log("Response Headers keys:", Object.keys(headers));
-            
-            // Try different cases for set-cookie
-            const setCookie = headers['set-cookie'] || headers['Set-Cookie'] || headers['SET-COOKIE'];
-            
-            if (setCookie) {
-                capturedSetCookie = setCookie;
-                console.log("Captured Set-Cookie:", setCookie);
-                if (setCookie.toLowerCase().includes('partitioned')) {
-                     console.log("✅ Cookie has Partitioned attribute (CHIPS support).");
-                } else {
-                     console.log("⚠️ Cookie missing Partitioned attribute.");
-                }
-            } else {
-                console.log("WARNING: No Set-Cookie header found in intercepted response.");
-            }
+      const url = response.url();
+      if (url.includes('/api/auth/sign-in/email')) {
+        console.log(`Intercepted response from ${url}`);
+        const headers = await response.allHeaders();
+        console.log("Response Headers keys:", Object.keys(headers));
+
+        // Try different cases for set-cookie
+        const setCookie = headers['set-cookie'] || headers['Set-Cookie'] || headers['SET-COOKIE'];
+
+        if (setCookie) {
+          capturedSetCookie = setCookie;
+          console.log("Captured Set-Cookie:", setCookie);
+          if (setCookie.toLowerCase().includes('partitioned')) {
+            console.log("✅ Cookie has Partitioned attribute (CHIPS support).");
+          } else {
+            console.log("⚠️ Cookie missing Partitioned attribute.");
+          }
+        } else {
+          console.log("WARNING: No Set-Cookie header found in intercepted response.");
         }
+      }
     });
-  
+
     console.log("Attempting login via fetch() in browser context (Cross-Site)...");
-    
+
     // Execute fetch in the browser context to simulate frontend calling backend
     const loginResult = await page.evaluate(async ({ url, email, password }) => {
       console.log("Current Origin:", window.location.origin);
-      
+
       try {
         // First try a simple health check or OPTIONS
         try {
-            const health = await fetch(url, { method: 'OPTIONS' });
-            console.log("Health check status:", health.status);
+          const health = await fetch(url, { method: 'OPTIONS' });
+          console.log("Health check status:", health.status);
         } catch (h) {
-            console.error("Health check failed:", h);
+          console.error("Health check failed:", h);
         }
 
-        const res = await fetch(`${url}/api/auth/sign-in/email`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ email, password })
-        });
-        
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+        let res;
+        let attempts = 0;
+        while (attempts < 3) {
+          res = await fetch(`${url}/api/auth/sign-in/email`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email, password })
+          });
+          if (res.status !== 429) {
+            break;
+          }
+          attempts += 1;
+          await sleep(5000);
+        }
+
         // Cannot access Set-Cookie here due to browser security restrictions
-        
+
         return {
           status: res.status,
           ok: res.ok,
@@ -107,31 +117,31 @@ const { webkit } = require('playwright');
     }, { url: backendUrl, email, password });
 
     console.log("Login Fetch Result:", loginResult);
-    
+
     // Check captured cookie from network interceptor
     if (capturedSetCookie) {
-        console.log("Final Cookie Analysis:");
-        const hasPartitioned = capturedSetCookie.toLowerCase().includes("partitioned");
-        const hasSameSiteNone = capturedSetCookie.toLowerCase().includes("samesite=none");
-        const hasSecure = capturedSetCookie.toLowerCase().includes("secure");
-        
-        if (hasPartitioned && hasSameSiteNone && hasSecure) {
-             console.log("✅ SUCCESS: All required attributes for Safari (Partitioned, SameSite=None, Secure) are present!");
-        } else {
-             console.log("❌ FAILURE: Missing required attributes for Safari.");
-             if (!hasPartitioned) console.log("   - Missing: Partitioned");
-             if (!hasSameSiteNone) console.log("   - Missing: SameSite=None");
-             if (!hasSecure) console.log("   - Missing: Secure");
-        }
+      console.log("Final Cookie Analysis:");
+      const hasPartitioned = capturedSetCookie.toLowerCase().includes("partitioned");
+      const hasSameSiteNone = capturedSetCookie.toLowerCase().includes("samesite=none");
+      const hasSecure = capturedSetCookie.toLowerCase().includes("secure");
+
+      if (hasPartitioned && hasSameSiteNone && hasSecure) {
+        console.log("✅ SUCCESS: All required attributes for Safari (Partitioned, SameSite=None, Secure) are present!");
+      } else {
+        console.log("❌ FAILURE: Missing required attributes for Safari.");
+        if (!hasPartitioned) console.log("   - Missing: Partitioned");
+        if (!hasSameSiteNone) console.log("   - Missing: SameSite=None");
+        if (!hasSecure) console.log("   - Missing: Secure");
+      }
     } else {
-        console.log("WARNING: No Set-Cookie header was intercepted!");
+      console.log("WARNING: No Set-Cookie header was intercepted!");
     }
 
     if (loginResult.ok) {
       console.log("Login request successful via API.");
 
       console.log("Checking cookies in browser context...");
-      const cookies = await context.cookies();
+      const cookies = await context.cookies([backendUrl, frontendUrl]);
       const sessionCookie = cookies.find(c => c.name.includes("session") || c.name.includes("token"));
 
       if (sessionCookie) {
@@ -150,6 +160,24 @@ const { webkit } = require('playwright');
         console.error("❌ FAILURE: No session cookie found. The browser might have blocked it.");
         console.log("All cookies found:", cookies.map(c => `${c.name} (${c.domain})`).join(", "));
       }
+
+      const sessionCheck = await page.evaluate(async ({ url }) => {
+        try {
+          const res = await fetch(`${url}/get-session`, {
+            method: 'GET',
+            credentials: 'include'
+          });
+          return {
+            status: res.status,
+            ok: res.ok,
+            text: await res.text()
+          };
+        } catch (e) {
+          return { error: e.toString() };
+        }
+      }, { url: backendUrl });
+
+      console.log("Session fetch result:", sessionCheck);
 
     } else {
       console.error("❌ Login failed at API level:", loginResult);
