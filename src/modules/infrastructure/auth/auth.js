@@ -34,13 +34,14 @@ export const auth = betterAuth({
         // Se falhar, precisaremos adicionar manualmente os subdomínios conhecidos ou confiar no CORS do Elysia
     ],
     advanced: {
-        // Configuração OBRIGATÓRIA para Vercel (Cross-Site)
+        // Configuração OBRIGATÓRIA para Vercel (Cross-Site) em Produção
         // Front em agendamento-nota-front.vercel.app
         // Back em agendamento-nota-backend.vercel.app
-        useSecureCookies: true,
+        // Em localhost, usamos configurações mais relaxadas para evitar problemas com SSL/HTTP
+        useSecureCookies: process.env.NODE_ENV === "production",
         defaultCookieAttributes: {
-            sameSite: "none", // Permite envio entre domínios diferentes
-            secure: true, // Obrigatório quando sameSite é none
+            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+            secure: process.env.NODE_ENV === "production",
             httpOnly: true,
         },
     },

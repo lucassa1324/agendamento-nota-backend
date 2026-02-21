@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 import { createGalleryImageDTO, updateGalleryImageDTO } from "../dtos/gallery.dto";
-import { uploadToB2 } from "../../../../infrastructure/storage/b2.storage";
+import { uploadToB2, deleteFileFromB2 } from "../../../../infrastructure/storage/b2.storage";
 import crypto from "crypto";
 const getExtensionFromMime = (mimeType) => {
     if (!mimeType)
@@ -137,6 +137,18 @@ export const galleryController = () => new Elysia({ prefix: "/gallery" })
             set.status = 403;
             return { error: "Não autorizado" };
         }
+        // Se a imagem estiver sendo alterada e a antiga for do B2, apaga a antiga
+        if (body.imageUrl && body.imageUrl !== existing.imageUrl && existing.imageUrl && existing.imageUrl.includes("/api/storage/")) {
+            try {
+                const parts = existing.imageUrl.split("/api/storage/");
+                if (parts.length > 1) {
+                    await deleteFileFromB2(parts[1]);
+                }
+            }
+            catch (err) {
+                console.error("[GALLERY_UPDATE_FILE_ERROR]: Falha ao deletar imagem antiga do B2.", err);
+            }
+        }
         const updated = await galleryRepository.update(id, {
             ...body,
             showInHome: body.showInHome === "true" || body.showInHome === true,
@@ -162,6 +174,20 @@ export const galleryController = () => new Elysia({ prefix: "/gallery" })
         if (existing.businessId !== user.businessId) {
             set.status = 403;
             return { error: "Não autorizado" };
+        }
+        // Tenta deletar a imagem do B2 se ela existir
+        if (existing.imageUrl && existing.imageUrl.includes("/api/storage/")) {
+            try {
+                // Extrai a key da URL. Ex: http://.../api/storage/gallery/123.jpg -> gallery/123.jpg
+                const parts = existing.imageUrl.split("/api/storage/");
+                if (parts.length > 1) {
+                    const key = parts[1];
+                    await deleteFileFromB2(key);
+                }
+            }
+            catch (err) {
+                console.error("[GALLERY_DELETE_FILE_ERROR]: Falha ao deletar arquivo do B2, mas prosseguindo com exclusão do banco.", err);
+            }
         }
         await galleryRepository.delete(id);
         return { success: true };

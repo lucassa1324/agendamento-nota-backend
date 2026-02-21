@@ -3,6 +3,7 @@ import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 import { CreateServiceUseCase } from "../../../application/use-cases/create-service.use-case";
 import { createServiceDTO } from "../dtos/service.dto";
+import { deleteFileFromB2 } from "../../../../infrastructure/storage/b2.storage";
 export const serviceController = () => new Elysia({ prefix: "/services" })
     .use(repositoriesPlugin)
     .use(authPlugin)
@@ -83,6 +84,18 @@ export const serviceController = () => new Elysia({ prefix: "/services" })
             set.status = 403;
             return { error: "Não autorizado" };
         }
+        // Se o ícone estiver sendo alterado e o antigo for do B2, apaga o antigo
+        if (body.icon && body.icon !== existing.icon && existing.icon && existing.icon.includes("/api/storage/")) {
+            try {
+                const parts = existing.icon.split("/api/storage/");
+                if (parts.length > 1) {
+                    await deleteFileFromB2(parts[1]);
+                }
+            }
+            catch (err) {
+                console.error("[SERVICE_UPDATE_FILE_ERROR]: Falha ao deletar ícone antigo do B2.", err);
+            }
+        }
         // Normaliza os dados para garantir que price e duration sejam strings
         const normalizedBody = {
             ...body,
@@ -120,6 +133,20 @@ export const serviceController = () => new Elysia({ prefix: "/services" })
         if (existing.companyId !== businessId) {
             set.status = 403;
             return { error: "Não autorizado" };
+        }
+        // Se o serviço tiver uma imagem no B2, deleta ela
+        if (existing.icon && existing.icon.includes("/api/storage/")) {
+            try {
+                // Extrai a key da URL. Ex: http://.../api/storage/services/123.jpg -> services/123.jpg
+                const parts = existing.icon.split("/api/storage/");
+                if (parts.length > 1) {
+                    const key = parts[1];
+                    await deleteFileFromB2(key);
+                }
+            }
+            catch (err) {
+                console.error("[SERVICE_DELETE_FILE_ERROR]: Falha ao deletar ícone do B2, mas prosseguindo com exclusão do serviço.", err);
+            }
         }
         const success = await serviceRepository.delete(id);
         return { success: true };
