@@ -21,13 +21,13 @@ const startServer = () => {
     // Imports dentro do try-catch para capturar erros de linkagem/dependência circular
     const { auth } = require("./modules/infrastructure/auth/auth");
     const { authPlugin } = require("./modules/infrastructure/auth/auth-plugin");
-    
+
     // Controllers
     const { UserController } = require("./modules/user/adapters/in/http/user.controller");
     const { ListUsersUseCase } = require("./modules/user/application/use-cases/list-users.use-case");
     const { CreateUserUseCase } = require("./modules/user/application/use-cases/create-user.use-case");
     const { UserRepository } = require("./modules/user/adapters/out/user.repository");
-    
+
     const { businessController } = require("./modules/business/adapters/in/http/business.controller");
     const { serviceController } = require("./modules/services/adapters/in/http/service.controller");
     const { reportController } = require("./modules/reports/adapters/in/http/report.controller");
@@ -109,6 +109,10 @@ const startServer = () => {
           .use(masterAdminController())
           .use(galleryController())
       )
+      .get("/", () => {
+        const urlHint = process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+        return `🦊 Elysia está rodando em ${urlHint}`;
+      })
       .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString(), version: "V2-TRY-CATCH" }))
       .onError(({ code, error }) => {
         console.error(`\n[ERROR] ${code}:`, error);

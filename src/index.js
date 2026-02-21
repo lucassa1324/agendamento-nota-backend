@@ -94,6 +94,10 @@ const startServer = () => {
             .use(expenseController())
             .use(masterAdminController())
             .use(galleryController()))
+            .get("/", () => {
+            const urlHint = process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+            return `🦊 Elysia está rodando em ${urlHint}`;
+        })
             .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString(), version: "V2-TRY-CATCH" }))
             .onError(({ code, error }) => {
             console.error(`\n[ERROR] ${code}:`, error);
