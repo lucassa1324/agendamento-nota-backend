@@ -3,7 +3,7 @@ console.log("[STARTUP] Inicializando Back-end (DEBUG-SLUG-FIXED)");
 import { Elysia } from "elysia";
 import { auth } from "./modules/infrastructure/auth/auth";
 import { authPlugin } from "./modules/infrastructure/auth/auth-plugin";
-import cors from "@elysiajs/cors";
+import { cors } from "@elysiajs/cors";
 
 // IMPORTS ESTÁTICOS - Garante carregamento na inicialização
 import { UserController } from "./modules/user/adapters/in/http/user.controller";
@@ -15,7 +15,7 @@ import { businessController } from "./modules/business/adapters/in/http/business
 import { serviceController } from "./modules/services/adapters/in/http/service.controller";
 import { reportController } from "./modules/reports/adapters/in/http/report.controller";
 import { appointmentController } from "./modules/appointments/adapters/in/http/appointment.controller";
-import { settingsController } from "./modules/settings/adapters/in/http/settings.controller";
+import settingsController from "./modules/settings/adapters/in/http/settings.controller";
 import { inventoryController } from "./modules/inventory/adapters/in/http/inventory.controller";
 import { expenseController } from "./modules/expenses/adapters/in/http/expense.controller";
 import { masterAdminController } from "./modules/business/adapters/in/http/master-admin.controller";

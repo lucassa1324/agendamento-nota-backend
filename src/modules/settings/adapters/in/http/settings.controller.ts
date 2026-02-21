@@ -220,3 +220,5 @@ export const settingsController = () => new Elysia({ prefix: "/settings" })
         body: t.Any() // Permitir qualquer formato para que o Use Case normalize
       })
   );
+
+export default settingsController;
