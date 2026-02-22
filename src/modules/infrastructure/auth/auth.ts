@@ -12,14 +12,14 @@ if (!process.env.BETTER_AUTH_SECRET) {
 // Melhor resolução da URL base para Vercel
 const getBaseUrl = () => {
   if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
-  
+
   // Em produção, preferimos usar a URL do Proxy do Front-end como Base URL
   // Isso garante que redirects (magic links, etc) apontem para o domínio do front
   if (process.env.FRONTEND_URL) return `${process.env.FRONTEND_URL}/api-proxy`;
-  
+
   // Fallback para variáveis públicas se disponíveis
   if (process.env.NEXT_PUBLIC_FRONT_URL) return `${process.env.NEXT_PUBLIC_FRONT_URL}/api-proxy`;
-  
+
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return "http://localhost:3000";
 };
@@ -172,9 +172,19 @@ export const auth = betterAuth({
 
         // Se for sign-out, garantimos um retorno JSON para evitar Unexpected EOF no front
         if (path.includes("/sign-out")) {
+          // CAPTURA CRÍTICA: Preserva os headers originais (Set-Cookie) do Better Auth
+          const originalHeaders = new Headers();
+          if (response && response.headers) {
+            response.headers.forEach((value: string, key: string) => {
+              originalHeaders.append(key, value);
+            });
+          }
+          // Garante Content-Type
+          originalHeaders.set("Content-Type", "application/json");
+
           return new Response(JSON.stringify({ success: true }), {
             status: 200,
-            headers: new Headers({ "Content-Type": "application/json" })
+            headers: originalHeaders
           });
         }
 
@@ -258,7 +268,11 @@ export const auth = betterAuth({
 
                 const errorBody = {
                   error: "BUSINESS_SUSPENDED",
-                  message: "O acesso a este estúdio foi suspenso."
+                  message: "O acesso a este estúdio foi suspenso.",
+                  // DADOS CRÍTICOS: Retornar o slug/nome do estúdio bloqueado para o Front exibir corretamente
+                  slug: userCompany.slug,
+                  name: userCompany.name,
+                  businessId: userCompany.id
                 };
 
                 return new Response(JSON.stringify(errorBody), {
