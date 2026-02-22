@@ -42,7 +42,9 @@ export const auth = betterAuth({
     ...(process.env.VERCEL_URL ? [`https://${process.env.VERCEL_URL}`] : []),
     ...(process.env.NEXT_PUBLIC_VERCEL_URL ? [`https://${process.env.NEXT_PUBLIC_VERCEL_URL}`] : []),
     ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
-    "https://agendamento-nota-front.vercel.app/api-proxy" // Adicionado explicitamente o caminho do proxy
+    "https://agendamento-nota-front.vercel.app/api-proxy", // Adicionado explicitamente o caminho do proxy
+    "https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app", // Staging Environment
+    "https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app/api-proxy" // Staging Proxy
   ],
   advanced: {
     // Configuração OBRIGATÓRIA para Vercel (Cross-Site) em Produção

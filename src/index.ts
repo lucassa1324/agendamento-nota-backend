@@ -72,12 +72,14 @@ const startServer = () => {
           'http://localhost:3000',
           'http://127.0.0.1:3000',
           'https://agendamento-nota-front.vercel.app',
-          'https://landingpage-agendamento-front.vercel.app'
+          'https://landingpage-agendamento-front.vercel.app',
+          'https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app'
         ];
 
         const isAllowed = allowedOrigins.includes(origin!) ||
           (origin && origin.match(/http:\/\/.*\.localhost:\d+$/)) ||
-          (origin && origin.match(/\.vercel\.app$/));
+          (origin && origin.match(/\.vercel\.app$/)) ||
+          (origin && origin.endsWith('.vercel.app')); // Reforço para subdomínios Vercel
 
         if (isAllowed && origin) {
           set.headers["Access-Control-Allow-Origin"] = origin;
