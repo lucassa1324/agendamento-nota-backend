@@ -114,7 +114,7 @@ export class CreateAppointmentUseCase {
     const isInAfternoon = checkTimeInPeriod(dayConfig.afternoonStart, dayConfig.afternoonEnd);
 
     if (!isInMorning && !isInAfternoon) {
-      throw new Error("Selected time and total duration exceed business hours");
+      throw new Error("O horário selecionado e a duração total excedem o horário de funcionamento.");
     }
 
     // Validar conflitos com outros agendamentos
@@ -165,10 +165,53 @@ export class CreateAppointmentUseCase {
     });
 
     if (hasConflict) {
-      throw new Error("Selected time slot is already occupied");
+      throw new Error("O horário selecionado já está ocupado.");
     }
 
+    // --- NOVA VALIDAÇÃO: PROCEDIMENTOS INCOMPATÍVEIS (Advanced Rules) ---
+    // Verifica se o cliente já tem agendamentos no MESMO DIA que sejam incompatíveis com os novos serviços
+    const customerAppointments = existingAppointments.filter(app => {
+      if (app.status === 'CANCELLED') return false;
+      
+      // Verifica se é o mesmo cliente (por ID, Email ou Telefone)
+      const isSameCustomer = 
+        (data.customerId && app.customerId === data.customerId) ||
+        (data.customerEmail && app.customerEmail === data.customerEmail) ||
+        (data.customerPhone && app.customerPhone === data.customerPhone);
+
+      // Verifica se é o mesmo dia
+      const appDate = new Date(app.scheduledAt);
+      const isSameDay = appDate.getDate() === scheduledAt.getDate() && appDate.getMonth() === scheduledAt.getMonth();
+
+      return isSameCustomer && isSameDay;
+    });
+
+    if (customerAppointments.length > 0) {
+      for (const existingApp of customerAppointments) {
+        const existingService = await this.serviceRepository.findById(existingApp.serviceId);
+        if (!existingService) continue;
+
+        const existingConflicts = (existingService.advancedRules as any)?.conflicts || [];
+
+        for (const newService of services) {
+          const newConflicts = (newService.advancedRules as any)?.conflicts || [];
+
+          // 1. O serviço existente proíbe o novo?
+          if (existingConflicts.includes(newService.id)) {
+            throw new Error(`Conflito: O serviço '${newService.name}' não pode ser realizado no mesmo dia que '${existingService.name}'`);
+          }
+
+          // 2. O novo serviço proíbe o existente?
+          if (newConflicts.includes(existingService.id)) {
+            throw new Error(`Conflito: O serviço '${newService.name}' não pode ser realizado no mesmo dia que '${existingService.name}'`);
+          }
+        }
+      }
+    }
+    // ---------------------------------------------------------------------
+
     const newAppointment = await this.appointmentRepository.create(data);
+
 
     // Web Push Notification: notify business owner about the new appointment
     try {
