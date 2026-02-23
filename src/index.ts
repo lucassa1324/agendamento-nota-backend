@@ -48,6 +48,7 @@ const startServer = () => {
     const { notificationsController } = require("./modules/notifications/adapters/in/http/notifications.controller");
     const { pushController } = require("./modules/notifications/adapters/in/http/push.controller");
     const { userPreferencesController } = require("./modules/user/adapters/in/http/user-preferences.controller");
+    const { paymentController } = require("./modules/infrastructure/payment/payment.controller");
 
     console.log("[STARTUP] Módulos carregados. Instanciando dependências...");
 
@@ -299,6 +300,7 @@ const startServer = () => {
           .use(notificationsController())
           .use(pushController())
           .use(userPreferencesController())
+          .use(paymentController())
       )
       .get("/", () => {
         const urlHint = process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");

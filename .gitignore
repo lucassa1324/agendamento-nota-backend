@@ -44,3 +44,28 @@ package-lock.json
 
 # Logs
 erros_vercel/
+
+# Temporary / Documentation Files
+FRONTEND_PROMPT.md
+PROMPT_FRONTEND_FIX.md
+failure.png
+how HEAD --stat'
+
+# Scripts
+monitorar_logs.ps1
+scripts/test-integration.ts
+scripts/check-auth-schema.ts
+inspect_auth.js
+inspect_auth.ts
+inspect_better_auth_pkg.js
+inspect_better_auth_pkg.ts
+debug_cors.js
+
+# Loose Test Files
+test-admin-fix.ts
+test-booking-local.js
+test-calendar-view.js
+test-incompatible.js
+test-login-prod.js
+test_output.txt
+wait_for_deploy.js

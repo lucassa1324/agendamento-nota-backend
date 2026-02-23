@@ -84,7 +84,8 @@ export const auth = betterAuth({
   hooks: {
     before: async (context: any) => {
       // Bloqueia login de usuários inativos
-      if (context.path.includes("/sign-in")) {
+      // Verificação defensiva: context ou context.path podem ser undefined em chamadas internas (ex: getSession)
+      if (context?.path?.includes && context.path.includes("/sign-in")) {
         const body = context.body;
         if (body && body.email) {
           const [usr] = await db

@@ -116,7 +116,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           const daysToAdd = trialDays ? Number(trialDays) : 30;
           const nextDue = new Date(now);
           nextDue.setDate(nextDue.getDate() + daysToAdd);
-          
+
           updateData.subscriptionStatus = 'active';
           updateData.accessType = 'manual'; // Marca como manual para diferenciar
           updateData.trialEndsAt = nextDue;
@@ -125,7 +125,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           // Opção 2: Definir Teste (Novo Prazo)
           // Lógica alterada: Agora define EXATAMENTE os dias a partir de hoje, substituindo o prazo anterior.
           // Ex: Se faltam 3 dias e defino 4, passa a faltar 4 (não soma 3+4).
-          
+
           const daysToAdd = trialDays ? Number(trialDays) : 14;
           const extendedDate = new Date(now); // Baseado em HOJE
           extendedDate.setDate(extendedDate.getDate() + daysToAdd);
@@ -182,6 +182,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       const { id } = params;
       const { email } = body;
 
+      // 1. Atualiza email na tabela de usuários
       const [updated] = await db
         .update(schema.user)
         .set({
@@ -195,6 +196,22 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         set.status = 404;
         return { error: "Usuário não encontrado" };
       }
+
+      // 2. Atualiza accountId na tabela accounts (se for credencial de email)
+      // COMENTADO: Em alguns setups do Better Auth, accountId para 'credential' é o próprio userId.
+      // Alterar para email pode quebrar o vínculo se o sistema esperar o userId.
+      // Se necessário reativar, verificar se o accountId deve ser o email ou userId.
+      /*
+      await db
+        .update(schema.account)
+        .set({
+          accountId: email, // Para provider 'credential', accountId é o email
+          updatedAt: new Date()
+        })
+        .where(
+          sql`${schema.account.userId} = ${id} AND ${schema.account.providerId} = 'credential'`
+        );
+      */
 
       return {
         success: true,
@@ -215,19 +232,25 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       const { id } = params;
       const defaultPassword = "Mudar@123";
 
-      // Better Auth gerencia as senhas na tabela 'user' (geralmente via hash)
-      // Como estamos no Master Admin, vamos usar a API do Better Auth para atualizar
-      // ou atualizar diretamente se soubermos o algoritmo. 
-      // O Better Auth usa Scrypt por padrão.
+      // Gera hash da senha usando Bun (Argon2id/Bcrypt)
+      const hashedPassword = await Bun.password.hash(defaultPassword);
 
-      await auth.api.setPassword({
-        body: {
-          newPassword: defaultPassword,
-        },
-        headers: new Headers({
-          "x-better-auth-user-id": id
+      // Atualiza a senha na tabela account
+      const [updatedAccount] = await db
+        .update(schema.account)
+        .set({
+          password: hashedPassword,
+          updatedAt: new Date()
         })
-      });
+        .where(
+          sql`${schema.account.userId} = ${id} AND ${schema.account.providerId} = 'credential'`
+        )
+        .returning();
+
+      if (!updatedAccount) {
+        set.status = 404;
+        return { error: "Usuário não possui conta de email/senha vinculada." };
+      }
 
       return {
         success: true,
