@@ -62,6 +62,16 @@ const startServer = () => {
 
     const app = new Elysia()
       .onRequest(({ request, set }) => {
+        try {
+          const logMsg = `[REQUEST] ${new Date().toISOString()} ${request.method} ${request.url}\n`;
+          console.log(`[REQUEST] ${request.method} ${request.url}`);
+          if (request.url.includes("get-session")) {
+            console.log(`[GET-SESSION-DEBUG] Headers:`, JSON.stringify(Object.fromEntries(request.headers.entries())));
+          }
+          // require("fs").appendFileSync("server_debug.log", logMsg);
+        } catch (e) {
+          console.error("[ERROR_ON_REQUEST_LOG]", e);
+        }
         // Log para debug de CORS
         if (request.method === "OPTIONS") {
           console.log(`[CORS_PREFLIGHT] Origin: ${request.headers.get("origin")} | Method: ${request.headers.get("access-control-request-method")}`);
@@ -109,28 +119,69 @@ const startServer = () => {
         set.headers["Pragma"] = "no-cache";
         set.headers["Expires"] = "0";
       })
-      .mount(auth.handler)
-      .group("/api/auth", (app) =>
-        app
-          .onRequest(({ request, set }) => {
-            // Força headers CORS específicos para rotas de auth,
-            // pois o Better Auth pode sobrescrever ou ser muito restrito
-            const origin = request.headers.get("origin");
-            if (origin) {
-              set.headers["Access-Control-Allow-Origin"] = origin;
-              set.headers["Access-Control-Allow-Credentials"] = "true";
-              set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
-              set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie, X-Requested-With";
-              set.headers["Access-Control-Expose-Headers"] = "Set-Cookie, set-cookie";
+      .use(authPlugin)
+      .use(repositoriesPlugin)
+      // Interceptor manual para rotas de Auth para garantir o enriquecimento do slug no sign-in
+      .all("/api/auth/*", async (ctx) => {
+        console.log(`[ELYSIA_AUTH_INTERCEPT] Requisição recebida em: ${ctx.path}`);
+        const response = await auth.handler(ctx.request);
+
+        // Se for sign-in bem sucedido, enriquecemos a resposta com o slug
+        if ((ctx.path.includes("sign-in") || ctx.path.includes("callback")) && response.status === 200) {
+          console.log(`[ELYSIA_AUTH_INTERCEPT] Interceptando sign-in para enriquecimento: ${ctx.path}`);
+          try {
+            const originalData = await response.clone().json();
+            console.log(`[ELYSIA_AUTH_INTERCEPT] Dados originais do user:`, originalData?.user?.email);
+
+            if (originalData && originalData.user && originalData.user.id) {
+              const userId = originalData.user.id;
+              const businessResults = await db
+                .select({
+                  id: schema.companies.id,
+                  slug: schema.companies.slug,
+                })
+                .from(schema.companies)
+                .where(eq(schema.companies.ownerId, userId))
+                .limit(1);
+
+              if (businessResults.length > 0) {
+                const company = businessResults[0];
+                console.log(`[ELYSIA_AUTH_INTERCEPT] Adicionando slug ${company.slug} à resposta de sign-in`);
+
+                originalData.user.slug = company.slug;
+                originalData.user.businessSlug = company.slug; // Compatibilidade front-end
+                originalData.user.businessId = company.id;
+
+                const enrichedResponse = new Response(JSON.stringify(originalData), {
+                  status: 200,
+                  headers: response.headers
+                });
+                // Garante que o Content-Type seja JSON
+                enrichedResponse.headers.set("Content-Type", "application/json");
+                return enrichedResponse;
+              } else {
+                console.log(`[ELYSIA_AUTH_INTERCEPT] Nenhum business encontrado para o usuário ${userId}`);
+              }
             }
-            if (request.method === "OPTIONS") {
-              return new Response(null, { status: 204 });
-            }
-          })
-          .mount(auth.handler)
-      )
-      .get("/get-session", async ({ request }) => {
+          } catch (e) {
+            console.error("[ELYSIA_AUTH_INTERCEPT] Erro ao enriquecer resposta:", e);
+          }
+        }
+
+        return response;
+      })
+      .get("/get-session", async ({ request, user }) => {
         try {
+          if (user) {
+            return {
+              user: user,
+              session: {
+                userId: user.id,
+                expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+              }
+            };
+          }
+
           const session = await auth.api.getSession({
             headers: request.headers,
           });
@@ -147,13 +198,11 @@ const startServer = () => {
           cookies: request.headers.get('cookie')
         };
       })
-      .use(authPlugin)
       .use(userController.registerRoutes())
       .group("/api", (api) =>
         api
           .group("/account", (account) =>
             account
-              .use(repositoriesPlugin)
               .onBeforeHandle(({ user, set }) => {
                 if (!user) {
                   set.status = 401;
@@ -306,22 +355,58 @@ const startServer = () => {
         const urlHint = process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
         return `🦊 Elysia está rodando em ${urlHint}`;
       })
-      .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString(), version: "V2-TRY-CATCH" }))
-      .onError(({ code, error }) => {
-        console.error(`\n[ERROR] ${code}:`, error);
+      .get("/test-error", () => {
+        throw new Error("Test error for logs");
+      })
+      .get("/api/health", () => {
+        console.log("[HEALTH_CHECK] Hitting health endpoint - SUCCESS");
+        return { status: "ok", timestamp: new Date().toISOString(), version: "V2-TRY-CATCH-LOG" };
+      })
+      .get("/api/test-error", () => {
+        throw new Error("Test error for logs");
+      })
+      .onError(({ code, error, request }) => {
+        const errorMsg = `\n[ERROR_GLOBAL] ${new Date().toISOString()} ${request.method} ${request.url} ${code}: ${error}\n${error.stack}\n`;
+        console.error(`\n[ERROR_GLOBAL] ${request.method} ${request.url} ${code}:`, error);
+        if (error instanceof Error) {
+          console.error("Stack Trace:", error.stack);
+        }
+        try {
+          // require("fs").appendFileSync("server_debug.log", errorMsg);
+        } catch (e) { }
+
+        return {
+          error: "INTERNAL_SERVER_ERROR",
+          message: error.message,
+          code: code,
+          stack: process.env.NODE_ENV === "development" ? error.stack : undefined
+        };
       });
 
     console.log("[STARTUP] Servidor configurado com sucesso.");
     const urlHint = process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
     console.log(`🦊 Elysia está rodando em ${urlHint}`);
-    return app;
 
+    app.listen(3001, () => {
+      console.log(`[STARTUP] Elysia escutando explicitamente na porta 3001`);
+    });
+
+    return app;
   } catch (error) {
     console.error("ERRO DE STARTUP (CRÍTICO):", error);
+    if (error instanceof Error) {
+      console.error("Stack:", error.stack);
+    }
     // Retorna uma instância mínima de erro para não derrubar o processo sem logs
-    return new Elysia().get("/*", () => {
-      return { error: "STARTUP_FAILED", details: String(error) };
-    });
+    return new Elysia()
+      .get("/api/health", () => ({ status: "startup_failed", error: String(error) }))
+      .get("/*", () => {
+        return {
+          error: "STARTUP_FAILED",
+          details: String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        };
+      });
   }
 };
 

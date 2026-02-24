@@ -3,7 +3,8 @@ import { createAuthEndpoint } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "../drizzle/database";
 import * as schema from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { verifyPassword as verifyScryptPassword } from "better-auth/crypto";
 
 if (!process.env.BETTER_AUTH_SECRET) {
   console.warn("BETTER_AUTH_SECRET is missing! Using dev secret.");
@@ -28,10 +29,59 @@ const getBaseUrl = () => {
 // para que o Better Auth gere as URLs de redirecionamento corretas
 const baseURL = getBaseUrl();
 
+const detectHashAlgorithm = (hash: string) => {
+  if (!hash) return "empty";
+  if (hash.startsWith("$argon2id$")) return "argon2id";
+  if (hash.startsWith("$argon2i$")) return "argon2i";
+  if (hash.startsWith("$argon2d$")) return "argon2d";
+  if (hash.startsWith("$2a$") || hash.startsWith("$2b$") || hash.startsWith("$2y$")) return "bcrypt";
+  if (hash.includes(":")) return "scrypt";
+  return "unknown";
+};
+
+console.log("[AUTH_MODULE] Loading auth module...");
+
 export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET || "placeholder_secret_for_build",
   emailAndPassword: {
     enabled: true,
+    password: {
+      async verify({ hash, password }) {
+        const algorithm = detectHashAlgorithm(hash);
+        const hashPreview = hash ? hash.slice(0, 40) : "";
+        try {
+          console.log(`[AUTH_VERIFY] Incoming hash algo=${algorithm} len=${hash?.length ?? 0} preview=${hashPreview}`);
+          let isCorrect = false;
+          if (algorithm === "scrypt") {
+            isCorrect = await verifyScryptPassword({ hash, password });
+            if (isCorrect) {
+              try {
+                const newHash = await Bun.password.hash(password, { algorithm: "argon2id" });
+                const updated = await db
+                  .update(schema.account)
+                  .set({ password: newHash, updatedAt: new Date() })
+                  .where(and(eq(schema.account.password, hash), eq(schema.account.providerId, "credential")))
+                  .returning({ id: schema.account.id });
+                console.log(`[AUTH_VERIFY] Rehash scrypt->argon2id updated=${updated.length}`);
+              } catch (rehashError) {
+                console.error("[AUTH_VERIFY] Rehash failed:", rehashError);
+              }
+            }
+          } else {
+            isCorrect = await Bun.password.verify(password, hash);
+          }
+          console.log(`[AUTH_VERIFY] Password verification: ${isCorrect}`);
+          return isCorrect;
+        } catch (e) {
+          console.error(`[AUTH_VERIFY] Error verifying password:`, e);
+          console.error(`[AUTH_VERIFY] Failed hash algo=${algorithm} len=${hash?.length ?? 0} preview=${hashPreview}`);
+          return false;
+        }
+      },
+      async hash(password) {
+        return await Bun.password.hash(password, { algorithm: "argon2id" });
+      }
+    }
   },
   baseURL: baseURL, // RESTAURADO: baseURL deve apontar para o Proxy
   trustedOrigins: [
@@ -81,266 +131,6 @@ export const auth = betterAuth({
       },
     },
   },
-  hooks: {
-    before: async (context: any) => {
-      // Bloqueia login de usuários inativos
-      // Verificação defensiva: context ou context.path podem ser undefined em chamadas internas (ex: getSession)
-      if (context?.path?.includes && context.path.includes("/sign-in")) {
-        const body = context.body;
-        if (body && body.email) {
-          const [usr] = await db
-            .select()
-            .from(schema.user)
-            .where(eq(schema.user.email, body.email))
-            .limit(1);
-
-          if (usr && usr.active === false) {
-            return {
-              response: new Response(JSON.stringify({
-                error: "Account inactive",
-                message: "Sua conta está desativada. Entre em contato com o administrador."
-              }), {
-                status: 403,
-                headers: new Headers({ "Content-Type": "application/json" }),
-              }),
-            };
-          }
-        }
-      }
-
-      // Normalização preventiva de headers para evitar erro forEach no Better Auth interno
-      if (context.headers && !(context.headers instanceof Headers)) {
-        try {
-          context.headers = new Headers(context.headers);
-        } catch (e) { }
-      }
-
-      const path = context.path || "";
-
-      // Proteção contra 500 no sign-out se não houver sessão
-      if (path.includes("/sign-out")) {
-        try {
-          const session = await auth.api.getSession({
-            headers: context.headers,
-          });
-
-          if (!session) {
-            return {
-              response: new Response(JSON.stringify({ success: true }), {
-                status: 200,
-                headers: new Headers({ "Content-Type": "application/json" }),
-              }),
-            };
-          }
-        } catch (e) {
-          console.error("[AUTH_BEFORE_HOOK] Erro ao verificar sessão no sign-out:", e);
-        }
-      }
-      return;
-    },
-    after: async (context: any) => {
-      const path = context.path || "";
-      let response = context.response || context.context?.returned;
-
-      try {
-        // Se houver erro, sempre retornamos uma Response com headers válidos
-        if (context.error) {
-          const isSignIn = path.includes("/sign-in");
-          const status = isSignIn ? 401 : 500;
-          const body = isSignIn
-            ? {
-              error: context.error?.message || "Authentication failed",
-              message: "Credenciais inválidas ou erro de autenticação",
-            }
-            : { error: context.error?.message || "Internal error" };
-          return new Response(JSON.stringify(body), {
-            status,
-            headers: new Headers({ "Content-Type": "application/json" }),
-          });
-        }
-
-        // Se status >= 400, garantimos headers válidos e retornamos
-        if (response && response.status >= 400) {
-          if (response.headers && !(response.headers instanceof Headers)) {
-            try {
-              response.headers = new Headers(response.headers);
-            } catch { }
-          }
-          return response;
-        }
-
-        // Fallback seguro para /get-session removido para evitar redundância e erros de parsing de cookie.
-        // A lógica abaixo (ENRIQUECIMENTO DE DADOS) manipulará a resposta original do Better Auth,
-        // que é mais segura e já validou o token corretamente.
-
-        // Se for sign-out, garantimos um retorno JSON para evitar Unexpected EOF no front
-        if (path.includes("/sign-out")) {
-          // CAPTURA CRÍTICA: Preserva os headers originais (Set-Cookie) do Better Auth
-          const originalHeaders = new Headers();
-          if (response && response.headers) {
-            response.headers.forEach((value: string, key: string) => {
-              originalHeaders.append(key, value);
-            });
-          }
-          // Garante Content-Type
-          originalHeaders.set("Content-Type", "application/json");
-
-          return new Response(JSON.stringify({ success: true }), {
-            status: 200,
-            headers: originalHeaders
-          });
-        }
-
-        // Apenas processamos sucesso para caminhos de autenticação específicos
-        const isAuthPath =
-          path.startsWith("/sign-in") ||
-          path.startsWith("/sign-up") ||
-          path.startsWith("/get-session");
-
-        if (!isAuthPath) {
-          return response || {};
-        }
-
-        // Se response for null/undefined, significa que o Better Auth não retornou nada.
-        // Isso não deveria acontecer para /get-session se a sessão for válida.
-        // Se acontecer, retornamos um objeto vazio para evitar crash no Better Auth (TypeError: null is not an object).
-        if (!response) {
-          return {};
-        }
-
-        // --- ENRIQUECIMENTO DE DADOS (BUSINESS / SLUG) ---
-        // Se response for um objeto Response (o que é comum no Better Auth), precisamos ler o body
-        let data: any = null;
-        let isResponseObject = response instanceof Response;
-
-        if (isResponseObject) {
-          try {
-            data = await response.json();
-          } catch (e) {
-            return response; // Se não for JSON, retorna original
-          }
-        } else {
-          data = response;
-        }
-
-        const user = data.user || data.session?.user;
-
-        if (user && user.id) {
-          try {
-            // BLOQUEIO EM TEMPO REAL: Se o usuário estiver desativado no banco
-            // Buscamos o status atualizado do usuário
-            const userStatus = await db
-              .select({ active: schema.user.active })
-              .from(schema.user)
-              .where(eq(schema.user.id, user.id))
-              .limit(1);
-
-            if (userStatus[0] && userStatus[0].active === false) {
-              console.warn(`[AUTH_BLOCK]: Conta desativada - ${user.email}`);
-              const errorBody = {
-                error: "ACCOUNT_SUSPENDED",
-                message: "Sua conta foi desativada."
-              };
-
-              return new Response(JSON.stringify(errorBody), {
-                status: 403,
-                headers: new Headers({ "Content-Type": "application/json" }),
-              });
-            }
-
-            const results = await db
-              .select({
-                id: schema.companies.id,
-                name: schema.companies.name,
-                slug: schema.companies.slug,
-                ownerId: schema.companies.ownerId,
-                active: schema.companies.active,
-                subscriptionStatus: schema.companies.subscriptionStatus,
-                trialEndsAt: schema.companies.trialEndsAt,
-              })
-              .from(schema.companies)
-              .where(eq(schema.companies.ownerId, user.id))
-              .limit(1);
-
-            const userCompany = results[0];
-
-            if (userCompany) {
-              // BLOQUEIO EM TEMPO REAL: Se o estúdio estiver desativado no banco
-              if (userCompany.active === false && user.role !== "SUPER_ADMIN") {
-                console.warn(`[AUTH_BLOCK]: Estúdio suspenso - ${userCompany.slug}`);
-
-                const errorBody = {
-                  error: "BUSINESS_SUSPENDED",
-                  message: "O acesso a este estúdio foi suspenso.",
-                  // DADOS CRÍTICOS: Retornar o slug/nome do estúdio bloqueado para o Front exibir corretamente
-                  slug: userCompany.slug,
-                  name: userCompany.name,
-                  businessId: userCompany.id
-                };
-
-                return new Response(JSON.stringify(errorBody), {
-                  status: 403,
-                  headers: new Headers({ "Content-Type": "application/json" }),
-                });
-              }
-
-              // Cálculo de dias restantes (Trial)
-              const now = new Date();
-              let daysLeft = 0;
-              if (userCompany.trialEndsAt) {
-                const end = new Date(userCompany.trialEndsAt);
-                const diffTime = end.getTime() - now.getTime();
-                daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-              }
-
-              const companyData = {
-                id: userCompany.id,
-                name: userCompany.name,
-                slug: userCompany.slug,
-                subscriptionStatus: userCompany.subscriptionStatus,
-                trialEndsAt: userCompany.trialEndsAt,
-                daysLeft: daysLeft
-              };
-
-              // Injeta os dados no objeto
-              if (data.user) {
-                data.user.business = companyData;
-                data.user.slug = userCompany.slug;
-                data.user.businessId = userCompany.id;
-              }
-              if (data.session && data.session.user) {
-                data.session.user.business = companyData;
-                data.session.user.slug = userCompany.slug;
-                data.session.user.businessId = userCompany.id;
-              }
-
-              console.log(`[AUTH_AFTER_HOOK] Enriquecido com sucesso: ${user.email} -> ${userCompany.slug}`);
-            } else {
-              console.log(`[AUTH_AFTER_HOOK] Nenhuma empresa encontrada para: ${user.email}`);
-            }
-          } catch (dbError) {
-            console.error(`[AUTH_AFTER_HOOK] Erro ao buscar company:`, dbError);
-          }
-        }
-
-        // Sempre retornamos uma Response com JSON e headers válidos
-        const status = isResponseObject && response ? response.status : 200;
-        const headers =
-          isResponseObject && response && response.headers
-            ? new Headers(response.headers)
-            : new Headers({ "Content-Type": "application/json" });
-
-        return new Response(JSON.stringify(data), {
-          status,
-          headers,
-        });
-
-      } catch (globalError) {
-        console.error(`[AUTH_AFTER_HOOK] Erro crítico:`, globalError);
-        return response || {};
-      }
-    },
-  },
   plugins: [
     {
       id: "business-data",
@@ -370,29 +160,25 @@ export const auth = betterAuth({
                   layoutGlobal: schema.companySiteCustomizations.layoutGlobal,
                   home: schema.companySiteCustomizations.home,
                   gallery: schema.companySiteCustomizations.gallery,
-                  aboutUs: schema.companySiteCustomizations.aboutUs,
-                  appointmentFlow: schema.companySiteCustomizations.appointmentFlow,
-                }
+                  socialLinks: schema.companySiteCustomizations.socialLinks,
+                },
               })
               .from(schema.companies)
-              .leftJoin(schema.companySiteCustomizations, eq(schema.companies.id, schema.companySiteCustomizations.companyId))
+              .leftJoin(
+                schema.companySiteCustomizations,
+                eq(schema.companies.id, schema.companySiteCustomizations.companyId)
+              )
               .where(eq(schema.companies.ownerId, userId))
               .limit(1);
 
-            const userCompany = results[0];
-
-            let daysLeft = 0;
-            if (userCompany && userCompany.trialEndsAt) {
-              const now = new Date();
-              const end = new Date(userCompany.trialEndsAt);
-              const diffTime = end.getTime() - now.getTime();
-              daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            if (results.length > 0) {
+              return ctx.json({
+                business: results[0],
+                slug: results[0].slug,
+              });
             }
 
-            return ctx.json({
-              business: userCompany ? { ...userCompany, daysLeft } : null,
-              slug: userCompany?.slug || null,
-            });
+            return ctx.json({ business: null, slug: null });
           }
         ),
       },
