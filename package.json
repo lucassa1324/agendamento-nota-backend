@@ -19,6 +19,7 @@
     "drizzle-orm": "^0.45.1",
     "elysia": "latest",
     "postgres": "^3.4.8",
+    "resend": "^6.9.2",
     "stripe": "^20.3.1",
     "web-push": "^3.6.7"
   },

@@ -66,18 +66,29 @@ const startServer = () => {
       .all("/api/auth/*", async (ctx) => {
         console.log(`>>> [AUTH_HANDLER_START] ${ctx.request.method} ${ctx.path}`);
         try {
-          // Criamos uma cópia da requisição para o Better Auth usar
-          // Isso evita que qualquer leitura posterior afete o Better Auth
-          const authRequest = ctx.request.clone();
+          // Passamos a requisição original. O Better Auth sabe lidar com ela.
+          // Se o Elysia já parseou o corpo, ele estará em ctx.body.
+          const response = await auth.handler(ctx.request);
 
-          // REMOVIDO: Leitura de body para debug que consumia o stream
-          // O Better Auth agora receberá o authRequest limpo.
-
-          const response = await auth.handler(authRequest);
           console.log(`<<< [AUTH_HANDLER_END] Status: ${response.status}`);
 
-          // Clonar a resposta para poder modificar os headers
-          const newResponse = new Response(response.body, response);
+          // Se não houver resposta do Better Auth, retornamos erro 500
+          if (!response) {
+            return new Response(JSON.stringify({ error: "Internal Auth Error" }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" }
+            });
+          }
+
+          // Pegamos o corpo da resposta. Se for nulo, usamos um JSON vazio.
+          const responseBody = response.body ? response.body : JSON.stringify({});
+
+          // Criamos a nova resposta
+          const newResponse = new Response(responseBody, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: new Headers(response.headers)
+          });
 
           // Adicionar headers de CORS manualmente para o bypass do front funcionar
           const origin = ctx.request.headers.get("origin");

@@ -1,11 +1,15 @@
 import { betterAuth } from "better-auth";
 import { createAuthEndpoint } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { Resend } from "resend";
 import { db } from "../drizzle/database";
 import * as schema from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import { verifyPassword as verifyScryptPassword } from "better-auth/crypto";
+
 export { verifyScryptPassword };
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 if (!process.env.BETTER_AUTH_SECRET) {
   console.warn("BETTER_AUTH_SECRET is missing! Using dev secret.");
@@ -125,6 +129,49 @@ export const auth = betterAuth({
       active: {
         type: "boolean",
       },
+    },
+  },
+  emailVerification: {
+    async sendVerificationEmail({ user, url }: { user: any; url: string }) {
+      console.log(`[AUTH] Enviando e-mail de verificação para: ${user.email}`);
+      try {
+        const { data, error } = await resend.emails.send({
+          from: "Agendamento Nota <onboarding@resend.dev>",
+          to: [user.email],
+          subject: "Verifique seu e-mail",
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+              <h2 style="color: #333; text-align: center;">Bem-vindo ao Agendamento Nota!</h2>
+              <p style="color: #666; font-size: 16px; line-height: 1.5;">
+                Olá, ${user.name || "usuário"}! Obrigado por se cadastrar. Para começar a usar todas as funcionalidades, por favor confirme seu endereço de e-mail clicando no botão abaixo:
+              </p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${url}" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                  Verificar E-mail
+                </a>
+              </div>
+              <p style="color: #999; font-size: 14px; text-align: center;">
+                Se o botão acima não funcionar, copie e cole o link abaixo no seu navegador:
+              </p>
+              <p style="color: #007bff; font-size: 12px; text-align: center; word-break: break-all;">
+                ${url}
+              </p>
+              <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+              <p style="color: #999; font-size: 12px; text-align: center;">
+                Se você não criou esta conta, por favor ignore este e-mail.
+              </p>
+            </div>
+          `,
+        });
+
+        if (error) {
+          console.error("[AUTH] Erro ao enviar e-mail via Resend:", error);
+        } else {
+          console.log("[AUTH] E-mail enviado com sucesso:", data?.id);
+        }
+      } catch (e) {
+        console.error("[AUTH] Erro fatal no envio de e-mail:", e);
+      }
     },
   },
   plugins: [
