@@ -13,4 +13,6 @@ const queryClient = postgres(dbUrl, {
     connect_timeout: 10, // Timeout curto para falhar rápido se a conexão estiver ruim
 });
 
-export const db = drizzle(queryClient, { logger: true });
+export const db = drizzle(queryClient, { 
+    logger: process.env.NODE_ENV === "production" ? false : true 
+});

@@ -55,7 +55,14 @@ export const businessController = () => new Elysia({ prefix: "/business" })
         set.headers["Expires"] = "0";
 
         // Busca usando o slug normalizado
-        const business = await businessRepository.findBySlug(normalizedSlug);
+        let business = await businessRepository.findBySlug(normalizedSlug);
+
+        // Fallback: Se não encontrou pelo slug exato, tenta buscar por parte do slug ou sem hifens
+        if (!business && normalizedSlug.includes("-")) {
+          const simpleSlug = normalizedSlug.replace(/-/g, "");
+          console.log(`[BUSINESS_CONTROLLER] Fallback: Tentando slug simplificado: '${simpleSlug}'`);
+          business = await businessRepository.findBySlug(simpleSlug);
+        }
 
         if (!business) {
           console.error(`[BUSINESS_CONTROLLER] ❌ ERRO 404: Empresa não encontrada para o slug: '${normalizedSlug}'`);

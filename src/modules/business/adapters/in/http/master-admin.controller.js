@@ -1,9 +1,8 @@
 import { Elysia, t } from "elysia";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
-import { auth } from "../../../../infrastructure/auth/auth";
 import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
-import { eq, count } from "drizzle-orm";
+import { eq, sql, count } from "drizzle-orm";
 export const masterAdminController = () => new Elysia({ prefix: "/admin/master" })
     .use(authPlugin)
     .guard({
@@ -167,6 +166,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
     try {
         const { id } = params;
         const { email } = body;
+        // 1. Atualiza email na tabela de usuários
         const [updated] = await db
             .update(schema.user)
             .set({
@@ -179,6 +179,21 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
             set.status = 404;
             return { error: "Usuário não encontrado" };
         }
+        // 2. Atualiza accountId na tabela accounts (se for credencial de email)
+        // COMENTADO: Em alguns setups do Better Auth, accountId para 'credential' é o próprio userId.
+        // Alterar para email pode quebrar o vínculo se o sistema esperar o userId.
+        // Se necessário reativar, verificar se o accountId deve ser o email ou userId.
+        /*
+        await db
+          .update(schema.account)
+          .set({
+            accountId: email, // Para provider 'credential', accountId é o email
+            updatedAt: new Date()
+          })
+          .where(
+            sql`${schema.account.userId} = ${id} AND ${schema.account.providerId} = 'credential'`
+          );
+        */
         return {
             success: true,
             message: `Email do usuário ${updated.name} alterado para ${email}`
@@ -198,18 +213,21 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
     try {
         const { id } = params;
         const defaultPassword = "Mudar@123";
-        // Better Auth gerencia as senhas na tabela 'user' (geralmente via hash)
-        // Como estamos no Master Admin, vamos usar a API do Better Auth para atualizar
-        // ou atualizar diretamente se soubermos o algoritmo. 
-        // O Better Auth usa Scrypt por padrão.
-        await auth.api.setPassword({
-            body: {
-                newPassword: defaultPassword,
-            },
-            headers: new Headers({
-                "x-better-auth-user-id": id
-            })
-        });
+        // Gera hash da senha usando Bun (Argon2id/Bcrypt)
+        const hashedPassword = await Bun.password.hash(defaultPassword);
+        // Atualiza a senha na tabela account
+        const [updatedAccount] = await db
+            .update(schema.account)
+            .set({
+            password: hashedPassword,
+            updatedAt: new Date()
+        })
+            .where(sql `${schema.account.userId} = ${id} AND ${schema.account.providerId} = 'credential'`)
+            .returning();
+        if (!updatedAccount) {
+            set.status = 404;
+            return { error: "Usuário não possui conta de email/senha vinculada." };
+        }
         return {
             success: true,
             message: `Senha resetada para o padrão: ${defaultPassword}`

@@ -1,4 +1,5 @@
-import { fetch } from "bun";
+// import { fetch } from "bun";
+// const fetch = globalThis.fetch;
 
 async function testLogin() {
   const email = "evellyn@gmail.com";

@@ -18,8 +18,42 @@ export class AsaasClient {
             console.warn("[ASAAS_CLIENT] Sem API Key. Retornando mock.");
             return { id: "sub_mock_123", status: "PENDING" };
         }
-        // Implementação real viria aqui
-        return { id: "sub_mock_real_impl_pending", status: "PENDING" };
+        const payload = {
+            customer: data.customerId,
+            billingType: "CREDIT_CARD",
+            value: data.value,
+            nextDueDate: data.nextDueDate,
+            remoteIp: data.remoteIp,
+            cycle: "MONTHLY", // Assumindo mensal por padrão, pode ser parametrizado
+            description: "Assinatura Agendamento Nota"
+        };
+        if (data.creditCard) {
+            payload.creditCard = data.creditCard;
+        }
+        if (data.creditCardHolderInfo) {
+            payload.creditCardHolderInfo = data.creditCardHolderInfo;
+        }
+        try {
+            console.log("[ASAAS_CLIENT] Criando assinatura...", { ...payload, creditCard: "***" });
+            const response = await fetch(`${this.apiUrl}/subscriptions`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "access_token": this.apiKey
+                },
+                body: JSON.stringify(payload)
+            });
+            const responseData = await response.json();
+            if (!response.ok) {
+                console.error("[ASAAS_CLIENT] Erro ao criar assinatura:", JSON.stringify(responseData));
+                throw new Error(responseData.errors?.[0]?.description || "Erro ao criar assinatura no Asaas");
+            }
+            return responseData;
+        }
+        catch (error) {
+            console.error("[ASAAS_CLIENT] Exception:", error);
+            throw error;
+        }
     }
     async cancelSubscription(subscriptionId) {
         if (!subscriptionId) {

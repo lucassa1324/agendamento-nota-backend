@@ -13,13 +13,13 @@ const startServer = () => {
     try {
         console.log("[STARTUP] Carregando módulos...");
         // Imports dentro do try-catch para capturar erros de linkagem/dependência circular
-        const { auth } = require("./modules/infrastructure/auth/auth");
+        const { auth, detectHashAlgorithm, verifyScryptPassword } = require("./modules/infrastructure/auth/auth");
         const { authPlugin } = require("./modules/infrastructure/auth/auth-plugin");
         const { repositoriesPlugin } = require("./modules/infrastructure/di/repositories.plugin");
         const { db } = require("./modules/infrastructure/drizzle/database");
         const schema = require("./db/schema");
         const { asaas } = require("./modules/infrastructure/payment/asaas.client");
-        const { eq } = require("drizzle-orm");
+        const { eq, and, count, ilike } = require("drizzle-orm");
         // Controllers
         const { UserController } = require("./modules/user/adapters/in/http/user.controller");
         const { ListUsersUseCase } = require("./modules/user/application/use-cases/list-users.use-case");
@@ -40,6 +40,7 @@ const startServer = () => {
         const { notificationsController } = require("./modules/notifications/adapters/in/http/notifications.controller");
         const { pushController } = require("./modules/notifications/adapters/in/http/push.controller");
         const { userPreferencesController } = require("./modules/user/adapters/in/http/user-preferences.controller");
+        const { paymentController } = require("./modules/infrastructure/payment/payment.controller");
         console.log("[STARTUP] Módulos carregados. Instanciando dependências...");
         // Instanciação de Dependências Globais
         const userRepository = new UserRepository();
@@ -47,227 +48,299 @@ const startServer = () => {
         const listUsersUseCase = new ListUsersUseCase(userRepository);
         const userController = new UserController(createUserUseCase, listUsersUseCase);
         console.log("[STARTUP] Criando instância do Elysia...");
-        const app = new Elysia()
-            .onRequest(({ request, set }) => {
-            // Log para debug de CORS
-            if (request.method === "OPTIONS") {
-                console.log(`[CORS_PREFLIGHT] Origin: ${request.headers.get("origin")} | Method: ${request.headers.get("access-control-request-method")}`);
-            }
-            const origin = request.headers.get("origin");
-            const allowedOrigins = [
-                'http://localhost:3000',
-                'http://127.0.0.1:3000',
-                'https://agendamento-nota-front.vercel.app',
-                'https://landingpage-agendamento-front.vercel.app'
-            ];
-            const isAllowed = allowedOrigins.includes(origin) ||
-                (origin && origin.match(/http:\/\/.*\.localhost:\d+$/)) ||
-                (origin && origin.match(/\.vercel\.app$/));
-            if (isAllowed && origin) {
-                set.headers["Access-Control-Allow-Origin"] = origin;
-                set.headers["Access-Control-Allow-Credentials"] = "true";
-                set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH";
-                set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control";
-                set.headers["Access-Control-Expose-Headers"] = "Set-Cookie, set-cookie, Authorization, Cache-Control";
-                if (request.method === "OPTIONS") {
-                    return new Response(null, {
-                        status: 204,
-                        headers: {
-                            "Access-Control-Allow-Origin": origin,
-                            "Access-Control-Allow-Credentials": "true",
-                            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-                            "Access-Control-Allow-Headers": "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control",
-                            "Access-Control-Max-Age": "86400",
+        const app = new Elysia({
+            name: 'AgendamentoNota'
+        })
+            .all("/api/auth/*", async (ctx) => {
+                console.log(`>>> [AUTH_HANDLER_START] ${ctx.request.method} ${ctx.path}`);
+                try {
+                    // DEBUG: Tentar ler o body para ver se ele ainda está disponível
+                    if (ctx.request.method === "POST") {
+                        try {
+                            const clonedRequest = ctx.request.clone();
+                            const bodyText = await clonedRequest.text();
+                            console.log(`--- [DEBUG_BODY_CONTENT] Body length: ${bodyText.length}`);
+                            if (bodyText.length > 0) {
+                                console.log(`--- [DEBUG_BODY_CONTENT] Preview: ${bodyText.slice(0, 100)}`);
+                                if (bodyText.includes("[object Object]")) {
+                                    console.error("!!! [CRITICAL] Body recebido como string '[object Object]'.");
+                                    console.error("!!! [CRITICAL] Isso indica que o cliente (ou um proxy intermediário) enviou o objeto sem stringify.");
+                                }
+                            }
+                            else {
+                                console.warn(`!!! [DEBUG_BODY_CONTENT] Body está VAZIO antes do handler`);
+                            }
                         }
-                    });
+                        catch (cloneErr) {
+                            console.error(`!!! [DEBUG_BODY_ERROR] Erro ao clonar/ler body: ${cloneErr.message}`);
+                        }
+                    }
+                    const response = await auth.handler(ctx.request);
+                    console.log(`<<< [AUTH_HANDLER_END] Status: ${response.status}`);
+                    // Se for logout, limpamos o cookie explicitamente para o front-end
+                    if (ctx.path.endsWith("/sign-out") || ctx.path.endsWith("/logout")) {
+                        console.log("[LOGOUT] Limpando cookie better-auth.session_token");
+                        ctx.set.headers["Set-Cookie"] = "better-auth.session_token=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax";
+                    }
+                    return response;
                 }
-            }
-        })
-            .onRequest(({ set }) => {
-            set.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate";
-            set.headers["Pragma"] = "no-cache";
-            set.headers["Expires"] = "0";
-        })
-            .mount(auth.handler)
-            .group("/api/auth", (app) => app
+                catch (e) {
+                    console.error(`!!! [AUTH_HANDLER_ERROR] ${e.message}`, e.stack);
+                    throw e;
+                }
+            })
             .onRequest(({ request, set }) => {
-            // Força headers CORS específicos para rotas de auth,
-            // pois o Better Auth pode sobrescrever ou ser muito restrito
-            const origin = request.headers.get("origin");
-            if (origin) {
-                set.headers["Access-Control-Allow-Origin"] = origin;
-                set.headers["Access-Control-Allow-Credentials"] = "true";
-                set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
-                set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie, X-Requested-With";
-                set.headers["Access-Control-Expose-Headers"] = "Set-Cookie, set-cookie";
-            }
-            if (request.method === "OPTIONS") {
-                return new Response(null, { status: 204 });
-            }
-        })
-            .mount(auth.handler))
-            .get("/get-session", async ({ request }) => {
-            try {
-                const session = await auth.api.getSession({
-                    headers: request.headers,
-                });
-                return session || { session: null, user: null };
-            }
-            catch (error) {
-                console.error("[GET-SESSION] ERRO FATAL:", error);
-                return { session: null, user: null };
-            }
-        })
+                console.log(`>>> [BACKEND_RECEIVE] ${request.method} ${new URL(request.url).pathname}`);
+                console.log(`--- [DEBUG_HEADERS] Content-Type: ${request.headers.get("content-type")}`);
+                console.log(`--- [DEBUG_HEADERS] User-Agent: ${request.headers.get("user-agent")}`);
+                console.log(`--- [DEBUG_HEADERS] Referer: ${request.headers.get("referer")}`);
+                console.log(`--- [DEBUG_HEADERS] X-Forwarded-For: ${request.headers.get("x-forwarded-for")}`);
+
+                if (request.method === "OPTIONS") {
+                    const origin = request.headers.get("origin");
+                    const allowedOrigins = [
+                        'http://localhost:3000',
+                        'http://127.0.0.1:3000',
+                        'https://agendamento-nota-front.vercel.app',
+                        'https://landingpage-agendamento-front.vercel.app',
+                        'https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app'
+                    ];
+                    const isAllowed = allowedOrigins.includes(origin) ||
+                        (origin && origin.match(/http:\/\/.*\.localhost:\d+$/)) ||
+                        (origin && origin.match(/\.vercel\.app$/)) ||
+                        (origin && origin.endsWith('.vercel.app'));
+                    if (isAllowed && origin) {
+                        return new Response(null, {
+                            status: 204,
+                            headers: {
+                                "Access-Control-Allow-Origin": origin,
+                                "Access-Control-Allow-Credentials": "true",
+                                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+                                "Access-Control-Allow-Headers": "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control",
+                                "Access-Control-Max-Age": "86400",
+                            }
+                        });
+                    }
+                }
+            })
+            .onBeforeHandle(({ request, set }) => {
+                const origin = request.headers.get("origin");
+                const allowedOrigins = [
+                    'http://localhost:3000',
+                    'http://127.0.0.1:3000',
+                    'https://agendamento-nota-front.vercel.app',
+                    'https://landingpage-agendamento-front.vercel.app',
+                    'https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app'
+                ];
+                const isAllowed = allowedOrigins.includes(origin) ||
+                    (origin && origin.match(/http:\/\/.*\.localhost:\d+$/)) ||
+                    (origin && origin.match(/\.vercel\.app$/)) ||
+                    (origin && origin.endsWith('.vercel.app'));
+                if (isAllowed && origin) {
+                    set.headers["Access-Control-Allow-Origin"] = origin;
+                    set.headers["Access-Control-Allow-Credentials"] = "true";
+                    set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH";
+                    set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control";
+                    set.headers["Access-Control-Expose-Headers"] = "Set-Cookie, set-cookie, Authorization, Cache-Control";
+                }
+                set.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate";
+                set.headers["Pragma"] = "no-cache";
+                set.headers["Expires"] = "0";
+            })
             .use(authPlugin)
+            .use(repositoriesPlugin)
             .use(userController.registerRoutes())
             .group("/api", (api) => api
-            .group("/account", (account) => account
-            .use(repositoriesPlugin)
-            .onBeforeHandle(({ user, set }) => {
-            if (!user) {
-                set.status = 401;
-                return { error: "Unauthorized" };
-            }
-        })
-            .post("/cancel-feedback", async ({ user, body, set }) => {
-            const { reason, details, customReason } = body;
-            if (!reason) {
-                set.status = 422;
-                return { error: "Missing reason" };
-            }
-            await db.insert(schema.accountCancellationFeedback).values({
-                id: crypto.randomUUID(),
-                userId: user.id,
-                reason,
-                details: customReason || details || null,
-                createdAt: new Date()
-            });
-            return { success: true };
-        }, {
-            body: t.Object({
-                reason: t.String(),
-                details: t.Optional(t.String()),
-                customReason: t.Optional(t.String())
-            })
-        })
-            .get("/cancellation-offer", async ({ user }) => {
-            const [currentUser] = await db
-                .select({ lastRetentionDiscountAt: schema.user.lastRetentionDiscountAt })
-                .from(schema.user)
-                .where(eq(schema.user.id, user.id))
-                .limit(1);
-            const last = currentUser?.lastRetentionDiscountAt
-                ? new Date(currentUser.lastRetentionDiscountAt)
-                : null;
-            const now = new Date();
-            let available = true;
-            let nextEligibleAt = null;
-            if (last) {
-                const nextEligible = new Date(last);
-                nextEligible.setMonth(nextEligible.getMonth() + 12);
-                if (nextEligible > now) {
-                    available = false;
-                    nextEligibleAt = nextEligible;
-                }
-            }
-            if (!available) {
-                return { available: false, nextEligibleAt };
-            }
-            return {
-                available: true,
-                offer: {
-                    type: "RETENTION_20_3M",
-                    percentage: 20,
-                    durationMonths: 3
-                }
-            };
-        })
-            .post("/accept-offer", async ({ user, body }) => {
-            const { subscriptionId } = body;
-            // 1. Registra que o usuário aceitou a oferta no banco
-            await db.update(schema.user)
-                .set({
-                lastRetentionDiscountAt: new Date(),
-                // Opcional: você pode querer resetar o status se ele estava "PENDING_CANCELLATION"
-                accountStatus: "ACTIVE",
-                cancellationRequestedAt: null,
-                retentionEndsAt: null
-            })
-                .where(eq(schema.user.id, user.id));
-            // 2. Aplica o desconto no gateway de pagamento
-            if (subscriptionId) {
-                await asaas.applyDiscount(subscriptionId, {
-                    percentage: 20,
-                    cycles: 3
-                });
-            }
-            return {
-                success: true,
-                message: "Desconto aplicado com sucesso! Obrigado por continuar conosco."
-            };
-        }, {
-            body: t.Object({
-                subscriptionId: t.Optional(t.String())
-            })
-        })
-            .post("/terminate", async ({ user, body }) => {
-            const { subscriptionId } = body;
-            if (subscriptionId) {
-                await asaas.cancelSubscription(subscriptionId);
-            }
-            const now = new Date();
-            const retentionEndsAt = new Date(now);
-            retentionEndsAt.setDate(retentionEndsAt.getDate() + 365);
-            await db.update(schema.user)
-                .set({
-                accountStatus: "PENDING_CANCELLATION",
-                active: false,
-                cancellationRequestedAt: now,
-                retentionEndsAt
-            })
-                .where(eq(schema.user.id, user.id));
-            return {
-                success: true,
-                status: "PENDING_CANCELLATION",
-                retentionEndsAt
-            };
-        }, {
-            body: t.Object({
-                subscriptionId: t.Optional(t.String())
-            })
-        }))
-            .use(businessController())
-            .use(serviceController())
-            .use(reportController())
-            .use(appointmentController())
-            .use(settingsController ? settingsController() : (app) => app) // Fallback seguro se settingsController falhar
-            .use(inventoryController())
-            .use(expenseController())
-            .use(masterAdminController())
-            .use(galleryController())
-            .use(storageController())
-            .use(notificationsController())
-            .use(pushController())
-            .use(userPreferencesController()))
+                .group("/account", (account) => account
+                    .onBeforeHandle(({ user, set }) => {
+                        if (!user) {
+                            set.status = 401;
+                            return { error: "Unauthorized" };
+                        }
+                    })
+                    .post("/cancel-feedback", async ({ user, body, set }) => {
+                        const { reason, details, customReason } = body;
+                        if (!reason) {
+                            set.status = 422;
+                            return { error: "Missing reason" };
+                        }
+                        await db.insert(schema.accountCancellationFeedback).values({
+                            id: crypto.randomUUID(),
+                            userId: user.id,
+                            reason,
+                            details: customReason || details || null,
+                            createdAt: new Date()
+                        });
+                        return { success: true };
+                    }, {
+                        body: t.Object({
+                            reason: t.String(),
+                            details: t.Optional(t.String()),
+                            customReason: t.Optional(t.String())
+                        })
+                    })
+                    .get("/cancellation-offer", async ({ user }) => {
+                        const [currentUser] = await db
+                            .select({ lastRetentionDiscountAt: schema.user.lastRetentionDiscountAt })
+                            .from(schema.user)
+                            .where(eq(schema.user.id, user.id))
+                            .limit(1);
+                        const last = currentUser?.lastRetentionDiscountAt
+                            ? new Date(currentUser.lastRetentionDiscountAt)
+                            : null;
+                        const now = new Date();
+                        let available = true;
+                        let nextEligibleAt = null;
+                        if (last) {
+                            const nextEligible = new Date(last);
+                            nextEligible.setMonth(nextEligible.getMonth() + 12);
+                            if (nextEligible > now) {
+                                available = false;
+                                nextEligibleAt = nextEligible;
+                            }
+                        }
+                        if (!available) {
+                            return { available: false, nextEligibleAt };
+                        }
+                        return {
+                            available: true,
+                            offer: {
+                                type: "RETENTION_20_3M",
+                                percentage: 20,
+                                durationMonths: 3
+                            }
+                        };
+                    })
+                    .post("/accept-offer", async ({ user, body }) => {
+                        const { subscriptionId } = body;
+                        // 1. Registra que o usuário aceitou a oferta no banco
+                        await db.update(schema.user)
+                            .set({
+                                lastRetentionDiscountAt: new Date(),
+                                // Opcional: você pode querer resetar o status se ele estava "PENDING_CANCELLATION"
+                                accountStatus: "ACTIVE",
+                                cancellationRequestedAt: null,
+                                retentionEndsAt: null
+                            })
+                            .where(eq(schema.user.id, user.id));
+                        // 2. Aplica o desconto no gateway de pagamento
+                        if (subscriptionId) {
+                            await asaas.applyDiscount(subscriptionId, {
+                                percentage: 20,
+                                cycles: 3
+                            });
+                        }
+                        return {
+                            success: true,
+                            message: "Desconto aplicado com sucesso! Obrigado por continuar conosco."
+                        };
+                    }, {
+                        body: t.Object({
+                            subscriptionId: t.Optional(t.String())
+                        })
+                    })
+                    .post("/terminate", async ({ user, body }) => {
+                        const { subscriptionId } = body;
+                        if (subscriptionId) {
+                            await asaas.cancelSubscription(subscriptionId);
+                        }
+                        const now = new Date();
+                        const retentionEndsAt = new Date(now);
+                        retentionEndsAt.setDate(retentionEndsAt.getDate() + 365);
+                        await db.update(schema.user)
+                            .set({
+                                accountStatus: "PENDING_CANCELLATION",
+                                active: false,
+                                cancellationRequestedAt: now,
+                                retentionEndsAt
+                            })
+                            .where(eq(schema.user.id, user.id));
+                        return {
+                            success: true,
+                            status: "PENDING_CANCELLATION",
+                            retentionEndsAt
+                        };
+                    }, {
+                        body: t.Object({
+                            subscriptionId: t.Optional(t.String())
+                        })
+                    }))
+                .use(businessController())
+                .use(serviceController())
+                .use(reportController())
+                .use(appointmentController())
+                .use(settingsController ? settingsController() : (app) => app) // Fallback seguro se settingsController falhar
+                .use(inventoryController())
+                .use(expenseController())
+                .use(masterAdminController())
+                .use(galleryController())
+                .use(storageController())
+                .use(notificationsController())
+                .use(pushController())
+                .use(userPreferencesController())
+                .use(paymentController()))
             .get("/", () => {
-            const urlHint = process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-            return `🦊 Elysia está rodando em ${urlHint}`;
-        })
-            .get("/api/health", () => ({ status: "ok", timestamp: new Date().toISOString(), version: "V2-TRY-CATCH" }))
-            .onError(({ code, error }) => {
-            console.error(`\n[ERROR] ${code}:`, error);
-        });
+                const urlHint = process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+                return `🦊 Elysia está rodando em ${urlHint}`;
+            })
+            .get("/test-error", () => {
+                throw new Error("Test error for logs");
+            })
+            .get("/api/health", () => {
+                console.log("[HEALTH_CHECK] Hitting health endpoint - SUCCESS");
+                return { status: "ok", timestamp: new Date().toISOString(), version: "V2-TRY-CATCH-LOG" };
+            })
+            // Redirecionamentos Legados para compatibilidade
+            .get("/get-session", ({ set }) => { set.redirect = "/api/auth/get-session"; })
+            .post("/sign-in/*", ({ path, set }) => { set.redirect = `/api/auth${path}`; })
+            .post("/sign-out", ({ set }) => { set.redirect = "/api/auth/sign-out"; })
+            .get("/api/auth/session", ({ set }) => { set.redirect = "/api/auth/get-session"; })
+            .get("/session", ({ set }) => { set.redirect = "/api/auth/get-session"; })
+            .get("/api/proxy/api/auth/session", ({ set }) => { set.redirect = "/api/auth/get-session"; })
+            .get("/api/proxy/session", ({ set }) => { set.redirect = "/api/auth/get-session"; })
+            .get("/api/test-error", () => {
+                throw new Error("Test error for logs");
+            })
+            .onError(({ code, error, request }) => {
+                const errorMsg = `\n[ERROR_GLOBAL] ${new Date().toISOString()} ${request.method} ${request.url} ${code}: ${error}\n${error.stack}\n`;
+                console.error(`\n[ERROR_GLOBAL] ${request.method} ${request.url} ${code}:`, error);
+                if (error instanceof Error) {
+                    console.error("Stack Trace:", error.stack);
+                }
+                try {
+                    // require("fs").appendFileSync("server_debug.log", errorMsg);
+                }
+                catch (e) { }
+                return {
+                    error: "INTERNAL_SERVER_ERROR",
+                    message: error.message,
+                    code: code,
+                    stack: process.env.NODE_ENV === "development" ? error.stack : undefined
+                };
+            });
         console.log("[STARTUP] Servidor configurado com sucesso.");
         const urlHint = process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
         console.log(`🦊 Elysia está rodando em ${urlHint}`);
+        app.listen(3001, (server) => {
+            console.log(`[STARTUP] Elysia escutando explicitamente na porta ${server.port}`);
+        });
         return app;
     }
     catch (error) {
         console.error("ERRO DE STARTUP (CRÍTICO):", error);
+        if (error instanceof Error) {
+            console.error("Stack:", error.stack);
+        }
         // Retorna uma instância mínima de erro para não derrubar o processo sem logs
-        return new Elysia().get("/*", () => {
-            return { error: "STARTUP_FAILED", details: String(error) };
-        });
+        return new Elysia()
+            .get("/api/health", () => ({ status: "startup_failed", error: String(error) }))
+            .get("/*", () => {
+                return {
+                    error: "STARTUP_FAILED",
+                    details: String(error),
+                    stack: error instanceof Error ? error.stack : undefined
+                };
+            });
     }
 };
 // Exporta a aplicação inicializada

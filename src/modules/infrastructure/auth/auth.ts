@@ -5,31 +5,26 @@ import { db } from "../drizzle/database";
 import * as schema from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import { verifyPassword as verifyScryptPassword } from "better-auth/crypto";
+export { verifyScryptPassword };
 
 if (!process.env.BETTER_AUTH_SECRET) {
   console.warn("BETTER_AUTH_SECRET is missing! Using dev secret.");
 }
 
-// Melhor resolução da URL base para Vercel
+// Configuração do baseURL: deve sempre apontar para o backend onde o Better Auth está rodando
 const getBaseUrl = () => {
   if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
+  if (process.env.BACKEND_URL) return process.env.BACKEND_URL;
+  if (process.env.BASE_URL) return process.env.BASE_URL;
 
-  // Em produção, preferimos usar a URL do Proxy do Front-end como Base URL
-  // Isso garante que redirects (magic links, etc) apontem para o domínio do front
-  if (process.env.FRONTEND_URL) return `${process.env.FRONTEND_URL}/api-proxy`;
-
-  // Fallback para variáveis públicas se disponíveis
-  if (process.env.NEXT_PUBLIC_FRONT_URL) return `${process.env.NEXT_PUBLIC_FRONT_URL}/api-proxy`;
-
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return "http://localhost:3000";
+  // Fallback para localhost em desenvolvimento (Backend roda na 3001)
+  return "http://localhost:3001";
 };
 
-// Em ambiente Vercel com Proxy, precisamos confiar no host que vem do cabeçalho
-// para que o Better Auth gere as URLs de redirecionamento corretas
 const baseURL = getBaseUrl();
+console.log("[AUTH] BaseURL configurado:", baseURL);
 
-const detectHashAlgorithm = (hash: string) => {
+export const detectHashAlgorithm = (hash: string) => {
   if (!hash) return "empty";
   if (hash.startsWith("$argon2id$")) return "argon2id";
   if (hash.startsWith("$argon2i$")) return "argon2i";
@@ -83,7 +78,7 @@ export const auth = betterAuth({
       }
     }
   },
-  baseURL: baseURL, // RESTAURADO: baseURL deve apontar para o Proxy
+  baseURL: baseURL,
   trustedOrigins: [
     "http://localhost:3000",
     "http://localhost:3001",
@@ -102,11 +97,12 @@ export const auth = betterAuth({
     // Back em agendamento-nota-backend.vercel.app
     // Em localhost, usamos configurações mais relaxadas para evitar problemas com SSL/HTTP
     useSecureCookies: process.env.NODE_ENV === "production",
-    defaultCookieAttributes: {
+    cookie: {
+      domain: process.env.NODE_ENV === "production" ? undefined : "localhost",
+      path: "/",
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
       httpOnly: true,
-      path: "/"
+      secure: process.env.NODE_ENV === "production"
     },
   },
   session: {
@@ -134,7 +130,155 @@ export const auth = betterAuth({
   plugins: [
     {
       id: "business-data",
+      hooks: {
+        after: [
+          {
+            matcher(context) {
+              const path = context?.path || "";
+              return path.endsWith("/sign-in/email") || path.endsWith("/get-session");
+            },
+            handler: async (ctx: any) => {
+              const returned = ctx?.context?.returned;
+
+              // SEMPRE retornar um objeto com a propriedade 'response' para evitar crash no Better Auth (TypeError: null/undefined is not an object)
+              if (!returned || returned instanceof Response) {
+                return { response: returned };
+              }
+
+              try {
+                // Se chegou aqui, 'returned' é um objeto JS puro { user, session } 
+                if (!returned.user) return { response: returned };
+
+                const [business] = await db
+                  .select({
+                    id: schema.companies.id,
+                    slug: schema.companies.slug,
+                  })
+                  .from(schema.companies)
+                  .where(eq(schema.companies.ownerId, returned.user.id))
+                  .limit(1);
+
+                if (business) {
+                  console.log(`[AUTH_HOOK] Injetando slug: ${business.slug}`);
+
+                  // Injeção direta no objeto que o Better Auth já ia retornar 
+                  return {
+                    response: {
+                      ...returned,
+                      user: {
+                        ...returned.user,
+                        slug: business.slug,
+                        businessId: business.id
+                      }
+                    }
+                  };
+                }
+              } catch (e) {
+                console.error("[AUTH_HOOK_ERROR]", e);
+              }
+              // Se nada der certo (erro ou sem business), retorna o original (evita o data: null)
+              return { response: returned };
+            },
+          }
+        ]
+      },
       endpoints: {
+        changePassword: createAuthEndpoint(
+          "/change-password",
+          {
+            method: "POST",
+            useSession: true,
+          },
+          async (ctx: any) => {
+            console.log(`[CHANGE_PASSWORD] 🔓 INICIANDO ENDPOINT`);
+            console.log(`[CHANGE_PASSWORD] Path: ${ctx.path}`);
+            const session = ctx.context.session;
+            if (!session) {
+              console.log(`[CHANGE_PASSWORD] Sessão não encontrada no contexto.`);
+              return ctx.json({ error: "Não autorizado" }, { status: 401 });
+            }
+
+            if (!ctx.request) {
+              return ctx.json({ error: "Corpo inválido" }, { status: 400 });
+            }
+
+            const body = (await ctx.request.json().catch(() => ({}))) as {
+              currentPassword?: string;
+              newPassword?: string;
+            };
+
+            const { currentPassword, newPassword } = body;
+
+            if (!currentPassword || !newPassword) {
+              return ctx.json(
+                { error: "Senha atual e nova senha são obrigatórias" },
+                { status: 400 }
+              );
+            }
+
+            // 1. Buscar o hash atual do usuário no banco
+            const userAccount = await db
+              .select()
+              .from(schema.account)
+              .where(
+                and(
+                  eq(schema.account.userId, session.user.id),
+                  eq(schema.account.providerId, "credential")
+                )
+              )
+              .limit(1);
+
+            if (userAccount.length === 0 || !userAccount[0].password) {
+              return ctx.json({ error: "Conta não encontrada" }, { status: 404 });
+            }
+
+            const currentHash = userAccount[0].password;
+            const algorithm = detectHashAlgorithm(currentHash);
+
+            // 2. Validar senha atual (Lógica Bilíngue)
+            let isPasswordValid = false;
+            try {
+              if (algorithm === "scrypt") {
+                isPasswordValid = await verifyScryptPassword({
+                  hash: currentHash,
+                  password: currentPassword,
+                });
+              } else {
+                isPasswordValid = await Bun.password.verify(
+                  currentPassword,
+                  currentHash
+                );
+              }
+            } catch (error) {
+              console.error("[CHANGE_PASSWORD] Erro na validação:", error);
+              return ctx.json({ error: "Erro ao validar senha" }, { status: 500 });
+            }
+
+            if (!isPasswordValid) {
+              return ctx.json({ error: "Senha atual incorreta" }, { status: 403 });
+            }
+
+            // 3. Gerar novo hash Argon2 (Migração Forçada)
+            const newHash = await Bun.password.hash(newPassword, {
+              algorithm: "argon2id",
+            });
+
+            // 4. Atualizar no banco
+            await db
+              .update(schema.account)
+              .set({
+                password: newHash,
+                updatedAt: new Date(),
+              })
+              .where(eq(schema.account.id, userAccount[0].id));
+
+            console.log(
+              `[CHANGE_PASSWORD] Senha atualizada com sucesso para ${session.user.email} (Migrado para Argon2)`
+            );
+
+            return ctx.json({ message: "Senha atualizada com sucesso" });
+          }
+        ),
         getBusiness: createAuthEndpoint(
           "/business-info",
           {
@@ -160,7 +304,6 @@ export const auth = betterAuth({
                   layoutGlobal: schema.companySiteCustomizations.layoutGlobal,
                   home: schema.companySiteCustomizations.home,
                   gallery: schema.companySiteCustomizations.gallery,
-                  socialLinks: schema.companySiteCustomizations.socialLinks,
                 },
               })
               .from(schema.companies)

@@ -5,10 +5,17 @@ import { eq } from "drizzle-orm";
 import { auth } from "./auth";
 export const authPlugin = new Elysia({ name: "auth-plugin" })
     .derive({ as: 'global' }, async ({ request, path, set }) => {
+    const isAuthRoute = path.startsWith("/api/auth") ||
+        path.startsWith("/sign-in") ||
+        path.startsWith("/sign-out") ||
+        path === "/get-session" ||
+        path === "/session";
+    if (isAuthRoute) {
+        return { user: null, session: null };
+    }
     try {
         // Exceção para rotas do Master Admin
         const isMasterRoute = path.startsWith("/api/admin/master");
-        const isAuthRoute = path.startsWith("/api/auth");
         const isHealthRoute = path.startsWith("/api/health");
         const authHeader = request.headers.get("authorization");
         const cookieHeader = request.headers.get("cookie");
