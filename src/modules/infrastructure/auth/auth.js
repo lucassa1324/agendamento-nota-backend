@@ -192,15 +192,39 @@ export const auth = betterAuth({
                 }, async (ctx) => {
                     console.log(`[CHANGE_PASSWORD] 🔓 INICIANDO ENDPOINT`);
                     console.log(`[CHANGE_PASSWORD] Path: ${ctx.path}`);
-                    const session = ctx.context.session;
+                    let session = ctx.context.session;
+                    // Fallback: Se a sessão não estiver no context (comum em endpoints customizados), tentamos buscar manualmente
                     if (!session) {
-                        console.log(`[CHANGE_PASSWORD] Sessão não encontrada no contexto.`);
+                        console.log(`[CHANGE_PASSWORD] Sessão não encontrada no contexto. Tentando buscar via auth.api.getSession...`);
+                        const authSession = await auth.api.getSession({
+                            headers: ctx.request.headers
+                        });
+                        if (authSession) {
+                            session = authSession;
+                            console.log(`[CHANGE_PASSWORD] Sessão recuperada manualmente para: ${session.user.email}`);
+                        }
+                    }
+                    if (!session) {
+                        console.log(`[CHANGE_PASSWORD] Falha crítica: Usuário não autenticado.`);
                         return ctx.json({ error: "Não autorizado" }, { status: 401 });
                     }
                     if (!ctx.request) {
                         return ctx.json({ error: "Corpo inválido" }, { status: 400 });
                     }
-                    const body = (await ctx.request.json().catch(() => ({})));
+                    const body = (await ctx.request.json().catch(async () => {
+                        const text = await ctx.request.text().catch(() => "");
+                        console.log(`[CHANGE_PASSWORD] 🔍 Falha no JSON.parse. Raw body text: "${text}"`);
+                        try {
+                            return JSON.parse(text);
+                        } catch (e) {
+                            return {};
+                        }
+                    }));
+                    console.log(`[CHANGE_PASSWORD] 🔍 Body recebido:`, {
+                        hasCurrent: !!body.currentPassword,
+                        hasNew: !!body.newPassword,
+                        keys: Object.keys(body)
+                    });
                     const { currentPassword, newPassword } = body;
                     if (!currentPassword || !newPassword) {
                         return ctx.json({ error: "Senha atual e nova senha são obrigatórias" }, { status: 400 });

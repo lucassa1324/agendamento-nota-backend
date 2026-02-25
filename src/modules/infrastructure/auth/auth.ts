@@ -192,20 +192,49 @@ export const auth = betterAuth({
           async (ctx: any) => {
             console.log(`[CHANGE_PASSWORD] 🔓 INICIANDO ENDPOINT`);
             console.log(`[CHANGE_PASSWORD] Path: ${ctx.path}`);
-            const session = ctx.context.session;
+
+            // Tentar recuperar o corpo de múltiplas formas para garantir que não chegue vazio
+            let body: any = {};
+            try {
+              // 1. Tentar ler do ctx.body (se o Elysia já tiver processado)
+              if (ctx.body && Object.keys(ctx.body).length > 0) {
+                body = ctx.body;
+                console.log(`[CHANGE_PASSWORD] 🔍 Body recuperado via ctx.body`);
+              }
+              // 2. Tentar ler via ctx.request.json()
+              else if (ctx.request) {
+                const clonedReq = ctx.request.clone();
+                body = await clonedReq.json().catch(() => ({}));
+                console.log(`[CHANGE_PASSWORD] 🔍 Body recuperado via ctx.request.json()`);
+              }
+            } catch (e) {
+              console.log(`[CHANGE_PASSWORD] ⚠️ Erro ao tentar ler body:`, e);
+            }
+
+            console.log(`[CHANGE_PASSWORD] 🔍 Keys finais:`, Object.keys(body));
+
+            let session = ctx.context.session;
+
+            // Fallback: Se a sessão não estiver no context (comum em endpoints customizados), tentamos buscar manualmente
             if (!session) {
-              console.log(`[CHANGE_PASSWORD] Sessão não encontrada no contexto.`);
+              console.log(`[CHANGE_PASSWORD] Sessão não encontrada no contexto. Tentando buscar via auth.api.getSession...`);
+              const authSession = await auth.api.getSession({
+                headers: ctx.request.headers
+              });
+              if (authSession) {
+                session = authSession;
+                console.log(`[CHANGE_PASSWORD] Sessão recuperada manualmente para: ${session.user.email}`);
+              }
+            }
+
+            if (!session) {
+              console.log(`[CHANGE_PASSWORD] Falha crítica: Usuário não autenticado.`);
               return ctx.json({ error: "Não autorizado" }, { status: 401 });
             }
 
             if (!ctx.request) {
               return ctx.json({ error: "Corpo inválido" }, { status: 400 });
             }
-
-            const body = (await ctx.request.json().catch(() => ({}))) as {
-              currentPassword?: string;
-              newPassword?: string;
-            };
 
             const { currentPassword, newPassword } = body;
 
@@ -263,17 +292,49 @@ export const auth = betterAuth({
               algorithm: "argon2id",
             });
 
-            // 4. Atualizar no banco
-            await db
+            // 4. Atualizar no banco com log de confirmação
+            console.log(`[CHANGE_PASSWORD] 🚀 Tentando update para userId: ${session.user.id}`);
+
+            // Debug: Listar todas as contas desse usuário antes de atualizar
+            const allAccounts = await db.select().from(schema.account).where(eq(schema.account.userId, session.user.id));
+            console.log(`[CHANGE_PASSWORD] Contas encontradas para este usuário:`, allAccounts.length);
+            allAccounts.forEach(acc => console.log(` - Account ID: ${acc.id}, Provider: ${acc.providerId}`));
+
+            const updateResult = await db
               .update(schema.account)
               .set({
                 password: newHash,
                 updatedAt: new Date(),
               })
-              .where(eq(schema.account.id, userAccount[0].id));
+              .where(
+                and(
+                  eq(schema.account.userId, session.user.id),
+                  eq(schema.account.providerId, "credential")
+                )
+              )
+              .returning({
+                id: schema.account.id,
+                userId: schema.account.userId
+              });
 
             console.log(
-              `[CHANGE_PASSWORD] Senha atualizada com sucesso para ${session.user.email} (Migrado para Argon2)`
+              `[CHANGE_PASSWORD] Resultado do Update (Raw):`, JSON.stringify(updateResult, null, 2)
+            );
+
+            if (!updateResult || updateResult.length === 0) {
+              console.error("[CHANGE_PASSWORD] ❌ ERRO FATAL: Nenhuma linha atualizada!");
+              return ctx.json({ error: "O banco de dados recusou a atualização da senha. Nenhuma conta correspondente foi encontrada." }, { status: 500 });
+            }
+
+            console.log(`[CHANGE_PASSWORD] ✅ SUCESSO REAL: Senha persistida no banco.`);
+
+            if (updateResult.length === 0) {
+              console.error("[CHANGE_PASSWORD] ❌ Nenhuma linha atualizada no banco!");
+              return ctx.json({ error: "Falha ao persistir nova senha" }, { status: 500 });
+            }
+
+            console.log(
+              `[CHANGE_PASSWORD] ✅ Senha atualizada com sucesso para ${session.user.email} (ID: ${updateResult[0].id})`
             );
 
             return ctx.json({ message: "Senha atualizada com sucesso" });

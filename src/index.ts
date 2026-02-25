@@ -66,36 +66,35 @@ const startServer = () => {
       .all("/api/auth/*", async (ctx) => {
         console.log(`>>> [AUTH_HANDLER_START] ${ctx.request.method} ${ctx.path}`);
         try {
-          // DEBUG: Tentar ler o body para ver se ele ainda está disponível
-          if (ctx.request.method === "POST") {
-            try {
-              const clonedRequest = ctx.request.clone();
-              const bodyText = await clonedRequest.text();
-              console.log(`--- [DEBUG_BODY_CONTENT] Body length: ${bodyText.length}`);
-              if (bodyText.length > 0) {
-                console.log(`--- [DEBUG_BODY_CONTENT] Preview: ${bodyText.slice(0, 100)}`);
-                if (bodyText.includes("[object Object]")) {
-                  console.error("!!! [CRITICAL] Body recebido como string '[object Object]'.");
-                  console.error("!!! [CRITICAL] Isso indica que o cliente (ou um proxy intermediário) enviou o objeto sem stringify.");
-                }
-              } else {
-                console.warn(`!!! [DEBUG_BODY_CONTENT] Body está VAZIO antes do handler`);
-              }
-            } catch (cloneErr: any) {
-              console.error(`!!! [DEBUG_BODY_ERROR] Erro ao clonar/ler body: ${cloneErr.message}`);
-            }
-          }
+          // Criamos uma cópia da requisição para o Better Auth usar
+          // Isso evita que qualquer leitura posterior afete o Better Auth
+          const authRequest = ctx.request.clone();
 
-          const response = await auth.handler(ctx.request);
+          // REMOVIDO: Leitura de body para debug que consumia o stream
+          // O Better Auth agora receberá o authRequest limpo.
+
+          const response = await auth.handler(authRequest);
           console.log(`<<< [AUTH_HANDLER_END] Status: ${response.status}`);
+
+          // Clonar a resposta para poder modificar os headers
+          const newResponse = new Response(response.body, response);
+
+          // Adicionar headers de CORS manualmente para o bypass do front funcionar
+          const origin = ctx.request.headers.get("origin");
+          if (origin) {
+            newResponse.headers.set("Access-Control-Allow-Origin", origin);
+            newResponse.headers.set("Access-Control-Allow-Credentials", "true");
+            newResponse.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+            newResponse.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control");
+          }
 
           // Se for logout, limpamos o cookie explicitamente para o front-end
           if (ctx.path.endsWith("/sign-out") || ctx.path.endsWith("/logout")) {
             console.log("[LOGOUT] Limpando cookie better-auth.session_token");
-            ctx.set.headers["Set-Cookie"] = "better-auth.session_token=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax";
+            newResponse.headers.set("Set-Cookie", "better-auth.session_token=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax");
           }
 
-          return response;
+          return newResponse;
         } catch (e: any) {
           console.error(`!!! [AUTH_HANDLER_ERROR] ${e.message}`, e.stack);
           throw e;
