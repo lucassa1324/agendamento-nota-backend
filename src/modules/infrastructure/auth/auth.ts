@@ -9,7 +9,12 @@ import { verifyPassword as verifyScryptPassword } from "better-auth/crypto";
 
 export { verifyScryptPassword };
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resendKey = process.env.RESEND_API_KEY;
+if (!resendKey && process.env.NODE_ENV === "production") {
+  console.error("[AUTH] FATAL: RESEND_API_KEY is missing in production!");
+}
+
+const resend = new Resend(resendKey || "re_placeholder");
 
 if (!process.env.BETTER_AUTH_SECRET) {
   console.warn("BETTER_AUTH_SECRET is missing! Using dev secret.");
