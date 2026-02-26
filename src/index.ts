@@ -187,6 +187,13 @@ const startServer = () => {
                   return { error: "Unauthorized" };
                 }
               })
+              .patch("/complete-onboarding", async ({ user }) => {
+                await db.update(schema.user)
+                  .set({ hasCompletedOnboarding: true })
+                  .where(eq(schema.user.id, user!.id));
+
+                return { success: true };
+              })
               .post("/cancel-feedback", async ({ user, body, set }) => {
                 const { reason, details, customReason } = body as {
                   reason: string;

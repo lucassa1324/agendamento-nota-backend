@@ -36,6 +36,7 @@ export const user = pgTable("user", {
   cancellationRequestedAt: timestamp("cancellation_requested_at"),
   retentionEndsAt: timestamp("retention_ends_at"),
   lastRetentionDiscountAt: timestamp("last_retention_discount_at"),
+  hasCompletedOnboarding: boolean("has_completed_onboarding").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

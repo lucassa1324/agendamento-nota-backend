@@ -129,6 +129,9 @@ export const auth = betterAuth({
       active: {
         type: "boolean",
       },
+      hasCompletedOnboarding: {
+        type: "boolean",
+      },
     },
   },
   emailVerification: {
