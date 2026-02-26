@@ -94,6 +94,7 @@ export class CreateUserUseCase {
         name: data.name,
         role: "ADMIN",
         active: true,
+        hasCompletedOnboarding: false,
       },
     });
 

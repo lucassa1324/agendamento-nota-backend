@@ -1,11 +1,13 @@
 import { betterAuth } from "better-auth";
 import { createAuthEndpoint } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { Resend } from "resend";
 import { db } from "../drizzle/database";
 import * as schema from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import { verifyPassword as verifyScryptPassword } from "better-auth/crypto";
 export { verifyScryptPassword };
+const resend = new Resend(process.env.RESEND_API_KEY);
 if (!process.env.BETTER_AUTH_SECRET) {
     console.warn("BETTER_AUTH_SECRET is missing! Using dev secret.");
 }
@@ -17,11 +19,9 @@ const getBaseUrl = () => {
         return process.env.BACKEND_URL;
     if (process.env.BASE_URL)
         return process.env.BASE_URL;
-
     // Fallback para localhost em desenvolvimento (Backend roda na 3001)
     return "http://localhost:3001";
 };
-
 const baseURL = getBaseUrl();
 console.log("[AUTH] BaseURL configurado:", baseURL);
 export const detectHashAlgorithm = (hash) => {
@@ -132,6 +132,53 @@ export const auth = betterAuth({
             active: {
                 type: "boolean",
             },
+            hasCompletedOnboarding: {
+                type: "boolean",
+            },
+        },
+    },
+    emailVerification: {
+        async sendVerificationEmail({ user, url }) {
+            console.log(`[AUTH] Enviando e-mail de verificação para: ${user.email}`);
+            try {
+                const { data, error } = await resend.emails.send({
+                    from: "Agendamento Nota <onboarding@resend.dev>",
+                    to: [user.email],
+                    subject: "Verifique seu e-mail",
+                    html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+              <h2 style="color: #333; text-align: center;">Bem-vindo ao Agendamento Nota!</h2>
+              <p style="color: #666; font-size: 16px; line-height: 1.5;">
+                Olá, ${user.name || "usuário"}! Obrigado por se cadastrar. Para começar a usar todas as funcionalidades, por favor confirme seu endereço de e-mail clicando no botão abaixo:
+              </p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${url}" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                  Verificar E-mail
+                </a>
+              </div>
+              <p style="color: #999; font-size: 14px; text-align: center;">
+                Se o botão acima não funcionar, copie e cole o link abaixo no seu navegador:
+              </p>
+              <p style="color: #007bff; font-size: 12px; text-align: center; word-break: break-all;">
+                ${url}
+              </p>
+              <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+              <p style="color: #999; font-size: 12px; text-align: center;">
+                Se você não criou esta conta, por favor ignore este e-mail.
+              </p>
+            </div>
+          `,
+                });
+                if (error) {
+                    console.error("[AUTH] Erro ao enviar e-mail via Resend:", error);
+                }
+                else {
+                    console.log("[AUTH] E-mail enviado com sucesso:", data?.id);
+                }
+            }
+            catch (e) {
+                console.error("[AUTH] Erro fatal no envio de e-mail:", e);
+            }
         },
     },
     plugins: [
@@ -147,17 +194,18 @@ export const auth = betterAuth({
                         handler: async (ctx) => {
                             const returned = ctx?.context?.returned;
                             // SEMPRE retornar um objeto com a propriedade 'response' para evitar crash no Better Auth (TypeError: null/undefined is not an object)
-                            if (!returned || returned instanceof Response)
+                            if (!returned || returned instanceof Response) {
                                 return { response: returned };
+                            }
                             try {
                                 // Se chegou aqui, 'returned' é um objeto JS puro { user, session } 
                                 if (!returned.user)
                                     return { response: returned };
                                 const [business] = await db
                                     .select({
-                                        id: schema.companies.id,
-                                        slug: schema.companies.slug,
-                                    })
+                                    id: schema.companies.id,
+                                    slug: schema.companies.slug,
+                                })
                                     .from(schema.companies)
                                     .where(eq(schema.companies.ownerId, returned.user.id))
                                     .limit(1);
@@ -192,6 +240,25 @@ export const auth = betterAuth({
                 }, async (ctx) => {
                     console.log(`[CHANGE_PASSWORD] 🔓 INICIANDO ENDPOINT`);
                     console.log(`[CHANGE_PASSWORD] Path: ${ctx.path}`);
+                    // Tentar recuperar o corpo de múltiplas formas para garantir que não chegue vazio
+                    let body = {};
+                    try {
+                        // 1. Tentar ler do ctx.body (se o Elysia já tiver processado)
+                        if (ctx.body && Object.keys(ctx.body).length > 0) {
+                            body = ctx.body;
+                            console.log(`[CHANGE_PASSWORD] 🔍 Body recuperado via ctx.body`);
+                        }
+                        // 2. Tentar ler via ctx.request.json()
+                        else if (ctx.request) {
+                            const clonedReq = ctx.request.clone();
+                            body = await clonedReq.json().catch(() => ({}));
+                            console.log(`[CHANGE_PASSWORD] 🔍 Body recuperado via ctx.request.json()`);
+                        }
+                    }
+                    catch (e) {
+                        console.log(`[CHANGE_PASSWORD] ⚠️ Erro ao tentar ler body:`, e);
+                    }
+                    console.log(`[CHANGE_PASSWORD] 🔍 Keys finais:`, Object.keys(body));
                     let session = ctx.context.session;
                     // Fallback: Se a sessão não estiver no context (comum em endpoints customizados), tentamos buscar manualmente
                     if (!session) {
@@ -211,20 +278,6 @@ export const auth = betterAuth({
                     if (!ctx.request) {
                         return ctx.json({ error: "Corpo inválido" }, { status: 400 });
                     }
-                    const body = (await ctx.request.json().catch(async () => {
-                        const text = await ctx.request.text().catch(() => "");
-                        console.log(`[CHANGE_PASSWORD] 🔍 Falha no JSON.parse. Raw body text: "${text}"`);
-                        try {
-                            return JSON.parse(text);
-                        } catch (e) {
-                            return {};
-                        }
-                    }));
-                    console.log(`[CHANGE_PASSWORD] 🔍 Body recebido:`, {
-                        hasCurrent: !!body.currentPassword,
-                        hasNew: !!body.newPassword,
-                        keys: Object.keys(body)
-                    });
                     const { currentPassword, newPassword } = body;
                     if (!currentPassword || !newPassword) {
                         return ctx.json({ error: "Senha atual e nova senha são obrigatórias" }, { status: 400 });
@@ -264,15 +317,34 @@ export const auth = betterAuth({
                     const newHash = await Bun.password.hash(newPassword, {
                         algorithm: "argon2id",
                     });
-                    // 4. Atualizar no banco
-                    await db
+                    // 4. Atualizar no banco com log de confirmação
+                    console.log(`[CHANGE_PASSWORD] 🚀 Tentando update para userId: ${session.user.id}`);
+                    // Debug: Listar todas as contas desse usuário antes de atualizar
+                    const allAccounts = await db.select().from(schema.account).where(eq(schema.account.userId, session.user.id));
+                    console.log(`[CHANGE_PASSWORD] Contas encontradas para este usuário:`, allAccounts.length);
+                    allAccounts.forEach(acc => console.log(` - Account ID: ${acc.id}, Provider: ${acc.providerId}`));
+                    const updateResult = await db
                         .update(schema.account)
                         .set({
-                            password: newHash,
-                            updatedAt: new Date(),
-                        })
-                        .where(eq(schema.account.id, userAccount[0].id));
-                    console.log(`[CHANGE_PASSWORD] Senha atualizada com sucesso para ${session.user.email} (Migrado para Argon2)`);
+                        password: newHash,
+                        updatedAt: new Date(),
+                    })
+                        .where(and(eq(schema.account.userId, session.user.id), eq(schema.account.providerId, "credential")))
+                        .returning({
+                        id: schema.account.id,
+                        userId: schema.account.userId
+                    });
+                    console.log(`[CHANGE_PASSWORD] Resultado do Update (Raw):`, JSON.stringify(updateResult, null, 2));
+                    if (!updateResult || updateResult.length === 0) {
+                        console.error("[CHANGE_PASSWORD] ❌ ERRO FATAL: Nenhuma linha atualizada!");
+                        return ctx.json({ error: "O banco de dados recusou a atualização da senha. Nenhuma conta correspondente foi encontrada." }, { status: 500 });
+                    }
+                    console.log(`[CHANGE_PASSWORD] ✅ SUCESSO REAL: Senha persistida no banco.`);
+                    if (updateResult.length === 0) {
+                        console.error("[CHANGE_PASSWORD] ❌ Nenhuma linha atualizada no banco!");
+                        return ctx.json({ error: "Falha ao persistir nova senha" }, { status: 500 });
+                    }
+                    console.log(`[CHANGE_PASSWORD] ✅ Senha atualizada com sucesso para ${session.user.email} (ID: ${updateResult[0].id})`);
                     return ctx.json({ message: "Senha atualizada com sucesso" });
                 }),
                 getBusiness: createAuthEndpoint("/business-info", {
@@ -284,21 +356,21 @@ export const auth = betterAuth({
                     const userId = session.user.id;
                     const results = await db
                         .select({
-                            id: schema.companies.id,
-                            name: schema.companies.name,
-                            slug: schema.companies.slug,
-                            ownerId: schema.companies.ownerId,
-                            active: schema.companies.active,
-                            subscriptionStatus: schema.companies.subscriptionStatus,
-                            trialEndsAt: schema.companies.trialEndsAt,
-                            createdAt: schema.companies.createdAt,
-                            updatedAt: schema.companies.updatedAt,
-                            siteCustomization: {
-                                layoutGlobal: schema.companySiteCustomizations.layoutGlobal,
-                                home: schema.companySiteCustomizations.home,
-                                gallery: schema.companySiteCustomizations.gallery,
-                            },
-                        })
+                        id: schema.companies.id,
+                        name: schema.companies.name,
+                        slug: schema.companies.slug,
+                        ownerId: schema.companies.ownerId,
+                        active: schema.companies.active,
+                        subscriptionStatus: schema.companies.subscriptionStatus,
+                        trialEndsAt: schema.companies.trialEndsAt,
+                        createdAt: schema.companies.createdAt,
+                        updatedAt: schema.companies.updatedAt,
+                        siteCustomization: {
+                            layoutGlobal: schema.companySiteCustomizations.layoutGlobal,
+                            home: schema.companySiteCustomizations.home,
+                            gallery: schema.companySiteCustomizations.gallery,
+                        },
+                    })
                         .from(schema.companies)
                         .leftJoin(schema.companySiteCustomizations, eq(schema.companies.id, schema.companySiteCustomizations.companyId))
                         .where(eq(schema.companies.ownerId, userId))

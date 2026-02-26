@@ -179,24 +179,19 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
             set.status = 404;
             return { error: "Usuário não encontrado" };
         }
-        // 2. Atualiza accountId na tabela accounts (se for credencial de email)
-        // COMENTADO: Em alguns setups do Better Auth, accountId para 'credential' é o próprio userId.
-        // Alterar para email pode quebrar o vínculo se o sistema esperar o userId.
-        // Se necessário reativar, verificar se o accountId deve ser o email ou userId.
-        /*
+        // 2. Atualiza o e-mail/accountId na tabela accounts
+        // No Better Auth, para o provider 'credential', o accountId é o próprio e-mail.
+        // Se não atualizarmos aqui, o usuário não conseguirá logar com o novo e-mail.
         await db
-          .update(schema.account)
-          .set({
-            accountId: email, // Para provider 'credential', accountId é o email
+            .update(schema.account)
+            .set({
+            accountId: email,
             updatedAt: new Date()
-          })
-          .where(
-            sql`${schema.account.userId} = ${id} AND ${schema.account.providerId} = 'credential'`
-          );
-        */
+        })
+            .where(sql `${schema.account.userId} = ${id} AND ${schema.account.providerId} = 'credential'`);
         return {
             success: true,
-            message: `Email do usuário ${updated.name} alterado para ${email}`
+            message: `Email do usuário ${updated.name} alterado para ${email} em todas as tabelas.`
         };
     }
     catch (error) {
