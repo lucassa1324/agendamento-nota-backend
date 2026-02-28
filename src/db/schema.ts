@@ -140,6 +140,27 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
     .notNull(),
 });
 
+export const prospects = pgTable("prospects", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  phone: text("phone").notNull(),
+  establishmentName: text("establishment_name").notNull(),
+  instagramLink: text("instagram_link"),
+  status: text("status", { enum: ["NOT_CONTACTED", "CONTACTED", "IN_NEGOTIATION", "CONVERTED", "REJECTED"] })
+    .default("NOT_CONTACTED")
+    .notNull(),
+  category: text("category").notNull(), // Ex: "Studio de Sobrancelha", "Manicure", etc.
+  location: text("location"), // Cidade/Bairro
+  address: text("address"), // Endereço Físico
+  mapsLink: text("maps_link"), // Link do Google Maps (opcional)
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
 export const accountCancellationFeedback = pgTable("account_cancellation_feedback", {
   id: text("id").primaryKey(),
   userId: text("user_id")
