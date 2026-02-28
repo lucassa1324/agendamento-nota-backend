@@ -66,8 +66,16 @@ export class CreateAppointmentUseCase {
       services.push(service);
 
       // Calcula a duração total do agendamento
-      const [hours, minutes] = service.duration.split(':').map(Number);
-      totalDurationMin += (hours * 60) + minutes;
+      let durationMin = 0;
+      if (service.duration && typeof service.duration === 'string') {
+        if (service.duration.includes(':')) {
+          const [h, m] = service.duration.split(':').map(Number);
+          durationMin = (h * 60) + (m || 0);
+        } else if (/^\d+$/.test(service.duration)) {
+          durationMin = parseInt(service.duration);
+        }
+      }
+      totalDurationMin += durationMin;
     }
 
     // Define o ID do serviço principal como o primeiro (necessário para compatibilidade com a FK do banco)
@@ -96,7 +104,33 @@ export class CreateAppointmentUseCase {
 
     // Valida disponibilidade de horário
     const scheduledAt = new Date(data.scheduledAt);
-    const dayOfWeek = scheduledAt.getUTCDay();
+    data.scheduledAt = scheduledAt; // Garante que o campo no objeto data seja um objeto Date para o Drizzle
+
+    // Obter data e hora no fuso horário de Brasília (America/Sao_Paulo)
+    // Isso garante que a validação funcione independente do fuso horário do servidor (ex: Vercel em UTC)
+    const formatter = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false
+    });
+
+    const parts = formatter.formatToParts(scheduledAt);
+    const getPart = (type: string) => parts.find(p => p.type === type)?.value;
+
+    // Mapeamento de dia da semana do Intl para o nosso padrão
+    const weekdayMap: Record<string, number> = {
+      'domingo': 0, 'segunda-feira': 1, 'terça-feira': 2, 'quarta-feira': 3,
+      'quinta-feira': 4, 'sexta-feira': 5, 'sábado': 6
+    };
+
+    const weekdayStr = getPart('weekday')?.toLowerCase() || '';
+    const dayOfWeek = weekdayMap[weekdayStr] ?? scheduledAt.getDay(); // fallback para o dia local se falhar
+
     const dayNames = ["DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO"];
     const dayName = dayNames[dayOfWeek];
 
@@ -114,9 +148,9 @@ export class CreateAppointmentUseCase {
       throw new Error("Business is closed on this day");
     }
 
-    // Validar se o horário está dentro do expediente (usando horário local para comparação com HH:mm do config)
-    const appH = scheduledAt.getHours();
-    const appM = scheduledAt.getMinutes();
+    // Validar se o horário está dentro do expediente (usando horário local de Brasília)
+    const appH = parseInt(getPart('hour') || '0');
+    const appM = parseInt(getPart('minute') || '0');
     const appTimeTotalMin = (appH * 60) + appM;
 
     const checkTimeInPeriod = (startStr?: string | null, endStr?: string | null) => {
@@ -135,15 +169,26 @@ export class CreateAppointmentUseCase {
       throw new Error("O horário selecionado e a duração total excedem o horário de funcionamento.");
     }
 
+    // --- BUSCA DE AGENDAMENTOS EXISTENTES (Intervalo de 24h em BRT) ---
+    // Precisamos buscar agendamentos que caem no mesmo dia em Brasília
+    const day = getPart('day');
+    const month = getPart('month');
+    const year = getPart('year');
+
+    // Criamos as datas de início e fim do dia no timezone de Brasília
+    // BRT é UTC-3. Então 00:00 BRT = 03:00 UTC.
+    const startOfDay = new Date(`${year}-${month}-${day}T00:00:00.000-03:00`);
+    const endOfDay = new Date(`${year}-${month}-${day}T23:59:59.999-03:00`);
+
     // Validar conflitos com outros agendamentos
     const existingAppointments = await this.appointmentRepository.findAllByCompanyId(
       data.companyId,
-      new Date(new Date(scheduledAt).setHours(0, 0, 0, 0)),
-      new Date(new Date(scheduledAt).setHours(23, 59, 59, 999))
+      startOfDay,
+      endOfDay
     );
 
-    // Converte a data do agendamento para o timezone local (simulando a mesma lógica do banco/visualização)
-    const appStartMin = (scheduledAt.getHours() * 60) + scheduledAt.getMinutes();
+    // Converte a data do agendamento para o timezone local de Brasília
+    const appStartMin = appTimeTotalMin;
     const appEndMin = appStartMin + totalDurationMin;
 
     const hasConflict = existingAppointments.some(app => {
@@ -151,11 +196,20 @@ export class CreateAppointmentUseCase {
 
       const dbDate = new Date(app.scheduledAt);
 
-      if (dbDate.getDate() !== scheduledAt.getDate() || dbDate.getMonth() !== scheduledAt.getMonth()) {
+      // Comparação de dia usando o timezone de Brasília
+      const dbDateParts = formatter.formatToParts(dbDate);
+      const dbDay = dbDateParts.find(p => p.type === 'day')?.value;
+      const dbMonth = dbDateParts.find(p => p.type === 'month')?.value;
+      const schDay = parts.find(p => p.type === 'day')?.value;
+      const schMonth = parts.find(p => p.type === 'month')?.value;
+
+      if (dbDay !== schDay || dbMonth !== schMonth) {
         return false;
       }
 
-      const existingStart = (dbDate.getHours() * 60) + dbDate.getMinutes();
+      const dbH = parseInt(dbDateParts.find(p => p.type === 'hour')?.value || '0');
+      const dbM = parseInt(dbDateParts.find(p => p.type === 'minute')?.value || '0');
+      const existingStart = (dbH * 60) + dbM;
 
       let existingDuration = 30;
       if (app.serviceDurationSnapshot) {
