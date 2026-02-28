@@ -55,5 +55,4 @@ how HEAD --stat'
 monitorar_logs.ps1
 
 # Organized Test and Debug Folders
-scripts/manual_tests/
-scripts/debug_tools/
+scripts/
