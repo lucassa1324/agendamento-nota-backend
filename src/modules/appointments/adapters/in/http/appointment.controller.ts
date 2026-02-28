@@ -258,6 +258,12 @@ export function appointmentController() {
             servicePriceSnapshot: t.String(),
             serviceDurationSnapshot: t.String(),
             notes: t.Optional(t.String()),
+            items: t.Optional(t.Array(t.Object({
+              serviceId: t.String(),
+              serviceNameSnapshot: t.String(),
+              servicePriceSnapshot: t.String(),
+              serviceDurationSnapshot: t.String(),
+            }))),
           })
         })
     )

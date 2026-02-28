@@ -5,7 +5,7 @@ import { UserRepository } from "../../../user/adapters/out/user.repository";
 import { IPushSubscriptionRepository } from "../../../notifications/domain/ports/push-subscription.repository";
 import { NotificationService } from "../../../notifications/application/notification.service";
 import { db } from "../../../infrastructure/drizzle/database";
-import { appointments, serviceResources, inventory, inventoryLogs } from "../../../../db/schema";
+import { appointments, serviceResources, inventory, inventoryLogs, appointmentItems } from "../../../../db/schema";
 import { eq, sql, inArray } from "drizzle-orm";
 
 export class UpdateAppointmentStatusUseCase {
@@ -16,13 +16,31 @@ export class UpdateAppointmentStatusUseCase {
     private pushSubscriptionRepository: IPushSubscriptionRepository
   ) { }
 
-  private extractServiceIds(appointment: Appointment): string[] {
+  private async extractServiceIds(tx: any, appointment: Appointment): Promise<string[]> {
     let ids: string[] = [];
-    let foundInNotes = false;
+    let foundInItems = false;
 
-    // Tenta extrair IDs das notas (Fonte da Verdade para Multi-Serviços)
-    // Formato esperado: "... | IDs: id1,id2,id3" ou "IDs: id1,id2,id3"
-    if (appointment.notes) {
+    // 1. Tenta buscar da lista de itens carregada na entidade (Prioridade 1)
+    if (appointment.items && appointment.items.length > 0) {
+      ids = appointment.items.map(it => it.serviceId);
+      foundInItems = true;
+    }
+
+    // 2. Tenta buscar da nova tabela appointment_items via TX (Fallback se a entidade não tiver itens)
+    if (!foundInItems) {
+      const items = await tx
+        .select({ serviceId: appointmentItems.serviceId })
+        .from(appointmentItems)
+        .where(eq(appointmentItems.appointmentId, appointment.id));
+
+      if (items.length > 0) {
+        ids = items.map((it: any) => it.serviceId);
+        foundInItems = true;
+      }
+    }
+
+    // 3. Tenta extrair IDs das notas (Retrocompatibilidade / Backup)
+    if (!foundInItems && appointment.notes) {
       const match = appointment.notes.match(/IDs:\s*([\w\s,-]+)/);
       if (match && match[1]) {
         const extractedIds = match[1].split(',').map(id => id.trim());
@@ -33,16 +51,16 @@ export class UpdateAppointmentStatusUseCase {
 
         if (validIds.length > 0) {
           ids = validIds;
-          foundInNotes = true;
+          foundInItems = true;
         }
       }
     }
 
-    // Se NÃO encontrou nada nas notas, usa o ID principal
-    // (Se encontrou nas notas, ignoramos o serviceId principal para evitar duplicação, 
-    // assumindo que a lista das notas já inclui o principal quando ela existe)
-    if (!foundInNotes && appointment.serviceId) {
-      ids.push(appointment.serviceId);
+    // 3. Se NÃO encontrou nada, usa o ID principal (Legado/Simples)
+    if (!foundInItems && appointment.serviceId) {
+      // Suporta IDs separados por vírgula no campo serviceId (Compatibilidade Frontend)
+      const serviceIds = appointment.serviceId.split(',').map(id => id.trim()).filter(id => id !== "");
+      ids.push(...serviceIds);
     }
 
     return ids;
@@ -74,7 +92,7 @@ export class UpdateAppointmentStatusUseCase {
       }
 
       // Extrair IDs de todos os serviços (Multi-Serviço)
-      const serviceIds = this.extractServiceIds(appointment);
+      const serviceIds = await this.extractServiceIds(tx, appointment);
 
       // 1. Reversão de estoque (COMPLETED -> OUTRO)
       if (currentAppointment.status === "COMPLETED" && status !== "COMPLETED") {

@@ -1,8 +1,8 @@
 import { db } from "../../../../infrastructure/drizzle/database";
-import { appointments } from "../../../../../db/schema";
-import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { appointments, appointmentItems } from "../../../../../db/schema";
+import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { IAppointmentRepository } from "../../../domain/ports/appointment.repository";
-import { Appointment, CreateAppointmentInput, AppointmentStatus } from "../../../domain/entities/appointment.entity";
+import { Appointment, CreateAppointmentInput, AppointmentStatus, AppointmentItem } from "../../../domain/entities/appointment.entity";
 
 export class DrizzleAppointmentRepository implements IAppointmentRepository {
   async findById(id: string): Promise<Appointment | null> {
@@ -12,7 +12,17 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
       .where(eq(appointments.id, id))
       .limit(1);
 
-    return (result as Appointment) || null;
+    if (!result) return null;
+
+    const items = await db
+      .select()
+      .from(appointmentItems)
+      .where(eq(appointmentItems.appointmentId, id));
+
+    return {
+      ...(result as Appointment),
+      items: items as AppointmentItem[],
+    };
   }
 
   async findAllByCompanyId(companyId: string, startDate?: Date, endDate?: Date): Promise<Appointment[]> {
@@ -31,7 +41,18 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
       .from(appointments)
       .where(and(...filters));
 
-    return results as Appointment[];
+    if (results.length === 0) return [];
+
+    const appointmentIds = results.map(r => r.id);
+    const allItems = await db
+      .select()
+      .from(appointmentItems)
+      .where(inArray(appointmentItems.appointmentId, appointmentIds));
+
+    return results.map(r => ({
+      ...(r as Appointment),
+      items: allItems.filter(item => item.appointmentId === r.id) as AppointmentItem[],
+    }));
   }
 
   async findAllByCustomerId(customerId: string): Promise<Appointment[]> {
@@ -40,19 +61,53 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
       .from(appointments)
       .where(eq(appointments.customerId, customerId));
 
-    return results as Appointment[];
+    if (results.length === 0) return [];
+
+    const appointmentIds = results.map(r => r.id);
+    const allItems = await db
+      .select()
+      .from(appointmentItems)
+      .where(inArray(appointmentItems.appointmentId, appointmentIds));
+
+    return results.map(r => ({
+      ...(r as Appointment),
+      items: allItems.filter(item => item.appointmentId === r.id) as AppointmentItem[],
+    }));
   }
 
   async create(data: CreateAppointmentInput): Promise<Appointment> {
+    const { items, ...appointmentData } = data;
+    const appointmentId = crypto.randomUUID();
+
     const [newAppointment] = await db
       .insert(appointments)
       .values({
-        id: crypto.randomUUID(),
-        ...data,
+        id: appointmentId,
+        ...appointmentData,
       })
       .returning();
 
-    return newAppointment as Appointment;
+    let createdItems: AppointmentItem[] = [];
+
+    if (items && items.length > 0) {
+      const itemsToInsert = items.map(item => ({
+        id: crypto.randomUUID(),
+        appointmentId,
+        ...item,
+      }));
+
+      const insertedItems = await db
+        .insert(appointmentItems)
+        .values(itemsToInsert)
+        .returning();
+
+      createdItems = insertedItems as AppointmentItem[];
+    }
+
+    return {
+      ...(newAppointment as Appointment),
+      items: createdItems,
+    };
   }
 
   async updateStatus(id: string, status: AppointmentStatus): Promise<Appointment | null> {

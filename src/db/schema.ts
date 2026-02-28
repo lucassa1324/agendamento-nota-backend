@@ -299,6 +299,27 @@ export const serviceResources = pgTable("service_resources", {
     .notNull(),
 });
 
+export const appointmentItems = pgTable("appointment_items", {
+  id: text("id").primaryKey(),
+  appointmentId: text("appointment_id")
+    .notNull()
+    .references(() => appointments.id, { onDelete: "cascade" }),
+  serviceId: text("service_id")
+    .notNull()
+    .references(() => services.id, { onDelete: "cascade" }),
+
+  // Snapshots para histórico
+  serviceNameSnapshot: text("service_name_snapshot").notNull(),
+  servicePriceSnapshot: numeric("service_price_snapshot", { precision: 10, scale: 2 }).notNull(),
+  serviceDurationSnapshot: text("service_duration_snapshot").notNull(),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
 export const googleCalendarConfigs = pgTable("google_calendar_configs", {
   id: text("id").primaryKey(),
   companyId: text("company_id")
@@ -512,7 +533,7 @@ export const agendaBlocksRelations = relations(agendaBlocks, ({ one }) => ({
   }),
 }));
 
-export const appointmentsRelations = relations(appointments, ({ one }) => ({
+export const appointmentsRelations = relations(appointments, ({ one, many }) => ({
   company: one(companies, {
     fields: [appointments.companyId],
     references: [companies.id],
@@ -524,6 +545,18 @@ export const appointmentsRelations = relations(appointments, ({ one }) => ({
   customer: one(user, {
     fields: [appointments.customerId],
     references: [user.id],
+  }),
+  items: many(appointmentItems),
+}));
+
+export const appointmentItemsRelations = relations(appointmentItems, ({ one }) => ({
+  appointment: one(appointments, {
+    fields: [appointmentItems.appointmentId],
+    references: [appointments.id],
+  }),
+  service: one(services, {
+    fields: [appointmentItems.serviceId],
+    references: [services.id],
   }),
 }));
 

@@ -27,54 +27,72 @@ export class CreateAppointmentUseCase {
       throw new Error("Unauthorized: Only business owners can create manual appointments");
     }
 
-    // Suporte a múltiplos serviços (string separada por vírgula)
-    const serviceIds = data.serviceId.split(',').map(id => id.trim());
+    // Suporte a múltiplos serviços
+    let serviceIds: string[] = [];
+
+    // Prioridade 1: Se o frontend enviou a lista detalhada de itens (Novo padrão)
+    if (data.items && data.items.length > 0) {
+      serviceIds = data.items.map(it => it.serviceId);
+    }
+    // Prioridade 2: Se enviou IDs separados por vírgula na string serviceId (Fallback/Legado)
+    else if (typeof data.serviceId === 'string' && data.serviceId.includes(',')) {
+      serviceIds = data.serviceId.split(',').map(id => id.trim()).filter(id => id !== "");
+    }
+    // Prioridade 3: Apenas um ID simples
+    else if (data.serviceId) {
+      serviceIds = [data.serviceId];
+    }
+
+    if (serviceIds.length === 0) {
+      throw new Error("Nenhum serviço selecionado para o agendamento");
+    }
+
     const services = [];
     let totalDurationMin = 0;
     let totalPrice = 0;
     let combinedServiceNames = [];
+    const appointmentItemsList = [];
 
     for (const sId of serviceIds) {
       const service = await this.serviceRepository.findById(sId);
       if (!service) {
-        throw new Error(`Service not found: ${sId}`);
+        console.error(`[CREATE_APPOINTMENT_ERROR] Service not found: "${sId}". Full data:`, JSON.stringify(data));
+        throw new Error(`Service not found: ${sId}. O ID enviado pelo frontend não existe no banco de dados.`);
       }
+
       if (service.companyId !== data.companyId) {
         throw new Error(`Service ${service.name} does not belong to this company`);
       }
-
       services.push(service);
-      combinedServiceNames.push(service.name);
 
-      // Somar preços
-      totalPrice += Number(service.price);
-
-      // Somar durações
-      let dMin = 30;
-      if (service.duration.includes(':')) {
-        const [h, m] = service.duration.split(':').map(Number);
-        dMin = (h * 60) + m;
-      } else {
-        dMin = parseInt(service.duration) || 30;
-      }
-      totalDurationMin += dMin;
+      // Calcula a duração total do agendamento
+      const [hours, minutes] = service.duration.split(':').map(Number);
+      totalDurationMin += (hours * 60) + minutes;
     }
 
-    // IMPORTANTE: Para evitar erro de Chave Estrangeira (FK) no banco,
-    // o campo 'serviceId' deve conter apenas UM ID válido existente na tabela 'services'.
-    // Vamos usar o primeiro ID da lista para a FK, mas salvar TODOS no snapshot.
-    const originalServiceId = data.serviceId; // Mantém a string original se precisarmos
+    // Define o ID do serviço principal como o primeiro (necessário para compatibilidade com a FK do banco)
     data.serviceId = serviceIds[0];
 
-    // Preparar dados com valores somados
-    const totalDurationStr = `${String(Math.floor(totalDurationMin / 60)).padStart(2, '0')}:${String(totalDurationMin % 60).padStart(2, '0')}`;
+    // Snapshot final com todos os nomes dos serviços se houver múltiplos
+    if (services.length > 1) {
+      data.serviceNameSnapshot = services.map(s => s.name).join(', ');
+      data.servicePriceSnapshot = services.reduce((acc, s) => acc + parseFloat(s.price), 0).toString();
 
-    // Atualizar o objeto data com os valores calculados para o snapshot
-    data.serviceNameSnapshot = combinedServiceNames.join(', ');
-    data.servicePriceSnapshot = totalPrice.toFixed(2);
-    data.serviceDurationSnapshot = totalDurationStr;
-    // Opcional: Você pode querer salvar a lista original de IDs nas notas ou em outro campo snapshot se necessário
-    data.notes = data.notes ? `${data.notes} | IDs: ${originalServiceId}` : `IDs: ${originalServiceId}`;
+      const totalHours = Math.floor(totalDurationMin / 60);
+      const totalMins = totalDurationMin % 60;
+      data.serviceDurationSnapshot = `${String(totalHours).padStart(2, '0')}:${String(totalMins).padStart(2, '0')}`;
+    }
+
+    // Criar a lista de AppointmentItem a partir dos serviços carregados
+    const items = services.map(service => ({
+      serviceId: service.id,
+      serviceNameSnapshot: service.name,
+      servicePriceSnapshot: service.price,
+      serviceDurationSnapshot: service.duration,
+    }));
+
+    // Agora substituímos os itens que podem ter vindo incompletos do front pelos dados reais do banco
+    data.items = items;
 
     // Valida disponibilidade de horário
     const scheduledAt = new Date(data.scheduledAt);
@@ -125,21 +143,14 @@ export class CreateAppointmentUseCase {
     );
 
     // Converte a data do agendamento para o timezone local (simulando a mesma lógica do banco/visualização)
-    // Se o scheduledAt já vier em UTC (com Z), o getHours() vai pegar a hora local do servidor.
-    // O ideal é normalizar tudo para minutos absolutos do dia.
-
-    // Assumindo que scheduledAt é um Date objeto
     const appStartMin = (scheduledAt.getHours() * 60) + scheduledAt.getMinutes();
     const appEndMin = appStartMin + totalDurationMin;
 
     const hasConflict = existingAppointments.some(app => {
       if (app.status === 'CANCELLED') return false;
 
-      // Converter data do banco (que vem como string ou Date UTC) para Date objeto
       const dbDate = new Date(app.scheduledAt);
 
-      // Ajuste crucial: Se a data do banco for diferente da data do novo agendamento (ex: dia diferente), ignora
-      // Isso evita conflitos falsos se o filtro findAllByCompanyId retornar dias errados por fuso horário
       if (dbDate.getDate() !== scheduledAt.getDate() || dbDate.getMonth() !== scheduledAt.getMonth()) {
         return false;
       }
@@ -157,10 +168,6 @@ export class CreateAppointmentUseCase {
       }
       const existingEnd = existingStart + existingDuration;
 
-      // Sobreposição: (NovoInício < ExistenteFim) E (NovoFim > ExistenteInício)
-      // Ajuste para permitir "encostar":
-      // Se NovoFim == ExistenteInício -> OK (ex: acaba 10:00, outro começa 10:00)
-      // Se NovoInício == ExistenteFim -> OK (ex: começa 11:00, outro acaba 11:00)
       return appStartMin < existingEnd && appEndMin > existingStart;
     });
 
@@ -172,9 +179,9 @@ export class CreateAppointmentUseCase {
     // Verifica se o cliente já tem agendamentos no MESMO DIA que sejam incompatíveis com os novos serviços
     const customerAppointments = existingAppointments.filter(app => {
       if (app.status === 'CANCELLED') return false;
-      
+
       // Verifica se é o mesmo cliente (por ID, Email ou Telefone)
-      const isSameCustomer = 
+      const isSameCustomer =
         (data.customerId && app.customerId === data.customerId) ||
         (data.customerEmail && app.customerEmail === data.customerEmail) ||
         (data.customerPhone && app.customerPhone === data.customerPhone);
@@ -208,39 +215,41 @@ export class CreateAppointmentUseCase {
         }
       }
     }
-    // ---------------------------------------------------------------------
 
+    // Persistência no repositório
     const newAppointment = await this.appointmentRepository.create(data);
 
-
     // Web Push Notification: notify business owner about the new appointment
-    try {
-      const ownerId = business.ownerId;
-      const owner = await this.userRepository.find(ownerId);
+    // Executamos em background (sem await) para não travar a resposta para o cliente
+    (async () => {
+      try {
+        const ownerId = business.ownerId;
+        const owner = await this.userRepository.find(ownerId);
 
-      if (owner && owner.notifyNewAppointments) {
-        const notificationService = new NotificationService(this.pushSubscriptionRepository);
+        if (owner && owner.notifyNewAppointments) {
+          const notificationService = new NotificationService(this.pushSubscriptionRepository);
 
-        const date = new Date(newAppointment.scheduledAt);
-        const formatter = new Intl.DateTimeFormat('pt-BR', {
-          day: '2-digit',
-          month: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          timeZone: 'America/Sao_Paulo'
-        });
-        const formattedDate = formatter.format(date);
+          const date = new Date(newAppointment.scheduledAt);
+          const formatter = new Intl.DateTimeFormat('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'America/Sao_Paulo'
+          });
+          const formattedDate = formatter.format(date);
 
-        await notificationService.sendToUser(
-          ownerId,
-          "📅 Novo Agendamento!",
-          `${newAppointment.customerName} agendou ${newAppointment.serviceNameSnapshot} para ${formattedDate}`
-        );
-        console.log(`[WEBPUSH] Notificação de agendamento enviada para ${owner.email}`);
+          await notificationService.sendToUser(
+            ownerId,
+            "📅 Novo Agendamento!",
+            `${newAppointment.customerName} agendou ${newAppointment.serviceNameSnapshot} para ${formattedDate}`
+          );
+          console.log(`[WEBPUSH] Notificação de agendamento enviada para ${owner.email}`);
+        }
+      } catch (notifyError: any) {
+        console.error("[WEBPUSH_TRIGGER_ERROR]", notifyError?.message || notifyError);
       }
-    } catch (notifyError: any) {
-      console.error("[WEBPUSH_TRIGGER_ERROR]", notifyError?.message || notifyError);
-    }
+    })();
 
     return newAppointment;
   }

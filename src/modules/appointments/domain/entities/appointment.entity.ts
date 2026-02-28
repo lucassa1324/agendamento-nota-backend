@@ -1,5 +1,16 @@
 export type AppointmentStatus = "PENDING" | "CONFIRMED" | "COMPLETED" | "CANCELLED" | "POSTPONED";
 
+export interface AppointmentItem {
+  id: string;
+  appointmentId: string;
+  serviceId: string;
+  serviceNameSnapshot: string;
+  servicePriceSnapshot: string;
+  serviceDurationSnapshot: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Appointment {
   id: string;
   companyId: string;
@@ -14,6 +25,7 @@ export interface Appointment {
   scheduledAt: Date;
   status: AppointmentStatus;
   notes: string | null;
+  items?: AppointmentItem[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,4 +42,5 @@ export interface CreateAppointmentInput {
   serviceDurationSnapshot: string;
   scheduledAt: Date;
   notes?: string;
+  items?: Omit<AppointmentItem, "id" | "appointmentId" | "createdAt" | "updatedAt">[];
 }
