@@ -9,12 +9,12 @@ import { DrizzleServiceRepository } from "../../services/adapters/out/drizzle/se
 import { UserRepository } from "../../user/adapters/out/user.repository";
 // import { DrizzlePushSubscriptionRepository } from "../../notifications/adapters/out/drizzle/push-subscription.drizzle.repository";
 export const repositoriesPlugin = new Elysia()
-    .decorate("businessRepository", new DrizzleBusinessRepository())
-    .decorate("userRepository", new UserRepository())
-    .decorate("appointmentRepository", new DrizzleAppointmentRepository())
-    .decorate("serviceRepository", new DrizzleServiceRepository())
-    .decorate("inventoryRepository", {})
-    .decorate("settingsRepository", {})
-    .decorate("expenseRepository", {})
-    .decorate("galleryRepository", {})
-    .decorate("pushSubscriptionRepository", {});
+	.decorate("businessRepository", new DrizzleBusinessRepository())
+	.decorate("userRepository", new UserRepository())
+	.decorate("appointmentRepository", new DrizzleAppointmentRepository())
+	.decorate("serviceRepository", new DrizzleServiceRepository())
+	.decorate("inventoryRepository", {})
+	.decorate("settingsRepository", {})
+	.decorate("expenseRepository", {})
+	.decorate("galleryRepository", {})
+	.decorate("pushSubscriptionRepository", {});

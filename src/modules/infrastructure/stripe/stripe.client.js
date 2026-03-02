@@ -7,7 +7,7 @@
 //   }
 // }
 // MOCK STRIPE CLIENT TO PREVENT CRASH
-// export const stripe = stripeSecretKey 
+// export const stripe = stripeSecretKey
 //   ? new Stripe(stripeSecretKey, {
 //       apiVersion: '2023-10-16', // Use latest API version available or check Stripe dashboard
 //       typescript: true,
