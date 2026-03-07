@@ -1,6 +1,9 @@
-import { AsaasDateHandler } from "./models/Date";
-import { IPixResponse } from "../../../domain/ports/billing.port";
-import { IAsaasCreatePixRequest, IAssasCreatePixResponse } from "./asaas.types";
+import type { IPixResponse } from "../../../domain/ports/billing.port";
+import type {
+	IAsaasCreatePixRequest,
+	IAssasCreateBillingResponse,
+} from "./asaas.types";
+import type { AsaasDateHandler } from "./models/Date";
 
 interface AsaasPixParserParams {
 	customerId: string;
@@ -20,10 +23,11 @@ export class AsaasPixParser {
 		};
 	}
 
-	toDomain(params: IAssasCreatePixResponse): IPixResponse {
+	toDomain(params: IAssasCreateBillingResponse): IPixResponse {
 		return {
 			code: params.pixQrCodeId,
 			externalId: params.id,
+			invoice: params.invoiceUrl,
 		};
 	}
 }
