@@ -4,7 +4,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "bun run --watch src/local.ts",
-    "build": "tsc",
+    "build": "bun build src/index.ts --outdir ./dist --target bun",
     "db:generate": "bunx drizzle-kit generate",
     "db:migrate": "bunx drizzle-kit migrate",
     "db:push": "bunx drizzle-kit push",
@@ -29,8 +29,6 @@
     "@types/pg": "^8.16.0",
     "bun-types": "latest",
     "dotenv": "^17.2.3",
-    "drizzle-kit": "^0.31.8",
-    "tsdown": "^0.15.12",
-    "typescript": "^5.9.3"
+    "drizzle-kit": "^0.31.8"
   }
 }
