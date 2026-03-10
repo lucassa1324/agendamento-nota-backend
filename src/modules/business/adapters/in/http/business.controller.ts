@@ -32,21 +32,23 @@ export const businessController = () => new Elysia({ prefix: "/business" })
   .group("", (publicGroup) =>
     publicGroup
       .get("/debug-slug/:slug", async ({ params: { slug }, businessRepository }) => {
-          const normalizedSlug = slug.trim().toLowerCase();
-          console.log(`[DEBUG_SLUG] Buscando: '${normalizedSlug}'`);
-          const business = await businessRepository.findBySlug(normalizedSlug);
-          return {
-              original: slug,
-              normalized: normalizedSlug,
-              found: !!business,
-              data: business ? { id: business.id, name: business.name, slug: business.slug } : null
-          };
+        const normalizedSlug = decodeURIComponent(slug).trim().toLowerCase();
+        console.log(`[DEBUG_SLUG] Buscando: '${normalizedSlug}'`);
+        const business = await businessRepository.findBySlug(normalizedSlug);
+        return {
+          original: slug,
+          decoded: decodeURIComponent(slug),
+          normalized: normalizedSlug,
+          found: !!business,
+          data: business ? { id: business.id, name: business.name, slug: business.slug } : null
+        };
       })
       .get("/slug/:slug", async ({ params: { slug }, set, businessRepository, settingsRepository, userRepository }) => {
-        // Normalização de entrada para evitar erros de case/espaços
-        const normalizedSlug = slug.trim().toLowerCase();
+        // Normalização de entrada para evitar erros de case/espaços e caracteres especiais
+        const normalizedSlug = decodeURIComponent(slug).trim().toLowerCase();
 
         console.log(`[BUSINESS_CONTROLLER] Buscando dados para o slug (RAW): '${slug}'`);
+        console.log(`[BUSINESS_CONTROLLER] Buscando dados para o slug (DECODED): '${decodeURIComponent(slug)}'`);
         console.log(`[BUSINESS_CONTROLLER] Buscando dados para o slug (NORMALIZED): '${normalizedSlug}'`);
 
         // Forçar o navegador a não usar cache para garantir que as cores novas apareçam
@@ -310,6 +312,46 @@ export const businessController = () => new Elysia({ prefix: "/business" })
         params: t.Object({
           companyId: t.String(),
           blockId: t.String()
+        })
+      })
+      .get("/:id", async ({ params: { id }, set, businessRepository, settingsRepository, userRepository }) => {
+        console.log(`[BUSINESS_CONTROLLER] Buscando dados por ID: '${id}'`);
+
+        const business = await businessRepository.findById(id);
+
+        if (!business) {
+          console.error(`[BUSINESS_CONTROLLER] ❌ ERRO 404: Empresa não encontrada para o ID: '${id}'`);
+          set.status = 404;
+          return {
+            error: "Business not found",
+            message: `Nenhum estúdio encontrado com o ID '${id}'.`
+          };
+        }
+
+        console.log(`[BUSINESS_CONTROLLER] ✅ SUCESSO: Dados encontrados para: ${business.name} (ID: ${business.id})`);
+
+        // Reutilizando lógica de enriquecimento
+        const profile = await settingsRepository.findByBusinessId(business.id);
+        let publicEmail = profile?.email || null;
+        if (!publicEmail && business.ownerId) {
+          try {
+            const owner = await userRepository.find(business.ownerId);
+            if (owner) publicEmail = owner.email;
+          } catch (err) { }
+        }
+        const publicPhone = profile?.phone || business.contact || null;
+
+        return {
+          ...business,
+          email: publicEmail,
+          contact: {
+            email: publicEmail,
+            phone: publicPhone
+          }
+        };
+      }, {
+        params: t.Object({
+          id: t.String()
         })
       })
   );

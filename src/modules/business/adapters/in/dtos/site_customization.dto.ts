@@ -66,6 +66,8 @@ export const HomeSectionDTO = t.Object({
       destinationLink: t.String(),
     }),
     appearance: t.Object({
+      bgType: t.Optional(t.Union([t.Literal("color"), t.Literal("image")])),
+      backgroundColor: t.Optional(t.String()),
       backgroundImageUrl: t.String(),
       glassEffect: t.Object({
         active: t.Boolean(),
@@ -79,6 +81,7 @@ export const HomeSectionDTO = t.Object({
       horizontalAlignment: t.Union([t.Literal("left"), t.Literal("center"), t.Literal("right")]),
       sectionHeight: t.Union([t.Literal("small"), t.Literal("medium"), t.Literal("full_screen")]),
     }),
+    bgColor: t.Optional(t.String()),
   }),
   servicesSection: t.Object({
     visibility: t.Boolean(),

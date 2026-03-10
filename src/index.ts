@@ -113,11 +113,11 @@ const startServer = () => {
         }
       })
       .onRequest(({ request, set }) => {
-        console.log(`>>> [BACKEND_RECEIVE] ${request.method} ${new URL(request.url).pathname}`);
-        console.log(`--- [DEBUG_HEADERS] Content-Type: ${request.headers.get("content-type")}`);
-        console.log(`--- [DEBUG_HEADERS] User-Agent: ${request.headers.get("user-agent")}`);
-        console.log(`--- [DEBUG_HEADERS] Referer: ${request.headers.get("referer")}`);
-        console.log(`--- [DEBUG_HEADERS] X-Forwarded-For: ${request.headers.get("x-forwarded-for")}`);
+        // Log simplificado apenas para ver a rota sendo chamada
+        const url = new URL(request.url);
+        if (!url.pathname.includes("/api/auth/session")) { // Opcional: silenciar logs de sessão frequentes
+          console.log(`>>> [RECEIVE] ${request.method} ${url.pathname}`);
+        }
 
         if (request.method === "OPTIONS") {
           const origin = request.headers.get("origin");
@@ -345,9 +345,27 @@ const startServer = () => {
       .get("/test-error", () => {
         throw new Error("Test error for logs");
       })
-      .get("/api/health", () => {
-        console.log("[HEALTH_CHECK] Hitting health endpoint - SUCCESS");
-        return { status: "ok", timestamp: new Date().toISOString(), version: "V2-TRY-CATCH-LOG" };
+      .get("/api/health", async () => {
+        try {
+          const { db } = require("./modules/infrastructure/drizzle/database");
+          const { sql } = require("drizzle-orm");
+          await db.execute(sql`select 1`);
+          console.log("[HEALTH_CHECK] Hitting health endpoint - SUCCESS (DB Connected)");
+          return {
+            status: "ok",
+            database: "connected",
+            timestamp: new Date().toISOString(),
+            version: "V2-LOCAL-DOCKER"
+          };
+        } catch (e) {
+          console.error("[HEALTH_CHECK] DB Connection failed:", e);
+          return {
+            status: "error",
+            database: "disconnected",
+            error: String(e),
+            timestamp: new Date().toISOString()
+          };
+        }
       })
       // Redirecionamentos Legados para compatibilidade
       .get("/get-session", ({ set }) => { set.redirect = "/api/auth/get-session"; })

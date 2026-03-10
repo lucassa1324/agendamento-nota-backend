@@ -1,8 +1,15 @@
 import { db } from "../../../../infrastructure/drizzle/database";
-import { businessProfiles, companySiteCustomizations } from "../../../../../db/schema";
+import { businessProfiles, companySiteCustomizations, siteDrafts } from "../../../../../db/schema";
 import { eq } from "drizzle-orm";
 import { SettingsRepository, BusinessProfile } from "../../../domain/ports/settings.repository";
 import { SiteCustomization } from "../../../../../modules/business/domain/types/site_customization.types";
+import {
+  DEFAULT_LAYOUT_GLOBAL,
+  DEFAULT_HOME_SECTION,
+  DEFAULT_GALLERY_SECTION,
+  DEFAULT_ABOUT_US_SECTION,
+  DEFAULT_APPOINTMENT_FLOW_SECTION
+} from "../../../../../modules/business/domain/constants/site_customization.defaults";
 
 export class DrizzleSettingsRepository implements SettingsRepository {
   async findByBusinessId(businessId: string): Promise<BusinessProfile | null> {
@@ -53,6 +60,35 @@ export class DrizzleSettingsRepository implements SettingsRepository {
     }
   }
 
+  private sanitizeCustomization(data: any): SiteCustomization {
+    if (!data) return data;
+
+    const sanitizeValue = (val: any): any => {
+      if (val && typeof val === 'object' && !Array.isArray(val)) {
+        // Se for um objeto com a chave 'text', extraímos apenas o texto (camada de proteção)
+        if (Object.keys(val).length === 1 && val.hasOwnProperty('text') && typeof val.text === 'string') {
+          return val.text;
+        }
+
+        // Recursão para o resto do objeto
+        const newObj: any = {};
+        for (const key in val) {
+          newObj[key] = sanitizeValue(val[key]);
+        }
+        return newObj;
+      }
+      return val;
+    };
+
+    return {
+      layoutGlobal: sanitizeValue(data.layoutGlobal),
+      home: sanitizeValue(data.home),
+      gallery: sanitizeValue(data.gallery),
+      aboutUs: sanitizeValue(data.aboutUs),
+      appointmentFlow: sanitizeValue(data.appointmentFlow),
+    } as SiteCustomization;
+  }
+
   async findCustomizationByBusinessId(businessId: string): Promise<SiteCustomization | null> {
     try {
       const [result] = await db
@@ -61,15 +97,19 @@ export class DrizzleSettingsRepository implements SettingsRepository {
         .where(eq(companySiteCustomizations.companyId, businessId))
         .limit(1);
 
-      if (!result) return null;
+      const defaultCustomization: SiteCustomization = {
+        layoutGlobal: DEFAULT_LAYOUT_GLOBAL,
+        home: DEFAULT_HOME_SECTION,
+        gallery: DEFAULT_GALLERY_SECTION,
+        aboutUs: DEFAULT_ABOUT_US_SECTION,
+        appointmentFlow: DEFAULT_APPOINTMENT_FLOW_SECTION,
+      };
 
-      return {
-        layoutGlobal: result.layoutGlobal,
-        home: result.home,
-        gallery: result.gallery,
-        aboutUs: result.aboutUs,
-        appointmentFlow: result.appointmentFlow,
-      } as SiteCustomization;
+      if (!result) {
+        return defaultCustomization;
+      }
+
+      return this.sanitizeCustomization(result);
     } catch (error: any) {
       console.error("[DRIZZLE_SETTINGS_REPOSITORY_FINDCUSTOMIZATION_ERROR]:", error);
       throw error;
@@ -78,21 +118,27 @@ export class DrizzleSettingsRepository implements SettingsRepository {
 
   async saveCustomization(businessId: string, data: SiteCustomization): Promise<SiteCustomization> {
     try {
-      const existing = await this.findCustomizationByBusinessId(businessId);
+      const dataToSave = {
+        layoutGlobal: data.layoutGlobal || DEFAULT_LAYOUT_GLOBAL,
+        home: data.home || DEFAULT_HOME_SECTION,
+        gallery: data.gallery || DEFAULT_GALLERY_SECTION,
+        aboutUs: data.aboutUs || DEFAULT_ABOUT_US_SECTION,
+        appointmentFlow: data.appointmentFlow || DEFAULT_APPOINTMENT_FLOW_SECTION,
+      };
+
+      const [existing] = await db
+        .select()
+        .from(companySiteCustomizations)
+        .where(eq(companySiteCustomizations.companyId, businessId))
+        .limit(1);
 
       if (existing) {
         console.log(`[DRIZZLE_REPOSITORY] Atualizando customização existente para companyId: ${businessId}`);
 
-        // Log de Persistência Temporário
-        const newColor = (data as any).appointmentFlow?.step1Services?.cardConfig?.backgroundColor;
-        if (newColor) {
-          console.log(`>>> [DB_SAVE] Salvando cor ${newColor} para o campo appointmentFlow.step1Services.cardConfig.backgroundColor`);
-        }
-
         const [updated] = await db
           .update(companySiteCustomizations)
           .set({
-            ...data,
+            ...dataToSave,
             updatedAt: new Date(),
           })
           .where(eq(companySiteCustomizations.companyId, businessId))
@@ -102,14 +148,7 @@ export class DrizzleSettingsRepository implements SettingsRepository {
           throw new Error("Falha ao atualizar customização: nenhum registro retornado.");
         }
 
-        console.log(`>>> [DB_CONFIRM] Banco retornou objeto atualizado para ID: ${businessId}`);
-        return {
-          layoutGlobal: updated.layoutGlobal,
-          home: updated.home,
-          gallery: updated.gallery,
-          aboutUs: updated.aboutUs,
-          appointmentFlow: updated.appointmentFlow,
-        } as SiteCustomization;
+        return this.sanitizeCustomization(updated);
       } else {
         console.log(`[DRIZZLE_REPOSITORY] Criando nova customização para companyId: ${businessId}`);
         const [created] = await db
@@ -117,7 +156,7 @@ export class DrizzleSettingsRepository implements SettingsRepository {
           .values({
             id: crypto.randomUUID(),
             companyId: businessId,
-            ...data,
+            ...dataToSave,
           })
           .returning();
 
@@ -125,16 +164,166 @@ export class DrizzleSettingsRepository implements SettingsRepository {
           throw new Error("Falha ao criar customização: nenhum registro retornado.");
         }
 
-        return {
-          layoutGlobal: created.layoutGlobal,
-          home: created.home,
-          gallery: created.gallery,
-          aboutUs: created.aboutUs,
-          appointmentFlow: created.appointmentFlow,
-        } as SiteCustomization;
+        return this.sanitizeCustomization(created);
       }
     } catch (error: any) {
       console.error("[DRIZZLE_SETTINGS_REPOSITORY_SAVECUSTOMIZATION_ERROR]:", error);
+      throw error;
+    }
+  }
+
+  async findDraftByBusinessId(businessId: string): Promise<SiteCustomization | null> {
+    try {
+      const [result] = await db
+        .select()
+        .from(siteDrafts)
+        .where(eq(siteDrafts.companyId, businessId))
+        .limit(1);
+
+      if (!result) return null;
+
+      return this.sanitizeCustomization(result);
+    } catch (error: any) {
+      console.error("[DRIZZLE_SETTINGS_REPOSITORY_FINDDRAFT_ERROR]:", error);
+      throw error;
+    }
+  }
+
+  async saveDraft(businessId: string, data: SiteCustomization): Promise<SiteCustomization> {
+    try {
+      const dataToSave = {
+        layoutGlobal: data.layoutGlobal || DEFAULT_LAYOUT_GLOBAL,
+        home: data.home || DEFAULT_HOME_SECTION,
+        gallery: data.gallery || DEFAULT_GALLERY_SECTION,
+        aboutUs: data.aboutUs || DEFAULT_ABOUT_US_SECTION,
+        appointmentFlow: data.appointmentFlow || DEFAULT_APPOINTMENT_FLOW_SECTION,
+      };
+
+      const existing = await this.findDraftByBusinessId(businessId);
+
+      if (existing) {
+        const [updated] = await db
+          .update(siteDrafts)
+          .set({
+            ...dataToSave,
+            updatedAt: new Date(),
+          })
+          .where(eq(siteDrafts.companyId, businessId))
+          .returning();
+
+        if (!updated) {
+          throw new Error("Falha ao atualizar draft: nenhum registro retornado.");
+        }
+
+        return this.sanitizeCustomization(updated);
+      }
+
+      const [created] = await db
+        .insert(siteDrafts)
+        .values({
+          id: crypto.randomUUID(),
+          companyId: businessId,
+          ...dataToSave,
+        })
+        .returning();
+
+      if (!created) {
+        throw new Error("Falha ao criar draft: nenhum registro retornado.");
+      }
+
+      return this.sanitizeCustomization(created);
+    } catch (error: any) {
+      console.error("[DRIZZLE_SETTINGS_REPOSITORY_SAVEDRAFT_ERROR]:", error);
+      throw error;
+    }
+  }
+
+  async publishDraft(businessId: string): Promise<SiteCustomization | null> {
+    try {
+      return await db.transaction(async (tx) => {
+        const [draft] = await tx
+          .select()
+          .from(siteDrafts)
+          .where(eq(siteDrafts.companyId, businessId))
+          .limit(1);
+
+        if (!draft) return null;
+
+        const dataToSave = {
+          layoutGlobal: draft.layoutGlobal,
+          home: draft.home,
+          gallery: draft.gallery,
+          aboutUs: draft.aboutUs,
+          appointmentFlow: draft.appointmentFlow,
+        };
+
+        const [published] = await tx
+          .insert(companySiteCustomizations)
+          .values({
+            id: crypto.randomUUID(),
+            companyId: businessId,
+            ...dataToSave,
+          })
+          .onConflictDoUpdate({
+            target: companySiteCustomizations.companyId,
+            set: {
+              ...dataToSave,
+              updatedAt: new Date(),
+            },
+          })
+          .returning();
+
+        if (!published) return null;
+
+        return this.sanitizeCustomization(published);
+      });
+    } catch (error: any) {
+      console.error("[DRIZZLE_SETTINGS_REPOSITORY_PUBLISHDRAFT_ERROR]:", error);
+      throw error;
+    }
+  }
+
+  async resetCustomization(businessId: string): Promise<SiteCustomization> {
+    try {
+      const defaultCustomization: SiteCustomization = {
+        layoutGlobal: DEFAULT_LAYOUT_GLOBAL,
+        home: DEFAULT_HOME_SECTION,
+        gallery: DEFAULT_GALLERY_SECTION,
+        aboutUs: DEFAULT_ABOUT_US_SECTION,
+        appointmentFlow: DEFAULT_APPOINTMENT_FLOW_SECTION,
+      };
+
+      return await db.transaction(async (tx) => {
+        // Remove draft se existir
+        await tx
+          .delete(siteDrafts)
+          .where(eq(siteDrafts.companyId, businessId));
+
+        // Upsert na customização principal com os valores padrão
+        const [reseted] = await tx
+          .insert(companySiteCustomizations)
+          .values({
+            id: crypto.randomUUID(),
+            companyId: businessId,
+            ...defaultCustomization,
+          })
+          .onConflictDoUpdate({
+            target: companySiteCustomizations.companyId,
+            set: {
+              ...defaultCustomization,
+              updatedAt: new Date(),
+            },
+          })
+          .returning();
+
+        if (!reseted) {
+          throw new Error("Falha ao resetar customização: nenhum registro retornado.");
+        }
+
+        return this.sanitizeCustomization(reseted);
+      });
+    } catch (error: any) {
+      console.error("[DRIZZLE_SETTINGS_REPOSITORY_RESET_ERROR]:", error);
       throw error;
     }
   }

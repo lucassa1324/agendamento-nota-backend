@@ -32,4 +32,9 @@ export interface SettingsRepository {
 
   findCustomizationByBusinessId(businessId: string): Promise<SiteCustomization | null>;
   saveCustomization(businessId: string, data: SiteCustomization): Promise<SiteCustomization>;
+
+  findDraftByBusinessId(businessId: string): Promise<SiteCustomization | null>;
+  saveDraft(businessId: string, data: SiteCustomization): Promise<SiteCustomization>;
+  publishDraft(businessId: string): Promise<SiteCustomization | null>;
+  resetCustomization(businessId: string): Promise<SiteCustomization>;
 }

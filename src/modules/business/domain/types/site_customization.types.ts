@@ -74,6 +74,8 @@ export interface HomeSection {
       destinationLink: string;
     };
     appearance: {
+      bgType?: 'color' | 'image';
+      backgroundColor?: string;
       backgroundImageUrl: string;
       glassEffect: {
         active: boolean;
@@ -87,10 +89,18 @@ export interface HomeSection {
       horizontalAlignment: 'left' | 'center' | 'right';
       sectionHeight: 'small' | 'medium' | 'full_screen';
     };
+    bgColor?: string;
   };
   servicesSection: {
     visibility: boolean;
     orderOnHome: number;
+    appearance?: {
+      backgroundImageUrl?: string;
+      overlay?: {
+        color: string;
+        opacity: number;
+      };
+    };
     header: {
       title: {
         text: string;
@@ -135,6 +145,13 @@ export interface HomeSection {
   valuesSection: {
     visibility: boolean;
     orderOnHome: number;
+    appearance?: {
+      backgroundImageUrl?: string;
+      overlay?: {
+        color: string;
+        opacity: number;
+      };
+    };
     header: {
       title: {
         text: string;
@@ -160,6 +177,13 @@ export interface HomeSection {
   galleryPreview: {
     visibility: boolean;
     orderOnHome: number;
+    appearance?: {
+      backgroundImageUrl?: string;
+      overlay?: {
+        color: string;
+        opacity: number;
+      };
+    };
     header: {
       title: {
         text: string;
@@ -198,6 +222,13 @@ export interface HomeSection {
   ctaSection: {
     visibility: boolean;
     orderOnHome: number;
+    appearance?: {
+      backgroundImageUrl?: string;
+      overlay?: {
+        color: string;
+        opacity: number;
+      };
+    };
     title: {
       text: string;
       color: string;

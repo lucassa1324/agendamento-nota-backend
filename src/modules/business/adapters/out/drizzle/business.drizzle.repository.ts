@@ -3,6 +3,13 @@ import { companies, companySiteCustomizations, operatingHours, agendaBlocks } fr
 import { and, eq, ilike } from "drizzle-orm";
 import { IBusinessRepository } from "../../../domain/ports/business.repository";
 import { Business, BusinessSummary, CreateBusinessInput, BusinessSiteCustomization } from "../../../domain/entities/business.entity";
+import {
+  DEFAULT_LAYOUT_GLOBAL,
+  DEFAULT_HOME_SECTION,
+  DEFAULT_GALLERY_SECTION,
+  DEFAULT_ABOUT_US_SECTION,
+  DEFAULT_APPOINTMENT_FLOW_SECTION
+} from "../../../domain/constants/site_customization.defaults";
 
 export class DrizzleBusinessRepository implements IBusinessRepository {
   async findAllByUserId(userId: string): Promise<BusinessSummary[]> {
@@ -101,6 +108,11 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
       const [newCustomization] = await tx.insert(companySiteCustomizations).values({
         id: crypto.randomUUID(),
         companyId: newCompany.id,
+        layoutGlobal: DEFAULT_LAYOUT_GLOBAL,
+        home: DEFAULT_HOME_SECTION,
+        gallery: DEFAULT_GALLERY_SECTION,
+        aboutUs: DEFAULT_ABOUT_US_SECTION,
+        appointmentFlow: DEFAULT_APPOINTMENT_FLOW_SECTION,
       }).returning();
 
       return {

@@ -161,7 +161,7 @@ export function appointmentController() {
             const { CreateAppointmentUseCase } = await import("../../../application/use-cases/create-appointment.use-case");
 
             let companyId = body.companyId;
-            
+
             // Tentativa de resolver companyId pelo slug se não vier no body
             if (!companyId) {
               const businessSlug = headers['x-business-slug'];
@@ -176,8 +176,8 @@ export function appointmentController() {
             }
 
             if (!companyId) {
-               set.status = 400;
-               return { error: "Validation error", message: "Company ID is required" };
+              set.status = 400;
+              return { error: "Validation error", message: "Company ID is required" };
             }
 
             const scheduledAt = new Date(body.scheduledAt);
@@ -198,7 +198,7 @@ export function appointmentController() {
               pushSubscriptionRepository,
               userRepository
             );
-            
+
             const result = await createAppointmentUseCase.execute({
               ...body,
               companyId, // Garante que usa o ID resolvido
@@ -221,16 +221,16 @@ export function appointmentController() {
               set.status = 400;
               return { error: "Validation error", message: errorMessage };
             }
-            
+
             if (errorMessage.includes("Business not found")) {
-                set.status = 404;
-                return { error: "Not Found", message: errorMessage };
+              set.status = 404;
+              return { error: "Not Found", message: errorMessage };
             }
 
             // Erros de regra de negócio (horário, conflito, etc)
             if (
-              errorMessage.includes("exceed business hours") || 
-              errorMessage.includes("closed on this day") || 
+              errorMessage.includes("exceed business hours") ||
+              errorMessage.includes("closed on this day") ||
               errorMessage.includes("already occupied") ||
               errorMessage.includes("operating hours not configured")
             ) {

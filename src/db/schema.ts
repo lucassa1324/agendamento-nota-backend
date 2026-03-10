@@ -207,12 +207,7 @@ export const inventoryLogs = pgTable("inventory_logs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const companySiteCustomizations = pgTable("company_site_customizations", {
-  id: text("id").primaryKey(),
-  companyId: text("company_id")
-    .notNull()
-    .unique()
-    .references(() => companies.id, { onDelete: "cascade" }),
+const siteCustomizationColumns = {
   layoutGlobal: jsonb("layout_global").default(DEFAULT_LAYOUT_GLOBAL).notNull(),
   home: jsonb("home").default(DEFAULT_HOME_SECTION).notNull(),
   gallery: jsonb("gallery").default(DEFAULT_GALLERY_SECTION).notNull(),
@@ -220,6 +215,29 @@ export const companySiteCustomizations = pgTable("company_site_customizations", 
   appointmentFlow: jsonb("appointment_flow")
     .default(DEFAULT_APPOINTMENT_FLOW_SECTION)
     .notNull(),
+};
+
+export const companySiteCustomizations = pgTable("company_site_customizations", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id")
+    .notNull()
+    .unique()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  ...siteCustomizationColumns,
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const siteDrafts = pgTable("site_drafts", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id")
+    .notNull()
+    .unique()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  ...siteCustomizationColumns,
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

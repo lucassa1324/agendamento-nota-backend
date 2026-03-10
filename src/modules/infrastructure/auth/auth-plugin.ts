@@ -59,6 +59,11 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                 headers: headers,
             });
 
+            if (!authSession && cookieHeader && cookieHeader.includes("better-auth.session_token")) {
+                console.log(">>> [AUTH_CLEANUP] Sessão inválida/antiga detectada no banco novo. Limpando cookies...");
+                set.headers["Set-Cookie"] = "better-auth.session_token=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax";
+            }
+
             if (authSession) {
                 user = authSession.user;
                 session = authSession.session;

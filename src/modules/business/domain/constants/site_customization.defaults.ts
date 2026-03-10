@@ -57,6 +57,12 @@ export const DEFAULT_HOME_SECTION: HomeSection = {
       sizeMobile: "32px",
       sizeDesktop: "48px",
     },
+    badge: {
+      text: "ESPECIALISTA EM BELEZA",
+      backgroundColor: "#000000",
+      textColor: "#ffffff",
+      font: "Inter",
+    },
     subtitle: {
       text: "Agende seu horário e realce o que você tem de melhor",
       color: "#666666",
@@ -72,6 +78,8 @@ export const DEFAULT_HOME_SECTION: HomeSection = {
       destinationLink: "/agendamento",
     },
     appearance: {
+      bgType: "image",
+      backgroundColor: "#ffffff",
       backgroundImageUrl: "",
       glassEffect: {
         active: false,
@@ -85,6 +93,7 @@ export const DEFAULT_HOME_SECTION: HomeSection = {
       horizontalAlignment: "center",
       sectionHeight: "medium",
     },
+    bgColor: "#ffffff",
   },
   servicesSection: {
     visibility: true,
