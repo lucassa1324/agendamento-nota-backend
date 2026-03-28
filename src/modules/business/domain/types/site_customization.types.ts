@@ -59,6 +59,12 @@ export interface HomeSection {
       sizeMobile: string;
       sizeDesktop: string;
     };
+    badge?: {
+      text: string;
+      backgroundColor: string;
+      textColor: string;
+      font: string;
+    };
     subtitle: {
       text: string;
       color: string;
