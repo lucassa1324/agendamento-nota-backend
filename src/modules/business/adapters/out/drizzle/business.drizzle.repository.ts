@@ -45,6 +45,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         ownerId: companies.ownerId,
         createdAt: companies.createdAt,
         updatedAt: companies.updatedAt,
+        subscriptionStatus: companies.subscriptionStatus,
+        trialEndsAt: companies.trialEndsAt,
+        accessType: companies.accessType,
         siteCustomization: {
           layoutGlobal: companySiteCustomizations.layoutGlobal,
           home: companySiteCustomizations.home,
@@ -73,6 +76,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         ownerId: companies.ownerId,
         createdAt: companies.createdAt,
         updatedAt: companies.updatedAt,
+        subscriptionStatus: companies.subscriptionStatus,
+        trialEndsAt: companies.trialEndsAt,
+        accessType: companies.accessType,
         siteCustomization: {
           layoutGlobal: companySiteCustomizations.layoutGlobal,
           home: companySiteCustomizations.home,

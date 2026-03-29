@@ -37,6 +37,7 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
           await db.update(companies)
             .set({
               subscriptionStatus: 'active',
+              accessType: 'automatic',
               trialEndsAt: nextDue, // Usado como data de vencimento
               updatedAt: new Date()
             })

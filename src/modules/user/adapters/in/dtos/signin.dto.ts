@@ -6,6 +6,8 @@ export const signinDTO = t.Object({
   password: t.String({ minLength: 6 }),
   studioName: t.String(),
   role: t.Optional(t.String()), // "USER" ou "SUPER_ADMIN"
+}, {
+  additionalProperties: true
 });
 
 export type SigninDTO = typeof signinDTO.static;

@@ -197,7 +197,8 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             }
 
                             const isActive = status === 'active';
-                            const isTrialValid = status === 'trial' && trialEnds && trialEnds > now;
+                            const isTrialStatus = status === 'trial' || status === 'trialing';
+                            const isTrialValid = isTrialStatus && trialEnds && trialEnds > now;
                             // Adicionando 'manual' como status válido (usado no master-admin.controller.ts)
                             let isManualActive = status === 'manual' || status === 'manual_active';
 
@@ -219,7 +220,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             }
 
                             // 2. Auto-expiração do Trial (Lazy Update)
-                            if (status === 'trial' && trialEnds && trialEnds <= now) {
+                            if (isTrialStatus && trialEnds && trialEnds <= now) {
                                 console.warn(`[AUTH_UPDATE]: Trial expirado para ${userCompany.slug}. Atualizando status para 'past_due'.`);
                                 // Atualiza no banco de forma assíncrona
                                 db.update(schema.companies)

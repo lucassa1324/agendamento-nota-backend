@@ -48,6 +48,7 @@ export const stripeWebhookController = new Elysia({ prefix: "/stripe" })
             await db.update(companies)
               .set({
                 subscriptionStatus: 'active',
+                accessType: 'automatic',
                 stripeCustomerId: customerId as string,
                 stripeSubscriptionId: subscriptionId as string,
                 updatedAt: new Date()
@@ -81,12 +82,13 @@ export const stripeWebhookController = new Elysia({ prefix: "/stripe" })
 
             // Se access_type for manual, ignoramos atualizações automáticas de status (exceto se for para ativar?)
             // O user pediu para travar em 'manual' para evitar desativação.
-            if (currentCompany.accessType === 'manual') {
+            if (currentCompany.accessType === 'manual' && newStatus !== 'active') {
               console.log(`[STRIPE_WEBHOOK] Skipping update for manual company ${currentCompany.id}`);
             } else {
               await db.update(companies)
                 .set({
                   subscriptionStatus: newStatus,
+                  accessType: newStatus === 'active' ? 'automatic' : currentCompany.accessType,
                   updatedAt: new Date()
                 })
                 .where(eq(companies.id, currentCompany.id));
