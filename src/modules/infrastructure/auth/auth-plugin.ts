@@ -256,23 +256,49 @@ export async function syncAsaasPaymentForCompany(
     ownerEmail?: string,
     options?: { requireCurrentMonthPayment?: boolean },
 ) {
+    // Busca a empresa para verificar a data do último bloqueio (updatedAt)
+    const [currentCompany] = await db.select()
+        .from(schema.companies)
+        .where(eq(schema.companies.id, companyId))
+        .limit(1);
+
     const billingSnapshot = await resolveAsaasBillingSnapshot(companyId, ownerEmail);
     const requireCurrentMonthPayment = options?.requireCurrentMonthPayment ?? false;
+    const now = new Date();
+
+    // Lógica para ignorar pagamentos antigos se a empresa estiver bloqueada
+    // Se a empresa está past_due e inativa, só aceitamos pagamentos confirmados DEPOIS da última atualização (bloqueio)
+    const isCurrentlyBlocked = currentCompany?.subscriptionStatus === "past_due" || currentCompany?.active === false;
+    const lastBlockDate = currentCompany?.updatedAt || new Date(0);
+
+    const hasNewPaymentAfterBlock = !!billingSnapshot?.latestPaymentDate &&
+        billingSnapshot.latestPaymentDate.getTime() > lastBlockDate.getTime();
+
+    const latestPaymentIsRecent = !!billingSnapshot?.latestPaymentDate &&
+        ((now.getTime() - billingSnapshot.latestPaymentDate.getTime()) <= (35 * 24 * 60 * 60 * 1000));
 
     if (!billingSnapshot) {
         console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado encontrado no Asaas para companyId=${companyId} (email=${ownerEmail || "n/a"}).`);
         return null;
     }
 
+    // Se estiver bloqueado, só libera se houver um pagamento NOVO (pós-bloqueio)
+    // Se não estiver bloqueado, aceita pagamentos recentes (35 dias) ou do mês atual
     const canActivateByPayment =
         billingSnapshot.hasAnyConfirmedPayment &&
-        (!requireCurrentMonthPayment || billingSnapshot.hasCurrentMonthPayment);
+        (isCurrentlyBlocked
+            ? hasNewPaymentAfterBlock
+            : (!requireCurrentMonthPayment || billingSnapshot.hasCurrentMonthPayment || latestPaymentIsRecent));
+
     const canActivateBySubscription =
-        !requireCurrentMonthPayment && billingSnapshot.hasActiveSubscription;
+        billingSnapshot.hasActiveSubscription &&
+        (!requireCurrentMonthPayment || latestPaymentIsRecent);
 
     if (!canActivateByPayment && !canActivateBySubscription) {
-        if (requireCurrentMonthPayment) {
-            console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado no mês atual para companyId=${companyId}.`);
+        if (isCurrentlyBlocked && billingSnapshot.hasAnyConfirmedPayment && !hasNewPaymentAfterBlock) {
+            console.warn(`[AUTH_SYNC] Pagamento encontrado, mas é antigo (anterior ao bloqueio). Ignorando ativação para companyId=${companyId}.`);
+        } else if (requireCurrentMonthPayment) {
+            console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado no mês atual ou nos últimos 35 dias para companyId=${companyId}.`);
         } else {
             console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado elegível para companyId=${companyId}.`);
         }
@@ -455,10 +481,10 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                         if (isAutomaticBillingBlocked) {
                             console.warn(`[AUTH_BLOCK]: Conta com flag inativa, mas bloqueio é de cobrança automática para ${userCompany.slug}.`);
                         } else {
-                        console.warn(`[AUTH_BLOCK]: Conta de usuário desativada: ${user.email}`);
+                            console.warn(`[AUTH_BLOCK]: Conta de usuário desativada: ${user.email}`);
 
-                        set.status = 403;
-                        throw new Error("ACCOUNT_SUSPENDED");
+                            set.status = 403;
+                            throw new Error("ACCOUNT_SUSPENDED");
                         }
                     }
 
@@ -472,13 +498,27 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                     userCompany.subscriptionStatus === "canceled"
                                 );
                             if (isAutomaticBillingBlocked) {
-                                console.warn(`[AUTH_BLOCK]: Estabelecimento bloqueado por cobrança pendente: ${userCompany.slug}`);
-                                set.status = 402;
-                                throw new Error("BILLING_REQUIRED");
+                                const syncResult = await syncAsaasPaymentForCompany(
+                                    userCompany.id,
+                                    userCompany.ownerId,
+                                    user.email,
+                                    { requireCurrentMonthPayment: true },
+                                );
+                                if (syncResult?.activated) {
+                                    userCompany.active = true;
+                                    userCompany.subscriptionStatus = "active";
+                                    userCompany.trialEndsAt = syncResult.nextDue;
+                                    console.log(`[AUTH_SYNC] Reativação imediata concluída para ${userCompany.slug} durante validação de bloqueio.`);
+                                } else {
+                                    console.warn(`[AUTH_BLOCK]: Estabelecimento bloqueado por cobrança pendente: ${userCompany.slug}`);
+                                    set.status = 402;
+                                    throw new Error("BILLING_REQUIRED");
+                                }
+                            } else {
+                                console.warn(`[AUTH_BLOCK]: Estabelecimento bloqueado manualmente: ${userCompany.slug}`);
+                                set.status = 403;
+                                throw new Error("BUSINESS_SUSPENDED");
                             }
-                            console.warn(`[AUTH_BLOCK]: Estabelecimento bloqueado manualmente: ${userCompany.slug}`);
-                            set.status = 403;
-                            throw new Error("BUSINESS_SUSPENDED");
                         }
 
                         // Cálculo de dias restantes (Trial)
