@@ -111,6 +111,39 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       active: t.Boolean()
     })
   })
+  .patch("/companies/:id/status", async ({ params, body, set }) => {
+    try {
+      const { id } = params;
+      const { active } = body;
+
+      const [updated] = await db
+        .update(schema.companies)
+        .set({
+          active,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.companies.id, id))
+        .returning();
+
+      if (!updated) {
+        set.status = 404;
+        return { error: "Empresa não encontrada" };
+      }
+
+      return {
+        success: true,
+        message: `Status da empresa ${updated.name} alterado para ${active ? 'ativa' : 'inativa'}`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_COMPANY_STATUS_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao atualizar status da empresa: " + error.message };
+    }
+  }, {
+    body: t.Object({
+      active: t.Boolean()
+    })
+  })
   .patch("/companies/:id/subscription", async ({ params, body, set }) => {
     try {
       const { id } = params;

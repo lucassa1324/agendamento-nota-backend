@@ -11,6 +11,9 @@ import { GetOperatingHoursUseCase } from "../../../application/use-cases/get-ope
 import { CreateAgendaBlockUseCase } from "../../../application/use-cases/create-agenda-block.use-case";
 import { ListAgendaBlocksUseCase } from "../../../application/use-cases/list-agenda-blocks.use-case";
 import { DeleteAgendaBlockUseCase } from "../../../application/use-cases/delete-agenda-block.use-case";
+import { db } from "../../../../infrastructure/drizzle/database";
+import * as schema from "../../../../../db/schema";
+import { eq } from "drizzle-orm";
 
 export const businessController = () => new Elysia({ prefix: "/business" })
   .use(repositoriesPlugin)
@@ -43,7 +46,7 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           data: business ? { id: business.id, name: business.name, slug: business.slug } : null
         };
       })
-      .get("/slug/:slug", async ({ params: { slug }, set, businessRepository, settingsRepository, userRepository }) => {
+      .get("/slug/:slug", async ({ params: { slug }, set, businessRepository, settingsRepository, userRepository, user }) => {
         // Normalização de entrada para evitar erros de case/espaços e caracteres especiais
         const normalizedSlug = decodeURIComponent(slug).trim().toLowerCase();
 
@@ -72,6 +75,14 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           return {
             error: "Business not found",
             message: `Nenhum estúdio encontrado com o endereço '${normalizedSlug}'. Verifique se o link está correto.`
+          };
+        }
+
+        if (business.active === false && (!user || (user.id !== business.ownerId && user.role !== "SUPER_ADMIN"))) {
+          set.status = 403;
+          return {
+            error: "Business suspended",
+            message: "Este site está temporariamente indisponível."
           };
         }
 
@@ -201,6 +212,45 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           id: t.String()
         })
       })
+      .patch("/:id/status", async ({ user, params: { id }, body, set, businessRepository }) => {
+        try {
+          const business = await businessRepository.findById(id);
+
+          if (!business) {
+            set.status = 404;
+            return { error: "Business not found" };
+          }
+
+          if (business.ownerId !== user!.id && user!.role !== "SUPER_ADMIN") {
+            set.status = 403;
+            return { error: "Unauthorized" };
+          }
+
+          const [updated] = await db
+            .update(schema.companies)
+            .set({
+              active: body.active,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.companies.id, id))
+            .returning();
+
+          return {
+            success: true,
+            business: updated,
+          };
+        } catch (error: any) {
+          set.status = 400;
+          return { error: error.message };
+        }
+      }, {
+        body: t.Object({
+          active: t.Boolean()
+        }),
+        params: t.Object({
+          id: t.String()
+        })
+      })
       .put("/settings/:companyId", async ({ user, params: { companyId }, body, businessRepository, set }) => {
         try {
           console.log("BUSINESS_SETTINGS_PUT", JSON.stringify(body));
@@ -314,7 +364,7 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           blockId: t.String()
         })
       })
-      .get("/:id", async ({ params: { id }, set, businessRepository, settingsRepository, userRepository }) => {
+      .get("/:id", async ({ params: { id }, set, businessRepository, settingsRepository, userRepository, user }) => {
         console.log(`[BUSINESS_CONTROLLER] Buscando dados por ID: '${id}'`);
 
         const business = await businessRepository.findById(id);
@@ -325,6 +375,14 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           return {
             error: "Business not found",
             message: `Nenhum estúdio encontrado com o ID '${id}'.`
+          };
+        }
+
+        if (business.active === false && (!user || (user.id !== business.ownerId && user.role !== "SUPER_ADMIN"))) {
+          set.status = 403;
+          return {
+            error: "Business suspended",
+            message: "Este site está temporariamente indisponível."
           };
         }
 

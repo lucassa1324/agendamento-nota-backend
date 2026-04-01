@@ -171,16 +171,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                         user.slug = userCompany.slug; // Fundamental para o redirecionamento no Front
                         user.businessId = userCompany.id;
 
-                        // 2. BLOQUEIO POR ESTÚDIO (BUSINESS) DESATIVADO (Restritivo)
-                        // Se o status for explicitamente false, bloqueia.
-                        if (userCompany.active === false && !isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
-                            console.warn(`[AUTH_BLOCK]: Acesso negado para estúdio suspenso: ${userCompany.slug} (User: ${user.email})`);
-
-                            set.status = 403;
-                            throw new Error("BUSINESS_SUSPENDED");
-                        }
-
-                        // 3. BLOQUEIO POR ASSINATURA (SaaS)
+                        // 2. BLOQUEIO POR ASSINATURA (SaaS)
                         // Verifica se o usuário tem permissão de acesso baseado na assinatura
                         if (!isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                             const now = new Date();

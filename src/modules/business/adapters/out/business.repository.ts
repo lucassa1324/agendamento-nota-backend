@@ -33,6 +33,7 @@ export class BusinessRepository {
         name: companies.name,
         slug: companies.slug,
         ownerId: companies.ownerId,
+        active: companies.active,
         createdAt: companies.createdAt,
         updatedAt: companies.updatedAt,
         siteCustomization: {
@@ -58,6 +59,7 @@ export class BusinessRepository {
         name: companies.name,
         slug: companies.slug,
         ownerId: companies.ownerId,
+        active: companies.active,
         createdAt: companies.createdAt,
         updatedAt: companies.updatedAt,
         siteCustomization: {

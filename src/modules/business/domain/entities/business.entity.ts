@@ -9,6 +9,7 @@ export type Business = {
   address?: string | null;
   contact?: string | null;
   ownerId: string;
+  active: boolean;
   createdAt: Date;
   updatedAt?: Date;
   subscriptionStatus?: 'trial' | 'active' | 'past_due' | 'canceled' | 'manual_active';
