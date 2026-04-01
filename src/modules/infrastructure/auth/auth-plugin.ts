@@ -1,4 +1,6 @@
 import { Elysia } from "elysia";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { db } from "../drizzle/database";
 import * as schema from "../../../db/schema";
 import { eq } from "drizzle-orm";
@@ -14,6 +16,299 @@ export type User = typeof auth.$Infer.Session.user & {
 
 export type Session = typeof auth.$Infer.Session.session;
 
+const normalizeEnvValue = (value?: string) =>
+    value?.trim().replace(/^['"]|['"]$/g, "") || "";
+
+const extractEnvValueFromContent = (content: string, key: string) => {
+    const regex = new RegExp(`^${key}=(.*)$`, "m");
+    const match = content.match(regex);
+    if (!match?.[1]) {
+        return "";
+    }
+    return normalizeEnvValue(match[1]);
+};
+
+const readEnvFallback = async (key: string) => {
+    const candidates = [
+        path.join(process.cwd(), ".env"),
+        path.join(process.cwd(), ".env.local"),
+        path.join(process.cwd(), "back_end", ".env"),
+        path.join(process.cwd(), "back_end", ".env.local"),
+        path.join(process.cwd(), "front_end", ".env.local"),
+        path.join(process.cwd(), "..", "back_end", ".env"),
+        path.join(process.cwd(), "..", "back_end", ".env.local"),
+        path.join(process.cwd(), "..", "front_end", ".env.local"),
+    ];
+
+    for (const envPath of candidates) {
+        try {
+            const content = await readFile(envPath, "utf8");
+            const value = extractEnvValueFromContent(content, key);
+            if (value) {
+                return value;
+            }
+        } catch { }
+    }
+
+    return "";
+};
+
+const paidStatuses = ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"];
+
+const extractPaymentDate = (payment: Record<string, any>) => {
+    const rawDate =
+        payment.paymentDate ||
+        payment.clientPaymentDate ||
+        payment.confirmedDate ||
+        payment.dateCreated;
+    if (!rawDate) {
+        return null;
+    }
+    const parsed = new Date(rawDate);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isSameMonthAndYear = (baseDate: Date, now: Date) =>
+    baseDate.getMonth() === now.getMonth() && baseDate.getFullYear() === now.getFullYear();
+
+type AsaasBillingSnapshot = {
+    latestPaymentDate: Date | null;
+    hasAnyConfirmedPayment: boolean;
+    hasCurrentMonthPayment: boolean;
+    hasActiveSubscription: boolean;
+    subscriptionBaseDate: Date | null;
+    sourceUrl: string;
+};
+
+async function resolveAsaasBillingSnapshot(companyId: string, ownerEmail?: string): Promise<AsaasBillingSnapshot | null> {
+    const fallbackApiKey =
+        (await readEnvFallback("ASAAS_API_KEY")) ||
+        (await readEnvFallback("ASAAS_ACCESS_TOKEN"));
+    const fallbackApiUrl =
+        (await readEnvFallback("ASAAS_API_URL")) ||
+        (await readEnvFallback("ASAAS_BASE_URL"));
+
+    const keyCandidates = [
+        normalizeEnvValue(process.env.ASAAS_API_KEY),
+        normalizeEnvValue(process.env.ASAAS_ACCESS_TOKEN),
+        normalizeEnvValue(fallbackApiKey),
+    ].filter(Boolean) as string[];
+    const urlCandidates = [
+        normalizeEnvValue(process.env.ASAAS_API_URL),
+        normalizeEnvValue(process.env.ASAAS_BASE_URL),
+        normalizeEnvValue(fallbackApiUrl),
+        "https://api-sandbox.asaas.com/v3",
+    ].filter(Boolean) as string[];
+
+    if (keyCandidates.length === 0) {
+        console.warn(`[AUTH_SYNC] ASAAS API key ausente. Não foi possível validar pagamento para companyId=${companyId}.`);
+        return null;
+    }
+
+    const now = new Date();
+    let bestSnapshot: AsaasBillingSnapshot | null = null;
+
+    for (const asaasApiKey of keyCandidates) {
+        for (const asaasApiUrl of urlCandidates) {
+            const fetchPayments = async (url: string) => {
+                const response = await fetch(url, {
+                    method: "GET",
+                    headers: {
+                        access_token: asaasApiKey
+                    }
+                });
+
+                if (!response.ok) {
+                    return [] as Array<Record<string, any>>;
+                }
+
+                const payload = await response.json() as { data?: Array<Record<string, any>> };
+                return payload.data || [];
+            };
+
+            let customerIdByEmail = "";
+            const foundPayments: Array<Record<string, any>> = [];
+            let subscriptionBaseDate: Date | null = null;
+            let hasActiveSubscription = false;
+
+            for (const paidStatus of paidStatuses) {
+                const byExternalReference = await fetchPayments(
+                    `${asaasApiUrl}/payments?externalReference=${encodeURIComponent(companyId)}&status=${paidStatus}&limit=10`,
+                );
+
+                let byCustomer: Array<Record<string, any>> = [];
+                if (ownerEmail) {
+                    if (!customerIdByEmail) {
+                        const customerResponse = await fetch(
+                            `${asaasApiUrl}/customers?email=${encodeURIComponent(ownerEmail)}`,
+                            {
+                                method: "GET",
+                                headers: {
+                                    access_token: asaasApiKey
+                                }
+                            },
+                        );
+                        if (customerResponse.ok) {
+                            const customerPayload = await customerResponse.json() as {
+                                data?: Array<{ id?: string }>;
+                            };
+                            customerIdByEmail = customerPayload.data?.[0]?.id || "";
+                        }
+                    }
+                    if (customerIdByEmail) {
+                        byCustomer = await fetchPayments(
+                            `${asaasApiUrl}/payments?customer=${encodeURIComponent(customerIdByEmail)}&status=${paidStatus}&limit=10`,
+                        );
+                    }
+                }
+
+                const payment = [...byExternalReference, ...byCustomer].find((candidate) => {
+                    if (!candidate) {
+                        return false;
+                    }
+                    if (candidate.externalReference && candidate.externalReference !== companyId) {
+                        return false;
+                    }
+                    return true;
+                });
+
+                if (payment) {
+                    foundPayments.push(payment);
+                }
+            }
+
+            if (customerIdByEmail) {
+                const subscriptionsResponse = await fetch(
+                    `${asaasApiUrl}/subscriptions?customer=${encodeURIComponent(customerIdByEmail)}&status=ACTIVE&limit=1`,
+                    {
+                        method: "GET",
+                        headers: {
+                            access_token: asaasApiKey
+                        }
+                    },
+                );
+
+                if (subscriptionsResponse.ok) {
+                    const subscriptionsPayload = await subscriptionsResponse.json() as {
+                        data?: Array<Record<string, any>>;
+                    };
+                    const activeSubscription = subscriptionsPayload.data?.[0];
+                    if (activeSubscription) {
+                        const baseDateRaw =
+                            activeSubscription.dateCreated ||
+                            activeSubscription.nextDueDate ||
+                            new Date().toISOString();
+                        const baseDate = new Date(baseDateRaw);
+                        subscriptionBaseDate = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate;
+                        hasActiveSubscription = true;
+                    }
+                }
+            }
+
+            const normalizedDates = foundPayments
+                .map((payment) => extractPaymentDate(payment))
+                .filter((date): date is Date => !!date)
+                .sort((a, b) => b.getTime() - a.getTime());
+
+            const latestPaymentDate = normalizedDates[0] || null;
+            const hasAnyConfirmedPayment = foundPayments.length > 0;
+            const hasCurrentMonthPayment = normalizedDates.some((paymentDate) => isSameMonthAndYear(paymentDate, now));
+
+            const snapshot: AsaasBillingSnapshot = {
+                latestPaymentDate,
+                hasAnyConfirmedPayment,
+                hasCurrentMonthPayment,
+                hasActiveSubscription,
+                subscriptionBaseDate,
+                sourceUrl: asaasApiUrl,
+            };
+
+            if (snapshot.hasCurrentMonthPayment || snapshot.hasActiveSubscription) {
+                return snapshot;
+            }
+
+            if (!bestSnapshot) {
+                bestSnapshot = snapshot;
+                continue;
+            }
+
+            if (!bestSnapshot.latestPaymentDate && snapshot.latestPaymentDate) {
+                bestSnapshot = snapshot;
+                continue;
+            }
+
+            if (
+                bestSnapshot.latestPaymentDate &&
+                snapshot.latestPaymentDate &&
+                snapshot.latestPaymentDate.getTime() > bestSnapshot.latestPaymentDate.getTime()
+            ) {
+                bestSnapshot = snapshot;
+            }
+        }
+    }
+
+    return bestSnapshot;
+}
+
+export async function syncAsaasPaymentForCompany(
+    companyId: string,
+    ownerId: string,
+    ownerEmail?: string,
+    options?: { requireCurrentMonthPayment?: boolean },
+) {
+    const billingSnapshot = await resolveAsaasBillingSnapshot(companyId, ownerEmail);
+    const requireCurrentMonthPayment = options?.requireCurrentMonthPayment ?? false;
+
+    if (!billingSnapshot) {
+        console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado encontrado no Asaas para companyId=${companyId} (email=${ownerEmail || "n/a"}).`);
+        return null;
+    }
+
+    const canActivateByPayment =
+        billingSnapshot.hasAnyConfirmedPayment &&
+        (!requireCurrentMonthPayment || billingSnapshot.hasCurrentMonthPayment);
+    const canActivateBySubscription =
+        !requireCurrentMonthPayment && billingSnapshot.hasActiveSubscription;
+
+    if (!canActivateByPayment && !canActivateBySubscription) {
+        if (requireCurrentMonthPayment) {
+            console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado no mês atual para companyId=${companyId}.`);
+        } else {
+            console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado elegível para companyId=${companyId}.`);
+        }
+        return null;
+    }
+
+    const paymentDate = billingSnapshot.latestPaymentDate || billingSnapshot.subscriptionBaseDate || new Date();
+    const nextDue = new Date(paymentDate);
+    nextDue.setDate(nextDue.getDate() + 30);
+
+    await db.update(schema.companies)
+        .set({
+            subscriptionStatus: "active",
+            active: true,
+            accessType: "automatic",
+            trialEndsAt: nextDue,
+            updatedAt: new Date()
+        })
+        .where(eq(schema.companies.id, companyId));
+
+    if (ownerId) {
+        await db.update(schema.user)
+            .set({
+                active: true,
+                updatedAt: new Date()
+            })
+            .where(eq(schema.user.id, ownerId));
+    }
+
+    console.log(`[AUTH_SYNC] Pagamento encontrado no Asaas usando baseUrl=${billingSnapshot.sourceUrl}.`);
+    return {
+        activated: true,
+        nextDue
+    };
+}
+
 export const authPlugin = new Elysia({ name: "auth-plugin" })
     .derive({ as: 'global' }, async ({ request, path, set }) => {
         const isAuthRoute =
@@ -21,7 +316,8 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             path.startsWith("/sign-in") ||
             path.startsWith("/sign-out") ||
             path === "/get-session" ||
-            path === "/session";
+            path === "/session" ||
+            path === "/api/business/settings/pricing";
 
         if (isAuthRoute) {
             return { user: null, session: null };
@@ -154,6 +450,12 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     }
 
                     if (userCompany) {
+                        if (userCompany.active === false && !isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
+                            console.warn(`[AUTH_BLOCK]: Estabelecimento bloqueado manualmente: ${userCompany.slug}`);
+                            set.status = 403;
+                            throw new Error("BUSINESS_SUSPENDED");
+                        }
+
                         // Cálculo de dias restantes (Trial)
                         const now = new Date();
                         let daysLeft = 0;
@@ -175,12 +477,52 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                         // Verifica se o usuário tem permissão de acesso baseado na assinatura
                         if (!isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                             const now = new Date();
-                            const status = userCompany.subscriptionStatus;
+                            let status = userCompany.subscriptionStatus;
                             const trialEnds = userCompany.trialEndsAt ? new Date(userCompany.trialEndsAt) : null;
+                            const isTrialStatus = status === 'trial' || status === 'trialing';
+                            let isManualActive =
+                                userCompany.accessType === "manual" ||
+                                status === 'manual' ||
+                                status === 'manual_active';
 
-                            // 🚨 BLOQUEIO EXPLÍCITO DE INADIMPLÊNCIA (PAST_DUE)
-                            // Se o status for 'past_due', bloqueia imediatamente, ignorando datas.
-                            // Isso garante que resets manuais para 'Automático' (que setam past_due) funcionem na hora.
+                            if (isManualActive && trialEnds && trialEnds <= now) {
+                                console.warn(`[AUTH_UPDATE]: Acesso Manual expirado para ${userCompany.slug}. Revertendo para 'past_due' (Automático).`);
+                                await db.update(schema.companies)
+                                    .set({
+                                        subscriptionStatus: 'past_due',
+                                        accessType: 'automatic'
+                                    })
+                                    .where(eq(schema.companies.id, userCompany.id));
+                                status = "past_due";
+                                isManualActive = false;
+                            }
+
+                            const isAutomaticAccess = userCompany.accessType === "automatic" && !isTrialStatus && !isManualActive;
+                            if (isAutomaticAccess) {
+                                const syncResult = await syncAsaasPaymentForCompany(
+                                    userCompany.id,
+                                    userCompany.ownerId,
+                                    user.email,
+                                    { requireCurrentMonthPayment: true },
+                                );
+                                if (syncResult?.activated) {
+                                    status = "active";
+                                    userCompany.subscriptionStatus = "active";
+                                    userCompany.trialEndsAt = syncResult.nextDue;
+                                    console.log(`[AUTH_SYNC] Pagamento confirmado no Asaas para ${userCompany.slug}. Acesso reativado automaticamente.`);
+                                } else if (status === "active") {
+                                    await db.update(schema.companies)
+                                        .set({
+                                            subscriptionStatus: "past_due",
+                                            updatedAt: new Date(),
+                                        })
+                                        .where(eq(schema.companies.id, userCompany.id));
+                                    status = "past_due";
+                                    userCompany.subscriptionStatus = "past_due";
+                                    console.warn(`[AUTH_SYNC] Sem pagamento válido no mês atual para ${userCompany.slug}. Rebaixado para past_due.`);
+                                }
+                            }
+
                             if (status === 'past_due' || status === 'inactive' || status === 'canceled') {
                                 console.warn(`[AUTH_BLOCK]: Acesso negado por status inválido (${status}): ${userCompany.slug}`);
                                 set.status = 402;
@@ -188,39 +530,14 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             }
 
                             const isActive = status === 'active';
-                            const isTrialStatus = status === 'trial' || status === 'trialing';
                             const isTrialValid = isTrialStatus && trialEnds && trialEnds > now;
-                            // Adicionando 'manual' como status válido (usado no master-admin.controller.ts)
-                            let isManualActive = status === 'manual' || status === 'manual_active';
-
-                            // 1. Auto-expiração do Manual (Lazy Update)
-                            // Se o acesso manual venceu, ele deve "voltar para o automático" (bloqueio se não pagou)
-                            if (isManualActive && trialEnds && trialEnds <= now) {
-                                console.warn(`[AUTH_UPDATE]: Acesso Manual expirado para ${userCompany.slug}. Revertendo para 'past_due' (Automático).`);
-
-                                db.update(schema.companies)
-                                    .set({
-                                        subscriptionStatus: 'past_due',
-                                        accessType: 'automatic'
-                                    })
-                                    .where(eq(schema.companies.id, userCompany.id))
-                                    .then(() => console.log(`[AUTH_UPDATE_SUCCESS]: Reset de Manual para Automático/PastDue - ${userCompany.slug}`))
-                                    .catch(err => console.error(`[AUTH_UPDATE_ERROR]: Falha ao resetar status - ${userCompany.slug}`, err));
-
-                                isManualActive = false; // Invalida o acesso manual para cair no bloqueio abaixo
-                            }
 
                             // 2. Auto-expiração do Trial (Lazy Update)
                             if (isTrialStatus && trialEnds && trialEnds <= now) {
                                 console.warn(`[AUTH_UPDATE]: Trial expirado para ${userCompany.slug}. Atualizando status para 'past_due'.`);
-                                // Atualiza no banco de forma assíncrona
-                                db.update(schema.companies)
+                                await db.update(schema.companies)
                                     .set({ subscriptionStatus: 'past_due' })
-                                    .where(eq(schema.companies.id, userCompany.id))
-                                    .then(() => console.log(`[AUTH_UPDATE_SUCCESS]: Status atualizado para 'past_due' - ${userCompany.slug}`))
-                                    .catch(err => console.error(`[AUTH_UPDATE_ERROR]: Falha ao atualizar status - ${userCompany.slug}`, err));
-
-                                // Bloqueia imediatamente após detectar a expiração
+                                    .where(eq(schema.companies.id, userCompany.id));
                                 set.status = 402;
                                 throw new Error("BILLING_REQUIRED");
                             }

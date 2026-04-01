@@ -49,6 +49,7 @@ const startServer = () => {
     const { pushController } = require("./modules/notifications/adapters/in/http/push.controller");
     const { userPreferencesController } = require("./modules/user/adapters/in/http/user-preferences.controller");
     const { paymentController } = require("./modules/infrastructure/payment/payment.controller");
+    const { asaasWebhookController } = require("./modules/infrastructure/payment/asaas.webhook.controller");
     const { billingController } = require("./modules/billing/adapters/in/http/billing.controller");
 
     console.log("[STARTUP] Módulos carregados. Instanciando dependências...");
@@ -336,6 +337,7 @@ const startServer = () => {
           .use(pushController())
           .use(userPreferencesController())
           .use(paymentController())
+          .use(asaasWebhookController)
           .use(billingController())
       )
       .get("/", () => {

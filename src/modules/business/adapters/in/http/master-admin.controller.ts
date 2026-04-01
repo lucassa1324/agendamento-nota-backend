@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
+import { authPlugin, syncAsaasPaymentForCompany } from "../../../../infrastructure/auth/auth-plugin";
 import { auth } from "../../../../infrastructure/auth/auth";
 import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
@@ -24,6 +24,15 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         WHERE subscription_status IN ('active', 'trialing', 'trial')
       `);
 
+      // Busca o preço dinâmico para o cálculo do faturamento
+      const [pricingSetting] = await db
+        .select()
+        .from(schema.systemSettings)
+        .where(eq(schema.systemSettings.key, "monthly_price"))
+        .limit(1);
+
+      const currentPrice = pricingSetting ? parseFloat(pricingSetting.value) : 49.90;
+
       const [revenue] = await db.execute(sql`
         SELECT COALESCE(SUM(plan_price), 0)::float as total
         FROM (
@@ -31,7 +40,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
             CASE 
               WHEN access_type = 'premium' THEN 97.00
               WHEN access_type = 'pro' THEN 197.00
-              WHEN access_type = 'automatic' THEN 47.00
+              WHEN access_type = 'automatic' THEN ${sql.raw(currentPrice.toString())}
               ELSE 0 
             END as plan_price
           FROM companies
@@ -197,15 +206,34 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           updateData.accessType = 'extended_trial';
 
         } else if (actionType === 'automatic') {
-          // Reset Automático: SEMPRE revoga acesso manual/extendido e bloqueia se não houver pagamento.
-          // Independente da idade da empresa, ao voltar para automático, o trial é zerado.
-          const yesterday = new Date(now);
-          yesterday.setDate(yesterday.getDate() - 1);
+          // Busca o email do proprietário para sincronização
+          const [owner] = await db
+            .select()
+            .from(schema.user)
+            .where(eq(schema.user.id, currentCompany.ownerId))
+            .limit(1);
 
-          updateData.subscriptionStatus = 'past_due';
-          updateData.trialEndsAt = yesterday;
-          updateData.accessType = 'automatic';
-          console.log(`[MASTER_ADMIN] Reset Automático: Trial zerado e acesso bloqueado (sem pagamento).`);
+          console.log(`[MASTER_ADMIN] Empresa ${id} voltando para modo automático. Sincronizando com Asaas...`);
+
+          // Executa a sincronização real com o Asaas
+          const syncResult = await syncAsaasPaymentForCompany(
+            id,
+            currentCompany.ownerId,
+            owner?.email,
+            { requireCurrentMonthPayment: true }
+          );
+
+          if (syncResult && syncResult.activated) {
+            updateData.subscriptionStatus = 'active';
+            updateData.accessType = 'automatic';
+            updateData.trialEndsAt = syncResult.nextDue;
+            console.log(`[MASTER_ADMIN] Sincronização bem-sucedida: Empresa ${id} ATIVA.`);
+          } else {
+            // Se não encontrar pagamento, define como past_due
+            updateData.subscriptionStatus = 'past_due';
+            updateData.accessType = 'automatic';
+            console.log(`[MASTER_ADMIN] Sincronização falhou ou sem pagamento: Empresa ${id} bloqueada (past_due).`);
+          }
         }
       }
 
@@ -222,6 +250,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
 
       return {
         success: true,
+        status: updated.subscriptionStatus,
         message: `Assinatura atualizada via ${actionType || 'direto'}: Status ${updated.subscriptionStatus}, Vence em ${updated.trialEndsAt?.toLocaleDateString()}`
       };
     } catch (error: any) {
@@ -236,6 +265,69 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       actionType: t.Optional(t.String()), // 'manual_custom_days' | 'extend_trial_custom' | 'automatic'
       trialDays: t.Optional(t.Number()) // Quantidade de dias customizável
     })
+  })
+  .post("/companies/:id/sync", async ({ params, set }) => {
+    try {
+      const { id } = params;
+
+      const [currentCompany] = await db
+        .select()
+        .from(schema.companies)
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!currentCompany) {
+        set.status = 404;
+        return { error: "Empresa não encontrada" };
+      }
+
+      const [owner] = await db
+        .select()
+        .from(schema.user)
+        .where(eq(schema.user.id, currentCompany.ownerId))
+        .limit(1);
+
+      console.log(`[MASTER_ADMIN] Sincronização manual solicitada para ${id}.`);
+
+      const syncResult = await syncAsaasPaymentForCompany(
+        id,
+        currentCompany.ownerId,
+        owner?.email,
+        { requireCurrentMonthPayment: true }
+      );
+
+      if (syncResult && syncResult.activated) {
+        return {
+          success: true,
+          status: 'active',
+          message: "Pagamento confirmado e acesso liberado."
+        };
+      }
+
+      // Se não ativou via syncResult, garante que o status reflita a realidade (past_due se automático)
+      if (currentCompany.accessType === 'automatic') {
+        await db.update(schema.companies)
+          .set({ subscriptionStatus: 'past_due', updatedAt: new Date() })
+          .where(eq(schema.companies.id, id));
+
+        return {
+          success: true,
+          status: 'past_due',
+          message: "Nenhum pagamento confirmado encontrado. Status definido como Pendente."
+        };
+      }
+
+      return {
+        success: false,
+        status: currentCompany.subscriptionStatus,
+        message: "Nenhum novo pagamento identificado no Asaas."
+      };
+
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_SYNC_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao sincronizar: " + error.message };
+    }
   })
   // --- NOVAS ROTAS DE PROSPECTS (POSSÍVEIS CLIENTES) ---
   .get("/prospects", async () => {
@@ -514,15 +606,23 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         WHERE subscription_status IN ('active', 'trialing', 'trial')
       `);
 
-      // 3. Faturamento Mensal Estimado
-      const [monthlyRevenue] = await db.execute(sql`
+      // 3. Faturamento Mensal Estimado usando preço dinâmico
+      const [pricingSetting] = await db
+        .select()
+        .from(schema.systemSettings)
+        .where(eq(schema.systemSettings.key, "monthly_price"))
+        .limit(1);
+
+      const currentPrice = pricingSetting ? parseFloat(pricingSetting.value) : 49.90;
+
+      const [revenue] = await db.execute(sql`
         SELECT COALESCE(SUM(plan_price), 0)::float as total
         FROM (
           SELECT 
             CASE 
               WHEN access_type = 'premium' THEN 97.00
               WHEN access_type = 'pro' THEN 197.00
-              WHEN access_type = 'automatic' THEN 47.00
+              WHEN access_type = 'automatic' THEN ${sql.raw(currentPrice.toString())}
               ELSE 0 
             END as plan_price
           FROM companies
@@ -537,12 +637,13 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       const stats = {
         totalCompanies: Number(totalCompanies?.count || 0),
         activeSubscriptions: Number(activeSubscriptions?.count || 0),
-        monthlyRevenue: Number(monthlyRevenue?.total || 0),
+        monthlyRevenue: Number(revenue?.total || 0),
         totalAppointments: Number(totalAppointments?.count || 0),
         // Adicionando campos extras caso o front use nomes diferentes
-        revenue: Number(monthlyRevenue?.total || 0),
+        revenue: Number(revenue?.total || 0),
         appointments: Number(totalAppointments?.count || 0),
-        companies: Number(totalCompanies?.count || 0)
+        companies: Number(totalCompanies?.count || 0),
+        currentPricing: currentPrice
       };
 
       return stats;
@@ -551,9 +652,70 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       throw new Error("Erro ao gerar estatísticas do dashboard: " + error.message);
     }
   })
+  .get("/settings/pricing", async () => {
+    try {
+      const [setting] = await db
+        .select()
+        .from(schema.systemSettings)
+        .where(eq(schema.systemSettings.key, "monthly_price"))
+        .limit(1);
+
+      return {
+        price: setting ? parseFloat(setting.value) : 49.90,
+        updatedAt: setting?.updatedAt || new Date()
+      };
+    } catch (error: any) {
+      throw new Error("Erro ao buscar preço: " + error.message);
+    }
+  })
+  .post("/settings/pricing", async ({ body, set }) => {
+    try {
+      const { price } = body;
+
+      const [updated] = await db
+        .insert(schema.systemSettings)
+        .values({
+          id: crypto.randomUUID(),
+          key: "monthly_price",
+          value: price.toString(),
+          description: "Preço da mensalidade do Plano Pro",
+          updatedAt: new Date()
+        })
+        .onConflictDoUpdate({
+          target: schema.systemSettings.key,
+          set: {
+            value: price.toString(),
+            updatedAt: new Date()
+          }
+        })
+        .returning();
+
+      return {
+        success: true,
+        price: parseFloat(updated.value),
+        message: "Preço da mensalidade atualizado com sucesso"
+      };
+    } catch (error: any) {
+      set.status = 500;
+      return { error: "Erro ao atualizar preço: " + error.message };
+    }
+  }, {
+    body: t.Object({
+      price: t.Number()
+    })
+  })
   // Alias para compatibilidade
   .get("/reports/financial", async ({ set }) => {
     try {
+      // Busca o preço dinâmico para o cálculo do faturamento
+      const [pricingSetting] = await db
+        .select()
+        .from(schema.systemSettings)
+        .where(eq(schema.systemSettings.key, "monthly_price"))
+        .limit(1);
+
+      const currentPrice = pricingSetting ? parseFloat(pricingSetting.value) : 49.90;
+
       const [monthlyRevenue] = await db.execute(sql`
         SELECT COALESCE(SUM(plan_price), 0)::float as total
         FROM (
@@ -561,7 +723,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
             CASE 
               WHEN access_type = 'premium' THEN 97.00
               WHEN access_type = 'pro' THEN 197.00
-              WHEN access_type = 'automatic' THEN 47.00
+              WHEN access_type = 'automatic' THEN ${sql.raw(currentPrice.toString())}
               ELSE 0 
             END as plan_price
           FROM companies

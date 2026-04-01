@@ -34,6 +34,30 @@ export const businessController = () => new Elysia({ prefix: "/business" })
   // Rotas Públicas (Sem necessidade de Token)
   .group("", (publicGroup) =>
     publicGroup
+      .get("/settings/pricing", async ({ set }) => {
+        try {
+          const [setting] = await db
+            .select()
+            .from(schema.systemSettings)
+            .where(eq(schema.systemSettings.key, "monthly_price"))
+            .limit(1);
+
+          // Forçar o navegador a não usar cache para garantir que o preço atualizado apareça
+          set.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate";
+          set.headers["Pragma"] = "no-cache";
+          set.headers["Expires"] = "0";
+
+          return {
+            price: setting ? parseFloat(setting.value) : 49.90,
+            updatedAt: setting?.updatedAt || new Date()
+          };
+        } catch (error: any) {
+          return {
+            price: 49.90,
+            error: "Erro ao buscar preço: " + error.message
+          };
+        }
+      })
       .get("/debug-slug/:slug", async ({ params: { slug }, businessRepository }) => {
         const normalizedSlug = decodeURIComponent(slug).trim().toLowerCase();
         console.log(`[DEBUG_SLUG] Buscando: '${normalizedSlug}'`);

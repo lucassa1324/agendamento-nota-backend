@@ -25,6 +25,7 @@ export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
+  cpfCnpj: text("cpf_cnpj"),
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
   role: text("role").default("USER").notNull(), // USER ou SUPER_ADMIN
@@ -169,6 +170,17 @@ export const accountCancellationFeedback = pgTable("account_cancellation_feedbac
   reason: text("reason").notNull(),
   details: text("details"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const systemSettings = pgTable("system_settings", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull(),
+  description: text("description"),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
 });
 
 export const companies = pgTable("companies", {
@@ -626,5 +638,4 @@ export const fixedExpensesRelations = relations(fixedExpenses, ({ one }) => ({
     references: [companies.id],
   }),
 }));
-
 

@@ -4,7 +4,7 @@ export class AsaasClient {
 
   constructor() {
     this.apiKey = process.env.ASAAS_API_KEY || "";
-    this.apiUrl = process.env.ASAAS_API_URL || "https://sandbox.asaas.com/api/v3";
+    this.apiUrl = process.env.ASAAS_API_URL || "https://api-sandbox.asaas.com/v3";
   }
 
   // Método placeholder para criar cliente
