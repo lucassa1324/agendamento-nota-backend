@@ -443,14 +443,39 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                     // 1. BLOQUEIO POR CONTA DE USUÁRIO DESATIVADA (Restritivo)
                     if (user.active === false && !isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
+                        const isAutomaticBillingBlocked =
+                            !!userCompany &&
+                            userCompany.accessType === "automatic" &&
+                            userCompany.active === false &&
+                            (
+                                userCompany.subscriptionStatus === "past_due" ||
+                                userCompany.subscriptionStatus === "inactive" ||
+                                userCompany.subscriptionStatus === "canceled"
+                            );
+                        if (isAutomaticBillingBlocked) {
+                            console.warn(`[AUTH_BLOCK]: Conta com flag inativa, mas bloqueio é de cobrança automática para ${userCompany.slug}.`);
+                        } else {
                         console.warn(`[AUTH_BLOCK]: Conta de usuário desativada: ${user.email}`);
 
                         set.status = 403;
                         throw new Error("ACCOUNT_SUSPENDED");
+                        }
                     }
 
                     if (userCompany) {
                         if (userCompany.active === false && !isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
+                            const isAutomaticBillingBlocked =
+                                userCompany.accessType === "automatic" &&
+                                (
+                                    userCompany.subscriptionStatus === "past_due" ||
+                                    userCompany.subscriptionStatus === "inactive" ||
+                                    userCompany.subscriptionStatus === "canceled"
+                                );
+                            if (isAutomaticBillingBlocked) {
+                                console.warn(`[AUTH_BLOCK]: Estabelecimento bloqueado por cobrança pendente: ${userCompany.slug}`);
+                                set.status = 402;
+                                throw new Error("BILLING_REQUIRED");
+                            }
                             console.warn(`[AUTH_BLOCK]: Estabelecimento bloqueado manualmente: ${userCompany.slug}`);
                             set.status = 403;
                             throw new Error("BUSINESS_SUSPENDED");
@@ -550,7 +575,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                         }
                     }
                 } catch (dbError: any) {
-                    if (dbError.message === "BUSINESS_SUSPENDED" || dbError.message === "BILLING_REQUIRED") {
+                    if (dbError.message === "BUSINESS_SUSPENDED" || dbError.message === "ACCOUNT_SUSPENDED" || dbError.message === "BILLING_REQUIRED") {
                         throw dbError;
                     }
                     console.error(`[AUTH_PLUGIN] Erro ao buscar company:`, dbError);

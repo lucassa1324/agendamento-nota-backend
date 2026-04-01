@@ -189,6 +189,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           updateData.subscriptionStatus = 'active';
           updateData.accessType = 'manual'; // Marca como manual para diferenciar
           updateData.trialEndsAt = nextDue;
+          updateData.active = true;
 
         } else if (actionType === 'extend_trial_custom') {
           // Opção 2: Definir Teste (Novo Prazo)
@@ -204,6 +205,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           // Força o tipo de acesso para 'extended_trial' para diferenciar do 'automatic' (padrão)
           // O Frontend usará isso para saber que houve uma extensão manual.
           updateData.accessType = 'extended_trial';
+          updateData.active = true;
 
         } else if (actionType === 'automatic') {
           // Busca o email do proprietário para sincronização
@@ -227,11 +229,13 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
             updateData.subscriptionStatus = 'active';
             updateData.accessType = 'automatic';
             updateData.trialEndsAt = syncResult.nextDue;
+            updateData.active = true;
             console.log(`[MASTER_ADMIN] Sincronização bem-sucedida: Empresa ${id} ATIVA.`);
           } else {
             // Se não encontrar pagamento, define como past_due
             updateData.subscriptionStatus = 'past_due';
             updateData.accessType = 'automatic';
+            updateData.active = false;
             console.log(`[MASTER_ADMIN] Sincronização falhou ou sem pagamento: Empresa ${id} bloqueada (past_due).`);
           }
         }
@@ -246,6 +250,28 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       if (!updated) {
         set.status = 404;
         return { error: "Empresa não encontrada" };
+      }
+
+      if (actionType === 'automatic') {
+        if (updated.subscriptionStatus === 'past_due') {
+          try {
+            await db
+              .delete(schema.session)
+              .where(eq(schema.session.userId, updated.ownerId));
+
+            console.log(`[MASTER_ADMIN_KICK]: Sessões invalidadas para o estúdio ${updated.name} (Owner: ${updated.ownerId})`);
+          } catch (kickError) {
+            console.error("[MASTER_ADMIN_KICK_ERROR]:", kickError);
+          }
+        }
+      } else if (actionType === 'manual_custom_days' || actionType === 'extend_trial_custom') {
+        await db
+          .update(schema.user)
+          .set({
+            active: true,
+            updatedAt: new Date()
+          })
+          .where(eq(schema.user.id, updated.ownerId));
       }
 
       return {
@@ -309,7 +335,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         await db.update(schema.companies)
           .set({ subscriptionStatus: 'past_due', updatedAt: new Date() })
           .where(eq(schema.companies.id, id));
-
+        
         return {
           success: true,
           status: 'past_due',
