@@ -206,6 +206,16 @@ export const companies = pgTable("companies", {
     .notNull(),
 });
 
+export const systemLogs = pgTable("system_logs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => user.id),
+  action: text("action").notNull(),
+  details: text("details"),
+  level: text("level").default("INFO").notNull(), // INFO, WARN, ERROR
+  companyId: text("company_id").references(() => companies.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const inventoryLogs = pgTable("inventory_logs", {
   id: text("id").primaryKey(),
   inventoryId: text("inventory_id")

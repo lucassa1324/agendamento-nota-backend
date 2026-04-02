@@ -3,7 +3,45 @@ import { authPlugin, syncAsaasPaymentForCompany } from "../../../../infrastructu
 import { auth } from "../../../../infrastructure/auth/auth";
 import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
-import { eq, sql, count } from "drizzle-orm";
+import { and, eq, sql, count } from "drizzle-orm";
+
+const writeSystemLog = async ({
+  userId,
+  action,
+  details,
+  level = "INFO",
+  companyId,
+}: {
+  userId?: string;
+  action: string;
+  details?: string;
+  level?: string;
+  companyId?: string;
+}) => {
+  try {
+    await db.insert(schema.systemLogs).values({
+      id: crypto.randomUUID(),
+      userId,
+      action,
+      details,
+      level,
+      companyId,
+      createdAt: new Date()
+    });
+  } catch (error: any) {
+    const code = (error as any)?.code;
+    const message = String(error?.message || "");
+    if (code === "42P01" || message.toLowerCase().includes("system_logs")) {
+      return;
+    }
+    console.error("[MASTER_ADMIN_LOG_WRITE_ERROR]:", error);
+  }
+};
+
+const HEALTH_CHECK_COMPANY_SLUG = "sistema-health-check";
+const HEALTH_CHECK_COMPANY_NAME = "SISTEMA_HEALTH_CHECK";
+const HEALTH_CHECK_SERVICE_NAME = "Serviço Diagnóstico HC";
+const HEALTH_CHECK_CUSTOMER_EMAIL = "healthcheck@system.local";
 
 export const masterAdminController = () => new Elysia({ prefix: "/admin/master" })
   .use(authPlugin)
@@ -292,7 +330,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       trialDays: t.Optional(t.Number()) // Quantidade de dias customizável
     })
   })
-  .post("/companies/:id/sync", async ({ params, set }) => {
+  .post("/companies/:id/sync", async ({ params, set, user }) => {
     try {
       const { id } = params;
 
@@ -322,6 +360,14 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         { requireCurrentMonthPayment: true }
       );
 
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "SYNC_ASAAS",
+        details: `Sincronização manual solicitada. Resultado: ${syncResult?.activated ? 'Ativado' : 'Não alterado'}`,
+        level: "INFO",
+        companyId: id
+      });
+
       if (syncResult && syncResult.activated) {
         return {
           success: true,
@@ -335,7 +381,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         await db.update(schema.companies)
           .set({ subscriptionStatus: 'past_due', updatedAt: new Date() })
           .where(eq(schema.companies.id, id));
-        
+
         return {
           success: true,
           status: 'past_due',
@@ -355,7 +401,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       return { error: "Erro ao sincronizar: " + error.message };
     }
   })
-  .post("/companies/:id/simulate-block", async ({ params, set }) => {
+  .post("/companies/:id/simulate-block", async ({ params, set, user }) => {
     try {
       const { id } = params;
 
@@ -393,6 +439,14 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       await db.delete(schema.session)
         .where(eq(schema.session.userId, company.ownerId));
 
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "SIMULATE_BLOCK",
+        details: `Bloqueio simulado para ${company.name}. Status: past_due, Active: false.`,
+        level: "WARN",
+        companyId: id
+      });
+
       return {
         success: true,
         message: `Bloqueio simulado com sucesso para ${company.name}.`
@@ -401,6 +455,260 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       console.error("[MASTER_ADMIN_SIMULATE_BLOCK_ERROR]:", error);
       set.status = 500;
       return { error: "Erro na simulação: " + error.message };
+    }
+  })
+  .post("/companies/:id/reset-data", async ({ params, body, set, user }) => {
+    try {
+      const { id } = params;
+      const { resetAppointments, resetServices } = body;
+
+      if (resetAppointments) {
+        await db.delete(schema.appointments).where(eq(schema.appointments.companyId, id));
+      }
+
+      if (resetServices) {
+        await db.delete(schema.services).where(eq(schema.services.companyId, id));
+      }
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "RESET_DATA",
+        details: `Reset: ${[resetAppointments ? 'Agendamentos' : null, resetServices ? 'Serviços' : null].filter(Boolean).join(', ')}`,
+        level: "WARN",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message: `Dados resetados com sucesso: ${[resetAppointments ? 'Agendamentos' : null, resetServices ? 'Serviços' : null].filter(Boolean).join(', ')}`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_RESET_DATA_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao resetar dados: " + error.message };
+    }
+  }, {
+    body: t.Object({
+      resetAppointments: t.Boolean(),
+      resetServices: t.Boolean()
+    })
+  })
+  .post("/companies/:id/test-expiration", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+      const pastDate = new Date();
+      pastDate.setDate(pastDate.getDate() - 1);
+
+      await db.update(schema.companies)
+        .set({
+          accessType: "manual",
+          subscriptionStatus: "active",
+          trialEndsAt: pastDate,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.companies.id, id));
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "TEST_EXPIRATION",
+        details: "Configurada expiração manual forçada para teste.",
+        level: "INFO",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message: "Empresa configurada como expirada (Acesso Manual). O sistema deve reverter para automático no próximo acesso."
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_TEST_EXPIRATION_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao configurar expiração: " + error.message };
+    }
+  })
+  .get("/logs", async () => {
+    try {
+      const results = await db
+        .select({
+          id: schema.systemLogs.id,
+          userName: schema.user.name,
+          action: schema.systemLogs.action,
+          details: schema.systemLogs.details,
+          level: schema.systemLogs.level,
+          companyName: schema.companies.name,
+          createdAt: schema.systemLogs.createdAt,
+        })
+        .from(schema.systemLogs)
+        .leftJoin(schema.user, eq(schema.systemLogs.userId, schema.user.id))
+        .leftJoin(schema.companies, eq(schema.systemLogs.companyId, schema.companies.id))
+        .orderBy(sql`${schema.systemLogs.createdAt} DESC`)
+        .limit(50);
+
+      return results;
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_LOGS_ERROR]:", error);
+      const code = (error as any)?.code;
+      const message = String(error?.message || "");
+
+      if (code === "42P01" || message.toLowerCase().includes("system_logs")) {
+        return [];
+      }
+
+      throw new Error("Erro ao buscar logs: " + message);
+    }
+  })
+  .post("/health/ensure-test-company", async ({ user, set }) => {
+    try {
+      const currentUserId = (user as any)?.id;
+
+      if (!currentUserId) {
+        set.status = 401;
+        return { error: "Usuário não autenticado." };
+      }
+
+      const [currentUser] = await db
+        .select()
+        .from(schema.user)
+        .where(eq(schema.user.id, currentUserId))
+        .limit(1);
+
+      if (!currentUser) {
+        set.status = 404;
+        return { error: "Usuário não encontrado." };
+      }
+
+      const now = new Date();
+
+      let [healthCompany] = await db
+        .select()
+        .from(schema.companies)
+        .where(eq(schema.companies.slug, HEALTH_CHECK_COMPANY_SLUG))
+        .limit(1);
+
+      if (!healthCompany) {
+        [healthCompany] = await db
+          .insert(schema.companies)
+          .values({
+            id: crypto.randomUUID(),
+            name: HEALTH_CHECK_COMPANY_NAME,
+            slug: HEALTH_CHECK_COMPANY_SLUG,
+            ownerId: currentUserId,
+            active: true,
+            subscriptionStatus: "active",
+            accessType: "manual",
+            trialEndsAt: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
+            createdAt: now,
+            updatedAt: now
+          })
+          .returning();
+      } else if (healthCompany.ownerId !== currentUserId) {
+        const [updatedCompany] = await db
+          .update(schema.companies)
+          .set({
+            ownerId: currentUserId,
+            active: true,
+            subscriptionStatus: "active",
+            accessType: "manual",
+            updatedAt: now
+          })
+          .where(eq(schema.companies.id, healthCompany.id))
+          .returning();
+
+        if (updatedCompany) {
+          healthCompany = updatedCompany;
+        }
+      }
+
+      if (!healthCompany) {
+        set.status = 500;
+        return { error: "Não foi possível preparar a empresa de teste." };
+      }
+
+      await db.delete(schema.operatingHours).where(eq(schema.operatingHours.companyId, healthCompany.id));
+
+      const operatingHoursPayload = Array.from({ length: 7 }).map((_, dayIndex) => ({
+        id: crypto.randomUUID(),
+        companyId: healthCompany.id,
+        dayOfWeek: String(dayIndex),
+        status: "OPEN",
+        morningStart: "09:00",
+        morningEnd: "12:00",
+        afternoonStart: "13:00",
+        afternoonEnd: "18:00",
+        createdAt: now,
+        updatedAt: now
+      }));
+
+      await db.insert(schema.operatingHours).values(operatingHoursPayload);
+
+      await db
+        .delete(schema.appointments)
+        .where(
+          and(
+            eq(schema.appointments.companyId, healthCompany.id),
+            eq(schema.appointments.customerEmail, HEALTH_CHECK_CUSTOMER_EMAIL)
+          )
+        );
+
+      let [healthService] = await db
+        .select()
+        .from(schema.services)
+        .where(
+          and(
+            eq(schema.services.companyId, healthCompany.id),
+            eq(schema.services.name, HEALTH_CHECK_SERVICE_NAME)
+          )
+        )
+        .limit(1);
+
+      if (!healthService) {
+        [healthService] = await db
+          .insert(schema.services)
+          .values({
+            id: crypto.randomUUID(),
+            companyId: healthCompany.id,
+            name: HEALTH_CHECK_SERVICE_NAME,
+            description: "Serviço usado para diagnóstico automático de rotas.",
+            price: "1.00",
+            duration: "00:30",
+            isVisible: false,
+            showOnHome: false,
+            createdAt: now,
+            updatedAt: now
+          })
+          .returning();
+      }
+
+      if (!healthService) {
+        set.status = 500;
+        return { error: "Não foi possível preparar o serviço de diagnóstico." };
+      }
+
+      await writeSystemLog({
+        userId: currentUserId,
+        action: "HEALTH_TEST_READY",
+        details: "Empresa de teste preparada para diagnóstico de rotas.",
+        level: "INFO",
+        companyId: healthCompany.id
+      });
+
+      return {
+        success: true,
+        companyId: healthCompany.id,
+        companyName: healthCompany.name,
+        companySlug: healthCompany.slug,
+        serviceId: healthService.id,
+        serviceName: healthService.name,
+        servicePrice: String(healthService.price),
+        serviceDuration: healthService.duration,
+        testCustomerName: "Health Check Bot",
+        testCustomerEmail: HEALTH_CHECK_CUSTOMER_EMAIL,
+        testCustomerPhone: "11999999999"
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_HEALTH_SETUP_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao preparar ambiente de teste: " + error.message };
     }
   })
   // --- NOVAS ROTAS DE PROSPECTS (POSSÍVEIS CLIENTES) ---
