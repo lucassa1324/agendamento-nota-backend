@@ -188,6 +188,7 @@ export const companies = pgTable("companies", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   address: text("address"),
+  phone: text("phone"),
   contact: text("contact"),
   ownerId: text("owner_id")
     .notNull()

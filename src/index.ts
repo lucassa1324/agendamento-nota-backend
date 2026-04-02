@@ -153,6 +153,7 @@ const startServer = () => {
         const origin = request.headers.get("origin");
         const allowedOrigins = [
           'http://localhost:3000',
+          'http://localhost:3002',
           'http://127.0.0.1:3000',
           'https://agendamento-nota-front.vercel.app',
           'https://landingpage-agendamento-front.vercel.app',

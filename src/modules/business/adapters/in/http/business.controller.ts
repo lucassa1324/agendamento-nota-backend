@@ -131,8 +131,8 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           }
         }
 
-        // 2. Resolução de Telefone (Prioridade: Perfil > Cadastro da Empresa)
-        const publicPhone = profile?.phone || business.contact || null;
+        // 2. Resolução de Telefone (Prioridade: Perfil > Cadastro da Empresa - phone > Cadastro da Empresa - contact)
+        const publicPhone = profile?.phone || business.phone || business.contact || null;
 
         const customization = business.siteCustomization as any;
         const primaryColor = customization?.layoutGlobal?.siteColors?.primary ||
@@ -421,7 +421,7 @@ export const businessController = () => new Elysia({ prefix: "/business" })
             if (owner) publicEmail = owner.email;
           } catch (err) { }
         }
-        const publicPhone = profile?.phone || business.contact || null;
+        const publicPhone = profile?.phone || business.phone || business.contact || null;
 
         return {
           ...business,

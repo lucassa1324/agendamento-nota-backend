@@ -232,7 +232,7 @@ export const settingsController = () => new Elysia({ prefix: "/settings" })
         showTwitter: Boolean(profile?.showTwitter ?? true),
 
         // Contato e Endereço
-        phone: profile?.phone || (business as any).contact || null,
+        phone: profile?.phone || (business as any).phone || (business as any).contact || null,
         email: publicEmail || null,
         address: profile?.address || (business as any).address || null,
 

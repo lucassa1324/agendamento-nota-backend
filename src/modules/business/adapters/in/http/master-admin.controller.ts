@@ -355,6 +355,54 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       return { error: "Erro ao sincronizar: " + error.message };
     }
   })
+  .post("/companies/:id/simulate-block", async ({ params, set }) => {
+    try {
+      const { id } = params;
+
+      const [company] = await db.select()
+        .from(schema.companies)
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!company) {
+        set.status = 404;
+        return { error: "Empresa não encontrada." };
+      }
+
+      console.log(`[MASTER_ADMIN] Simulando bloqueio para: ${company.name} (ID: ${company.id})`);
+
+      // 1. Marcar como inadimplente e inativa
+      await db.update(schema.companies)
+        .set({
+          subscriptionStatus: "past_due",
+          active: false,
+          accessType: "automatic",
+          updatedAt: new Date() // CRITICAL: This date will be used by auth-plugin to ignore old payments
+        })
+        .where(eq(schema.companies.id, company.id));
+
+      // 2. Desativar o dono
+      await db.update(schema.user)
+        .set({
+          active: false,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.user.id, company.ownerId));
+
+      // 3. Matar sessões para forçar re-login/re-auth
+      await db.delete(schema.session)
+        .where(eq(schema.session.userId, company.ownerId));
+
+      return {
+        success: true,
+        message: `Bloqueio simulado com sucesso para ${company.name}.`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_SIMULATE_BLOCK_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro na simulação: " + error.message };
+    }
+  })
   // --- NOVAS ROTAS DE PROSPECTS (POSSÍVEIS CLIENTES) ---
   .get("/prospects", async () => {
     try {

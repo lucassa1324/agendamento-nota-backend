@@ -6,6 +6,7 @@ export type Business = {
   id: string;
   name: string;
   slug: string;
+  phone?: string | null;
   address?: string | null;
   contact?: string | null;
   ownerId: string;
@@ -24,6 +25,7 @@ export type BusinessSummary = {
   id: string;
   name: string;
   slug: string;
+  phone?: string | null;
   createdAt: Date;
   siteCustomization?: BusinessSiteCustomization;
 };
@@ -31,6 +33,7 @@ export type BusinessSummary = {
 export type CreateBusinessInput = {
   id: string;
   name: string;
+  phone: string;
   slug: string;
   ownerId: string;
 };

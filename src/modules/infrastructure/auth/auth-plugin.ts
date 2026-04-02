@@ -292,11 +292,13 @@ export async function syncAsaasPaymentForCompany(
 
     const canActivateBySubscription =
         billingSnapshot.hasActiveSubscription &&
-        (!requireCurrentMonthPayment || latestPaymentIsRecent);
+        (isCurrentlyBlocked
+            ? (!!billingSnapshot.subscriptionBaseDate && billingSnapshot.subscriptionBaseDate.getTime() > lastBlockDate.getTime())
+            : (!requireCurrentMonthPayment || latestPaymentIsRecent));
 
     if (!canActivateByPayment && !canActivateBySubscription) {
-        if (isCurrentlyBlocked && billingSnapshot.hasAnyConfirmedPayment && !hasNewPaymentAfterBlock) {
-            console.warn(`[AUTH_SYNC] Pagamento encontrado, mas é antigo (anterior ao bloqueio). Ignorando ativação para companyId=${companyId}.`);
+        if (isCurrentlyBlocked && (billingSnapshot.hasAnyConfirmedPayment || billingSnapshot.hasActiveSubscription)) {
+            console.warn(`[AUTH_SYNC] Assinatura/Pagamento encontrado, mas é antigo (anterior ao bloqueio). Ignorando ativação para companyId=${companyId}.`);
         } else if (requireCurrentMonthPayment) {
             console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado no mês atual ou nos últimos 35 dias para companyId=${companyId}.`);
         } else {
