@@ -180,7 +180,15 @@ export class DrizzleSettingsRepository implements SettingsRepository {
         .where(eq(siteDrafts.companyId, businessId))
         .limit(1);
 
-      if (!result) return null;
+      if (!result) {
+        return {
+          layoutGlobal: DEFAULT_LAYOUT_GLOBAL,
+          home: DEFAULT_HOME_SECTION,
+          gallery: DEFAULT_GALLERY_SECTION,
+          aboutUs: DEFAULT_ABOUT_US_SECTION,
+          appointmentFlow: DEFAULT_APPOINTMENT_FLOW_SECTION,
+        } as SiteCustomization;
+      }
 
       return this.sanitizeCustomization(result);
     } catch (error: any) {

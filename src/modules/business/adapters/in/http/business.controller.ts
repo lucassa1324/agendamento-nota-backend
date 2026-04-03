@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
+import { authPlugin, syncAsaasPaymentForCompany } from "../../../../infrastructure/auth/auth-plugin";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 import { ListMyBusinessesUseCase } from "../../../application/use-cases/list-my-businesses.use-case";
 import { CreateBusinessUseCase } from "../../../application/use-cases/create-business.use-case";
@@ -214,6 +214,48 @@ export const businessController = () => new Elysia({ prefix: "/business" })
       .get("/my", async ({ user, businessRepository }) => {
         const listMyBusinessesUseCase = new ListMyBusinessesUseCase(businessRepository);
         return await listMyBusinessesUseCase.execute(user!.id);
+      })
+      .post("/sync", async ({ user, set }) => {
+        try {
+          const [userCompany] = await db.select()
+            .from(schema.companies)
+            .where(eq(schema.companies.ownerId, user!.id))
+            .limit(1);
+
+          if (!userCompany) {
+            set.status = 404;
+            return { error: "Company not found" };
+          }
+
+          console.log(`[BUSINESS_SYNC] Sincronização manual solicitada pelo usuário ${user!.email} para a empresa ${userCompany.id}`);
+
+          const syncResult = await syncAsaasPaymentForCompany(
+            userCompany.id,
+            userCompany.ownerId,
+            user!.email,
+            {
+              requireCurrentMonthPayment: true,
+              ignoreBlockDate: true // Sincronização manual pelo usuário ignora a data de bloqueio
+            }
+          );
+
+          if (syncResult?.activated) {
+            return {
+              success: true,
+              message: "Pagamento confirmado e acesso liberado!",
+              nextDue: syncResult.nextDue
+            };
+          }
+
+          return {
+            success: false,
+            message: "Nenhum novo pagamento identificado no Asaas. Se você acabou de pagar, aguarde alguns minutos pela compensação."
+          };
+        } catch (error: any) {
+          console.error("[BUSINESS_SYNC_ERROR]:", error);
+          set.status = 500;
+          return { error: "Erro ao sincronizar: " + error.message };
+        }
       })
       .post("/", async ({ user, body, set, businessRepository }) => {
         try {

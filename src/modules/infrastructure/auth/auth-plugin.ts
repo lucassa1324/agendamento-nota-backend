@@ -53,6 +53,10 @@ const readEnvFallback = async (key: string) => {
     return "";
 };
 
+// Cache para evitar múltiplas sincronizações simultâneas para a mesma empresa
+const syncCache = new Map<string, { promise: Promise<any>, timestamp: number }>();
+const SYNC_CACHE_TTL = 30000; // 30 segundos de cache para o resultado da sincronização
+
 const paidStatuses = ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"];
 const ACTIVATION_WINDOW_DAYS = 60;
 
@@ -270,91 +274,117 @@ export async function syncAsaasPaymentForCompany(
         ignoreBlockDate?: boolean;
     },
 ) {
-    const ignoreBlockDate = options?.ignoreBlockDate ?? false;
-    // Busca a empresa para verificar a data do último bloqueio (updatedAt)
-    const [currentCompany] = await db.select()
-        .from(schema.companies)
-        .where(eq(schema.companies.id, companyId))
-        .limit(1);
+    // 1. Verificar se já existe uma sincronização em andamento ou recentemente concluída
+    const cached = syncCache.get(companyId);
+    const nowTs = Date.now();
 
-    const billingSnapshot = await resolveAsaasBillingSnapshot(companyId, ownerEmail);
-    const requireCurrentMonthPayment = options?.requireCurrentMonthPayment ?? false;
-    const activationWindowDays = options?.activationWindowDays ?? ACTIVATION_WINDOW_DAYS;
-    const now = new Date();
-
-    // Lógica para ignorar pagamentos antigos se a empresa estiver bloqueada
-    // Permitimos pagamentos que ocorreram no mesmo dia ou depois do último bloqueio (updatedAt)
-    // Subtraímos 12 horas da data de bloqueio para dar uma margem de segurança contra delays de API e fuso horário
-    const isCurrentlyBlocked = currentCompany?.subscriptionStatus === "past_due" || currentCompany?.active === false;
-    const lastBlockDate = currentCompany?.updatedAt || new Date(0);
-    const safetyMargin = 12 * 60 * 60 * 1000; // 12 horas de margem
-
-    const hasNewPaymentAfterBlock = !!billingSnapshot?.latestPaymentDate &&
-        (billingSnapshot.latestPaymentDate.getTime() > (lastBlockDate.getTime() - safetyMargin));
-
-    const latestPaymentIsRecent = !!billingSnapshot?.latestPaymentDate &&
-        ((now.getTime() - billingSnapshot.latestPaymentDate.getTime()) <= (activationWindowDays * 24 * 60 * 60 * 1000));
-    const subscriptionBaseIsRecent = !!billingSnapshot?.subscriptionBaseDate &&
-        ((now.getTime() - billingSnapshot.subscriptionBaseDate.getTime()) <= (activationWindowDays * 24 * 60 * 60 * 1000));
-
-    if (!billingSnapshot) {
-        console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado encontrado no Asaas para companyId=${companyId} (email=${ownerEmail || "n/a"}).`);
-        return null;
+    if (cached && (nowTs - cached.timestamp < SYNC_CACHE_TTL)) {
+        console.log(`[SYNC_CACHE] Usando sincronização recente para ${companyId} (idade: ${nowTs - cached.timestamp}ms)`);
+        return cached.promise;
     }
 
-    // Se estiver bloqueado, só libera se houver um pagamento NOVO (pós-bloqueio) ou se for ignorada a data de bloqueio (manual)
-    // Se não estiver bloqueado, aceita pagamentos recentes (35 dias) ou do mês atual
-    const canActivateByPayment =
-        billingSnapshot.hasAnyConfirmedPayment &&
-        (isCurrentlyBlocked && !ignoreBlockDate
-            ? hasNewPaymentAfterBlock
-            : (!requireCurrentMonthPayment || billingSnapshot.hasCurrentMonthPayment || latestPaymentIsRecent));
+    const syncPromise = (async () => {
+        const ignoreBlockDate = options?.ignoreBlockDate ?? false;
+        // Busca a empresa para verificar a data do último bloqueio (updatedAt)
+        const [currentCompany] = await db.select()
+            .from(schema.companies)
+            .where(eq(schema.companies.id, companyId))
+            .limit(1);
 
-    const canActivateBySubscription =
-        billingSnapshot.hasActiveSubscription &&
-        (isCurrentlyBlocked && !ignoreBlockDate
-            ? (!!billingSnapshot.subscriptionBaseDate && (billingSnapshot.subscriptionBaseDate.getTime() > (lastBlockDate.getTime() - safetyMargin)))
-            : (!requireCurrentMonthPayment || latestPaymentIsRecent || subscriptionBaseIsRecent));
+        const billingSnapshot = await resolveAsaasBillingSnapshot(companyId, ownerEmail);
+        const requireCurrentMonthPayment = options?.requireCurrentMonthPayment ?? false;
+        const activationWindowDays = options?.activationWindowDays ?? ACTIVATION_WINDOW_DAYS;
+        const now = new Date();
 
-    if (!canActivateByPayment && !canActivateBySubscription) {
-        if (isCurrentlyBlocked && (billingSnapshot.hasAnyConfirmedPayment || billingSnapshot.hasActiveSubscription)) {
-            console.warn(`[AUTH_SYNC] Assinatura/Pagamento encontrado, mas é antigo (anterior ao bloqueio). Ignorando ativação para companyId=${companyId}.`);
-        } else if (requireCurrentMonthPayment) {
-            console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado no mês atual ou nos últimos ${activationWindowDays} dias para companyId=${companyId}.`);
-        } else {
-            console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado elegível para companyId=${companyId}.`);
+        // Lógica para ignorar pagamentos antigos se a empresa estiver bloqueada
+        // Permitimos pagamentos que ocorreram no mesmo dia ou depois do último bloqueio (updatedAt)
+        // Subtraímos 12 horas da data de bloqueio para dar uma margem de segurança contra delays de API e fuso horário
+        const isCurrentlyBlocked = currentCompany?.subscriptionStatus === "past_due" || currentCompany?.active === false;
+        const lastBlockDate = currentCompany?.updatedAt || new Date(0);
+        const safetyMargin = 12 * 60 * 60 * 1000; // 12 horas de margem
+
+        const hasNewPaymentAfterBlock = !!billingSnapshot?.latestPaymentDate &&
+            (billingSnapshot.latestPaymentDate.getTime() > (lastBlockDate.getTime() - safetyMargin));
+
+        const latestPaymentIsRecent = !!billingSnapshot?.latestPaymentDate &&
+            ((now.getTime() - billingSnapshot.latestPaymentDate.getTime()) <= (activationWindowDays * 24 * 60 * 60 * 1000));
+        const subscriptionBaseIsRecent = !!billingSnapshot?.subscriptionBaseDate &&
+            ((now.getTime() - billingSnapshot.subscriptionBaseDate.getTime()) <= (activationWindowDays * 24 * 60 * 60 * 1000));
+
+        if (!billingSnapshot) {
+            console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado encontrado no Asaas para companyId=${companyId} (email=${ownerEmail || "n/a"}).`);
+            return null;
         }
-        return null;
-    }
 
-    const paymentDate = billingSnapshot.latestPaymentDate || billingSnapshot.subscriptionBaseDate || new Date();
-    const nextDue = new Date(paymentDate);
-    nextDue.setDate(nextDue.getDate() + 30);
+        // Se estiver bloqueado, só libera se houver um pagamento NOVO (pós-bloqueio) ou se for ignorada a data de bloqueio (manual)
+        // Se não estiver bloqueado, aceita pagamentos recentes (35 dias) ou do mês atual
+        const canActivateByPayment =
+            billingSnapshot.hasAnyConfirmedPayment &&
+            (isCurrentlyBlocked && !ignoreBlockDate
+                ? (hasNewPaymentAfterBlock || billingSnapshot.hasCurrentMonthPayment)
+                : (!requireCurrentMonthPayment || billingSnapshot.hasCurrentMonthPayment || latestPaymentIsRecent));
 
-    await db.update(schema.companies)
-        .set({
-            subscriptionStatus: "active",
-            active: true,
-            accessType: "automatic",
-            trialEndsAt: nextDue,
-            updatedAt: new Date()
-        })
-        .where(eq(schema.companies.id, companyId));
+        const canActivateBySubscription =
+            billingSnapshot.hasActiveSubscription &&
+            (isCurrentlyBlocked && !ignoreBlockDate
+                ? (hasNewPaymentAfterBlock || billingSnapshot.hasCurrentMonthPayment || (!!billingSnapshot.subscriptionBaseDate && (billingSnapshot.subscriptionBaseDate.getTime() > (lastBlockDate.getTime() - safetyMargin))))
+                : (!requireCurrentMonthPayment || latestPaymentIsRecent || subscriptionBaseIsRecent));
 
-    if (ownerId) {
-        await db.update(schema.user)
+        if (!canActivateByPayment && !canActivateBySubscription) {
+            console.log(`[AUTH_SYNC] Falha na ativação para companyId=${companyId}:`, {
+                isCurrentlyBlocked,
+                ignoreBlockDate,
+                hasNewPaymentAfterBlock,
+                hasAnyConfirmedPayment: billingSnapshot.hasAnyConfirmedPayment,
+                hasCurrentMonthPayment: billingSnapshot.hasCurrentMonthPayment,
+                latestPaymentIsRecent,
+                hasActiveSubscription: billingSnapshot.hasActiveSubscription,
+                subscriptionBaseIsRecent,
+                latestPaymentDate: billingSnapshot.latestPaymentDate,
+                lastBlockDate
+            });
+            if (isCurrentlyBlocked && (billingSnapshot.hasAnyConfirmedPayment || billingSnapshot.hasActiveSubscription)) {
+                console.warn(`[AUTH_SYNC] Assinatura/Pagamento encontrado, mas é antigo (anterior ao bloqueio). Ignorando ativação para companyId=${companyId}.`);
+            } else if (requireCurrentMonthPayment) {
+                console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado no mês atual ou nos últimos ${activationWindowDays} dias para companyId=${companyId}.`);
+            } else {
+                console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado elegível para companyId=${companyId}.`);
+            }
+            return null;
+        }
+
+        const paymentDate = billingSnapshot.latestPaymentDate || billingSnapshot.subscriptionBaseDate || new Date();
+        const nextDue = new Date(paymentDate);
+        nextDue.setDate(nextDue.getDate() + 30);
+
+        await db.update(schema.companies)
             .set({
+                subscriptionStatus: "active",
                 active: true,
+                accessType: "automatic",
+                trialEndsAt: nextDue,
                 updatedAt: new Date()
             })
-            .where(eq(schema.user.id, ownerId));
-    }
+            .where(eq(schema.companies.id, companyId));
 
-    console.log(`[AUTH_SYNC] Pagamento encontrado no Asaas usando baseUrl=${billingSnapshot.sourceUrl}.`);
-    return {
-        activated: true,
-        nextDue
-    };
+        if (ownerId) {
+            await db.update(schema.user)
+                .set({
+                    active: true,
+                    updatedAt: new Date()
+                })
+                .where(eq(schema.user.id, ownerId));
+        }
+
+        console.log(`[AUTH_SYNC] Pagamento encontrado no Asaas usando baseUrl=${billingSnapshot.sourceUrl}.`);
+        return {
+            activated: true,
+            nextDue
+        };
+    })();
+
+    syncCache.set(companyId, { promise: syncPromise, timestamp: nowTs });
+    return syncPromise;
 }
 
 export const authPlugin = new Elysia({ name: "auth-plugin" })
@@ -364,8 +394,12 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             path.startsWith("/sign-in") ||
             path.startsWith("/sign-out") ||
             path === "/get-session" ||
-            path === "/session" ||
-            path === "/api/business/settings/pricing";
+            path === "/session";
+
+        const isExemptFromBlocking =
+            isAuthRoute ||
+            path === "/api/business/settings/pricing" ||
+            path === "/api/business/sync";
 
         if (isAuthRoute) {
             return { user: null, session: null };
@@ -490,7 +524,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     }
 
                     // 1. BLOQUEIO POR CONTA DE USUÁRIO DESATIVADA (Restritivo)
-                    if (user.active === false && !isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
+                    if (user.active === false && !isMasterRoute && !isExemptFromBlocking && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                         const isAutomaticBillingBlocked =
                             !!userCompany &&
                             userCompany.accessType === "automatic" &&
@@ -511,7 +545,8 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     }
 
                     if (userCompany) {
-                        if (userCompany.active === false && !isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
+                        // 1. BLOQUEIO POR CONTA DE USUÁRIO DESATIVADA (Restritivo)
+                        if (userCompany.active === false && !isMasterRoute && !isExemptFromBlocking && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                             const isAutomaticBillingBlocked =
                                 userCompany.accessType === "automatic" &&
                                 (
@@ -519,13 +554,34 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                     userCompany.subscriptionStatus === "inactive" ||
                                     userCompany.subscriptionStatus === "canceled"
                                 );
+
                             if (isAutomaticBillingBlocked) {
-                                const syncResult = await syncAsaasPaymentForCompany(
+                                // Tenta sincronizar. Se falhar, faz uma pequena pausa e tenta de novo (retry) 
+                                // para dar tempo do Asaas processar se o usuário acabou de pagar.
+                                let syncResult = await syncAsaasPaymentForCompany(
                                     userCompany.id,
                                     userCompany.ownerId,
                                     user.email,
-                                    { requireCurrentMonthPayment: true },
+                                    {
+                                        requireCurrentMonthPayment: true,
+                                        ignoreBlockDate: true
+                                    },
                                 );
+
+                                if (!syncResult?.activated) {
+                                    console.log(`[AUTH_SYNC] Primeira tentativa falhou para ${userCompany.slug}. Tentando retry em 2s...`);
+                                    await new Promise(resolve => setTimeout(resolve, 2000));
+                                    syncResult = await syncAsaasPaymentForCompany(
+                                        userCompany.id,
+                                        userCompany.ownerId,
+                                        user.email,
+                                        {
+                                            requireCurrentMonthPayment: true,
+                                            ignoreBlockDate: true
+                                        },
+                                    );
+                                }
+
                                 if (syncResult?.activated) {
                                     userCompany.active = true;
                                     userCompany.subscriptionStatus = "active";
@@ -537,22 +593,15 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                     throw new Error("BILLING_REQUIRED");
                                 }
                             } else {
-                                console.warn(`[AUTH_BLOCK]: Estabelecimento bloqueado manualmente: ${userCompany.slug}`);
+                                console.warn(`[AUTH_BLOCK]: Conta de usuário desativada: ${user.email}`);
+
                                 set.status = 403;
-                                throw new Error("BUSINESS_SUSPENDED");
+                                throw new Error("ACCOUNT_SUSPENDED");
                             }
                         }
 
-                        // Cálculo de dias restantes (Trial)
-                        const now = new Date();
-                        let daysLeft = 0;
-                        if (userCompany.trialEndsAt) {
-                            const end = new Date(userCompany.trialEndsAt);
-                            const diffTime = end.getTime() - now.getTime();
-                            daysLeft = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-                        }
+                        const daysLeft = userCompany.trialEndsAt ? Math.ceil((new Date(userCompany.trialEndsAt).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 0;
 
-                        // INJEÇÃO CRÍTICA: Garante que o objeto user tenha os dados do business e daysLeft
                         user.business = {
                             ...userCompany,
                             daysLeft
@@ -562,7 +611,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                         // 2. BLOQUEIO POR ASSINATURA (SaaS)
                         // Verifica se o usuário tem permissão de acesso baseado na assinatura
-                        if (!isMasterRoute && !isAuthRoute && !isHealthRoute && user.role !== "SUPER_ADMIN") {
+                        if (!isMasterRoute && !isExemptFromBlocking && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                             const now = new Date();
                             let status = userCompany.subscriptionStatus;
                             const trialEnds = userCompany.trialEndsAt ? new Date(userCompany.trialEndsAt) : null;
@@ -572,66 +621,47 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                 status === 'manual' ||
                                 status === 'manual_active';
 
-                            if (isManualActive && trialEnds && trialEnds <= now) {
-                                console.warn(`[AUTH_UPDATE]: Acesso Manual expirado para ${userCompany.slug}. Revertendo para 'past_due' (Automático).`);
-                                await db.update(schema.companies)
-                                    .set({
-                                        subscriptionStatus: 'past_due',
-                                        accessType: 'automatic'
-                                    })
-                                    .where(eq(schema.companies.id, userCompany.id));
-                                status = "past_due";
-                                isManualActive = false;
-                            }
-
+                            // Se estiver bloqueado ou com pagamento pendente, tenta sincronizar uma última vez
                             const isAutomaticAccess = userCompany.accessType === "automatic" && !isTrialStatus && !isManualActive;
                             if (isAutomaticAccess) {
-                                const syncResult = await syncAsaasPaymentForCompany(
-                                    userCompany.id,
-                                    userCompany.ownerId,
-                                    user.email,
-                                    { requireCurrentMonthPayment: true },
-                                );
-                                if (syncResult?.activated) {
-                                    status = "active";
-                                    userCompany.subscriptionStatus = "active";
-                                    userCompany.trialEndsAt = syncResult.nextDue;
-                                    console.log(`[AUTH_SYNC] Pagamento confirmado no Asaas para ${userCompany.slug}. Acesso reativado automaticamente.`);
-                                } else if (status === "active") {
-                                    await db.update(schema.companies)
-                                        .set({
-                                            subscriptionStatus: "past_due",
-                                            updatedAt: new Date(),
-                                        })
-                                        .where(eq(schema.companies.id, userCompany.id));
-                                    status = "past_due";
-                                    userCompany.subscriptionStatus = "past_due";
-                                    console.warn(`[AUTH_SYNC] Sem pagamento válido no mês atual para ${userCompany.slug}. Rebaixado para past_due.`);
+                                if (status !== "active") {
+                                    const syncResult = await syncAsaasPaymentForCompany(
+                                        userCompany.id,
+                                        userCompany.ownerId,
+                                        user.email,
+                                        {
+                                            requireCurrentMonthPayment: true,
+                                            ignoreBlockDate: true // Se não estiver ativo, força a busca real no Asaas
+                                        },
+                                    );
+
+                                    if (syncResult?.activated) {
+                                        userCompany.active = true;
+                                        userCompany.subscriptionStatus = "active";
+                                        userCompany.trialEndsAt = syncResult.nextDue;
+                                        status = "active";
+                                        console.log(`[AUTH_SYNC] Pagamento confirmado no Asaas para ${userCompany.slug}. Acesso reativado automaticamente.`);
+                                    } else if (status === "active") {
+                                        // Rebaixa se não encontrou pagamento mas estava marcado como ativo
+                                        await db.update(schema.companies)
+                                            .set({
+                                                subscriptionStatus: "past_due",
+                                                updatedAt: new Date()
+                                            })
+                                            .where(eq(schema.companies.id, userCompany.id));
+                                        status = "past_due";
+                                        console.warn(`[AUTH_SYNC] Sem pagamento válido no mês atual para ${userCompany.slug}. Rebaixado para past_due.`);
+                                    }
                                 }
                             }
 
-                            if (status === 'past_due' || status === 'inactive' || status === 'canceled') {
-                                console.warn(`[AUTH_BLOCK]: Acesso negado por status inválido (${status}): ${userCompany.slug}`);
+                            // Validação final de acesso baseada no status resolvido
+                            const isExpired = trialEnds && trialEnds < now;
+                            const isBlocked = status === 'past_due' || status === 'unpaid' || status === 'canceled' || status === 'inactive';
+
+                            if (isBlocked || (isTrialStatus && isExpired)) {
+                                console.warn(`[AUTH_BLOCK]: Acesso negado para ${userCompany.slug} (Status: ${status}, Expired: ${isExpired})`);
                                 set.status = 402;
-                                throw new Error("BILLING_REQUIRED");
-                            }
-
-                            const isActive = status === 'active';
-                            const isTrialValid = isTrialStatus && trialEnds && trialEnds > now;
-
-                            // 2. Auto-expiração do Trial (Lazy Update)
-                            if (isTrialStatus && trialEnds && trialEnds <= now) {
-                                console.warn(`[AUTH_UPDATE]: Trial expirado para ${userCompany.slug}. Atualizando status para 'past_due'.`);
-                                await db.update(schema.companies)
-                                    .set({ subscriptionStatus: 'past_due' })
-                                    .where(eq(schema.companies.id, userCompany.id));
-                                set.status = 402;
-                                throw new Error("BILLING_REQUIRED");
-                            }
-
-                            if (!isManualActive && !isActive && !isTrialValid) {
-                                console.warn(`[AUTH_BLOCK]: Acesso negado por falta de pagamento/trial expirado: ${userCompany.slug} (Status: ${status})`);
-                                set.status = 402; // Payment Required
                                 throw new Error("BILLING_REQUIRED");
                             }
                         }
