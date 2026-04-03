@@ -36,7 +36,7 @@ const readEnvFallback = async (key: string) => {
       if (value) {
         return value;
       }
-    } catch {}
+    } catch { }
   }
 
   return "";
@@ -80,27 +80,99 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
         (await readEnvFallback("ASAAS_BASE_URL")) ||
         "https://api-sandbox.asaas.com/v3";
 
-      let externalReference = payment.externalReference;
-
-      if (!externalReference && payment.subscription && asaasApiKey) {
+      const fetchAsaasResource = async <T>(resourcePath: string): Promise<T | null> => {
+        if (!asaasApiKey) {
+          return null;
+        }
         try {
-          const subscriptionResponse = await fetch(
-            `${asaasApiUrl}/subscriptions/${payment.subscription}`,
-            {
-              method: "GET",
-              headers: {
-                access_token: asaasApiKey,
-              },
+          const response = await fetch(`${asaasApiUrl}${resourcePath}`, {
+            method: "GET",
+            headers: {
+              access_token: asaasApiKey,
             },
-          );
-          if (subscriptionResponse.ok) {
-            const subscriptionData = await subscriptionResponse.json() as {
-              externalReference?: string;
-            };
-            externalReference = subscriptionData.externalReference;
+          });
+          if (!response.ok) {
+            return null;
           }
-        } catch (subscriptionError) {
-          console.error("[ASAAS_WEBHOOK] Falha ao buscar assinatura para recuperar externalReference:", subscriptionError);
+          return await response.json() as T;
+        } catch {
+          return null;
+        }
+      };
+
+      let externalReference = String(payment.externalReference || "");
+      let customerId = String(payment.customer || "");
+      let customerEmail = "";
+
+      if ((!externalReference || !customerId) && payment.subscription) {
+        const subscriptionData = await fetchAsaasResource<{ externalReference?: string; customer?: string }>(
+          `/subscriptions/${payment.subscription}`,
+        );
+        if (subscriptionData?.externalReference) {
+          externalReference = String(subscriptionData.externalReference);
+        }
+        if (subscriptionData?.customer) {
+          customerId = String(subscriptionData.customer);
+        }
+      }
+
+      if ((!externalReference || !customerId) && payment.id) {
+        const paymentData = await fetchAsaasResource<{ externalReference?: string; customer?: string; subscription?: string }>(
+          `/payments/${payment.id}`,
+        );
+        if (paymentData?.externalReference) {
+          externalReference = String(paymentData.externalReference);
+        }
+        if (paymentData?.customer) {
+          customerId = String(paymentData.customer);
+        }
+        if ((!externalReference || !customerId) && paymentData?.subscription) {
+          const subscriptionFromPayment = await fetchAsaasResource<{ externalReference?: string; customer?: string }>(
+            `/subscriptions/${paymentData.subscription}`,
+          );
+          if (subscriptionFromPayment?.externalReference) {
+            externalReference = String(subscriptionFromPayment.externalReference);
+          }
+          if (subscriptionFromPayment?.customer) {
+            customerId = String(subscriptionFromPayment.customer);
+          }
+        }
+      }
+
+      if ((!externalReference || !customerEmail) && customerId) {
+        const customerData = await fetchAsaasResource<{ externalReference?: string; email?: string }>(
+          `/customers/${customerId}`,
+        );
+        if (customerData?.externalReference) {
+          externalReference = String(customerData.externalReference);
+        }
+        if (customerData?.email) {
+          customerEmail = String(customerData.email).trim().toLowerCase();
+        }
+      }
+
+      if (!externalReference && customerEmail) {
+        let ownerByEmail = await db.select({ id: user.id })
+          .from(user)
+          .where(eq(user.email, customerEmail))
+          .limit(1);
+
+        if (ownerByEmail.length === 0) {
+          ownerByEmail = await db.select({ id: user.id })
+            .from(user)
+            .where(eq(user.email, customerEmail.trim()))
+            .limit(1);
+        }
+
+        const ownerId = ownerByEmail[0]?.id;
+        if (ownerId) {
+          const [companyByOwner] = await db.select({ id: companies.id })
+            .from(companies)
+            .where(eq(companies.ownerId, ownerId))
+            .limit(1);
+          if (companyByOwner?.id) {
+            externalReference = companyByOwner.id;
+          }
         }
       }
 
@@ -121,7 +193,7 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
             .limit(1);
 
           if (company) {
-            if (company.active === false) {
+            if (company.active === false && company.accessType !== "automatic") {
               console.warn(`[ASAAS_WEBHOOK] Empresa ${company.name} está bloqueada manualmente (active=false). Ativação automática ignorada.`);
               return { received: true, skipped: "manual_block" };
             }
@@ -170,7 +242,7 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
             return { received: true };
           }
 
-          if (company.active === false) {
+          if (company.active === false && company.accessType !== "automatic") {
             console.warn(`[ASAAS_WEBHOOK] Empresa ${company.name} já está bloqueada manualmente (active=false).`);
             return { received: true, skipped: "manual_block" };
           }

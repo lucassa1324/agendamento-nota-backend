@@ -260,7 +260,10 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
             id,
             currentCompany.ownerId,
             owner?.email,
-            { requireCurrentMonthPayment: true }
+            {
+              requireCurrentMonthPayment: true,
+              ignoreBlockDate: true // Sincronização manual do Master Admin ignora a data de bloqueio
+            }
           );
 
           if (syncResult && syncResult.activated) {
@@ -357,7 +360,10 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         id,
         currentCompany.ownerId,
         owner?.email,
-        { requireCurrentMonthPayment: true }
+        {
+          requireCurrentMonthPayment: true,
+          ignoreBlockDate: true // Sincronização manual do Master Admin ignora a data de bloqueio
+        }
       );
 
       await writeSystemLog({
@@ -524,6 +530,49 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       console.error("[MASTER_ADMIN_TEST_EXPIRATION_ERROR]:", error);
       set.status = 500;
       return { error: "Erro ao configurar expiração: " + error.message };
+    }
+  })
+  .post("/companies/:id/simulate-past-due", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+
+      await db.update(schema.companies)
+        .set({
+          accessType: "automatic",
+          subscriptionStatus: "past_due",
+          active: false,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.companies.id, id));
+
+      // 2. Desativar o dono para garantir o bloqueio total
+      const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, id)).limit(1);
+      if (company) {
+        await db.update(schema.user)
+          .set({ active: false, updatedAt: new Date() })
+          .where(eq(schema.user.id, company.ownerId));
+
+        // 3. Matar sessões para forçar re-login/bloqueio imediato
+        await db.delete(schema.session)
+          .where(eq(schema.session.userId, company.ownerId));
+      }
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "SIMULATE_PAST_DUE",
+        details: "Simulação de vencimento automático (past_due) ativada.",
+        level: "INFO",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message: "Empresa definida como Vencida (Modo Automático)."
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_PAST_DUE_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao simular vencimento: " + error.message };
     }
   })
   .get("/logs", async () => {

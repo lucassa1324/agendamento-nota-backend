@@ -54,6 +54,7 @@ const readEnvFallback = async (key: string) => {
 };
 
 const paidStatuses = ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"];
+const ACTIVATION_WINDOW_DAYS = 60;
 
 const extractPaymentDate = (payment: Record<string, any>) => {
     const rawDate =
@@ -162,7 +163,7 @@ async function resolveAsaasBillingSnapshot(companyId: string, ownerEmail?: strin
                     }
                 }
 
-                const payment = [...byExternalReference, ...byCustomer].find((candidate) => {
+                const eligiblePayments = [...byExternalReference, ...byCustomer].filter((candidate) => {
                     if (!candidate) {
                         return false;
                     }
@@ -172,8 +173,8 @@ async function resolveAsaasBillingSnapshot(companyId: string, ownerEmail?: strin
                     return true;
                 });
 
-                if (payment) {
-                    foundPayments.push(payment);
+                if (eligiblePayments.length > 0) {
+                    foundPayments.push(...eligiblePayments);
                 }
             }
 
@@ -205,13 +206,22 @@ async function resolveAsaasBillingSnapshot(companyId: string, ownerEmail?: strin
                 }
             }
 
-            const normalizedDates = foundPayments
+            const uniquePayments = [...new Map(
+                foundPayments.map((payment) => {
+                    const paymentId = payment?.id
+                        ? String(payment.id)
+                        : `${payment?.externalReference || "noref"}-${payment?.dateCreated || payment?.paymentDate || Math.random()}`;
+                    return [paymentId, payment];
+                }),
+            ).values()];
+
+            const normalizedDates = uniquePayments
                 .map((payment) => extractPaymentDate(payment))
                 .filter((date): date is Date => !!date)
                 .sort((a, b) => b.getTime() - a.getTime());
 
             const latestPaymentDate = normalizedDates[0] || null;
-            const hasAnyConfirmedPayment = foundPayments.length > 0;
+            const hasAnyConfirmedPayment = uniquePayments.length > 0;
             const hasCurrentMonthPayment = normalizedDates.some((paymentDate) => isSameMonthAndYear(paymentDate, now));
 
             const snapshot: AsaasBillingSnapshot = {
@@ -254,8 +264,13 @@ export async function syncAsaasPaymentForCompany(
     companyId: string,
     ownerId: string,
     ownerEmail?: string,
-    options?: { requireCurrentMonthPayment?: boolean },
+    options?: {
+        requireCurrentMonthPayment?: boolean;
+        activationWindowDays?: number;
+        ignoreBlockDate?: boolean;
+    },
 ) {
+    const ignoreBlockDate = options?.ignoreBlockDate ?? false;
     // Busca a empresa para verificar a data do último bloqueio (updatedAt)
     const [currentCompany] = await db.select()
         .from(schema.companies)
@@ -264,43 +279,48 @@ export async function syncAsaasPaymentForCompany(
 
     const billingSnapshot = await resolveAsaasBillingSnapshot(companyId, ownerEmail);
     const requireCurrentMonthPayment = options?.requireCurrentMonthPayment ?? false;
+    const activationWindowDays = options?.activationWindowDays ?? ACTIVATION_WINDOW_DAYS;
     const now = new Date();
 
     // Lógica para ignorar pagamentos antigos se a empresa estiver bloqueada
-    // Se a empresa está past_due e inativa, só aceitamos pagamentos confirmados DEPOIS da última atualização (bloqueio)
+    // Permitimos pagamentos que ocorreram no mesmo dia ou depois do último bloqueio (updatedAt)
+    // Subtraímos 12 horas da data de bloqueio para dar uma margem de segurança contra delays de API e fuso horário
     const isCurrentlyBlocked = currentCompany?.subscriptionStatus === "past_due" || currentCompany?.active === false;
     const lastBlockDate = currentCompany?.updatedAt || new Date(0);
+    const safetyMargin = 12 * 60 * 60 * 1000; // 12 horas de margem
 
     const hasNewPaymentAfterBlock = !!billingSnapshot?.latestPaymentDate &&
-        billingSnapshot.latestPaymentDate.getTime() > lastBlockDate.getTime();
+        (billingSnapshot.latestPaymentDate.getTime() > (lastBlockDate.getTime() - safetyMargin));
 
     const latestPaymentIsRecent = !!billingSnapshot?.latestPaymentDate &&
-        ((now.getTime() - billingSnapshot.latestPaymentDate.getTime()) <= (35 * 24 * 60 * 60 * 1000));
+        ((now.getTime() - billingSnapshot.latestPaymentDate.getTime()) <= (activationWindowDays * 24 * 60 * 60 * 1000));
+    const subscriptionBaseIsRecent = !!billingSnapshot?.subscriptionBaseDate &&
+        ((now.getTime() - billingSnapshot.subscriptionBaseDate.getTime()) <= (activationWindowDays * 24 * 60 * 60 * 1000));
 
     if (!billingSnapshot) {
         console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado encontrado no Asaas para companyId=${companyId} (email=${ownerEmail || "n/a"}).`);
         return null;
     }
 
-    // Se estiver bloqueado, só libera se houver um pagamento NOVO (pós-bloqueio)
+    // Se estiver bloqueado, só libera se houver um pagamento NOVO (pós-bloqueio) ou se for ignorada a data de bloqueio (manual)
     // Se não estiver bloqueado, aceita pagamentos recentes (35 dias) ou do mês atual
     const canActivateByPayment =
         billingSnapshot.hasAnyConfirmedPayment &&
-        (isCurrentlyBlocked
+        (isCurrentlyBlocked && !ignoreBlockDate
             ? hasNewPaymentAfterBlock
             : (!requireCurrentMonthPayment || billingSnapshot.hasCurrentMonthPayment || latestPaymentIsRecent));
 
     const canActivateBySubscription =
         billingSnapshot.hasActiveSubscription &&
-        (isCurrentlyBlocked
-            ? (!!billingSnapshot.subscriptionBaseDate && billingSnapshot.subscriptionBaseDate.getTime() > lastBlockDate.getTime())
-            : (!requireCurrentMonthPayment || latestPaymentIsRecent));
+        (isCurrentlyBlocked && !ignoreBlockDate
+            ? (!!billingSnapshot.subscriptionBaseDate && (billingSnapshot.subscriptionBaseDate.getTime() > (lastBlockDate.getTime() - safetyMargin)))
+            : (!requireCurrentMonthPayment || latestPaymentIsRecent || subscriptionBaseIsRecent));
 
     if (!canActivateByPayment && !canActivateBySubscription) {
         if (isCurrentlyBlocked && (billingSnapshot.hasAnyConfirmedPayment || billingSnapshot.hasActiveSubscription)) {
             console.warn(`[AUTH_SYNC] Assinatura/Pagamento encontrado, mas é antigo (anterior ao bloqueio). Ignorando ativação para companyId=${companyId}.`);
         } else if (requireCurrentMonthPayment) {
-            console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado no mês atual ou nos últimos 35 dias para companyId=${companyId}.`);
+            console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado no mês atual ou nos últimos ${activationWindowDays} dias para companyId=${companyId}.`);
         } else {
             console.warn(`[AUTH_SYNC] Nenhum pagamento confirmado elegível para companyId=${companyId}.`);
         }

@@ -5,10 +5,12 @@ import { db } from "../../../infrastructure/drizzle/database";
 import { companies, account, companySiteCustomizations, user } from "../../../../db/schema";
 import { generateUniqueSlug } from "../../../../shared/utils/slug";
 import { eq } from "drizzle-orm";
+import { TransactionalEmailService } from "../../../notifications/application/transactional-email.service";
 
 export class CreateUserUseCase {
   constructor(private readonly userRepository: UserRepository) { }
   async execute(data: SigninDTO) {
+    const transactionalEmailService = new TransactionalEmailService();
     const cpfCnpj = data.cpfCnpj?.replace(/\D/g, "") || null;
     const alreadyExists = await this.userRepository.findByEmail(data.email);
 
@@ -84,6 +86,16 @@ export class CreateUserUseCase {
         }
         throw err;
       });
+
+      await transactionalEmailService
+        .sendWelcomeEmail({
+          to: alreadyExists.email,
+          name: alreadyExists.name || data.name,
+          studioName: result.newCompany.name,
+        })
+        .catch((error) =>
+          console.error("[WELCOME_EMAIL_ERROR]", error),
+        );
 
       return {
         user: alreadyExists,
@@ -172,6 +184,16 @@ export class CreateUserUseCase {
       }
       throw err;
     });
+
+    await transactionalEmailService
+      .sendWelcomeEmail({
+        to: data.email,
+        name: data.name,
+        studioName: result.newCompany.name,
+      })
+      .catch((error) =>
+        console.error("[WELCOME_EMAIL_ERROR]", error),
+      );
 
     return {
       ...response,

@@ -5,6 +5,7 @@ import { CreateAppointmentInput } from "../../domain/entities/appointment.entity
 import { IPushSubscriptionRepository } from "../../../notifications/domain/ports/push-subscription.repository";
 import { UserRepository } from "../../../user/adapters/out/user.repository";
 import { NotificationService } from "../../../notifications/application/notification.service";
+import { TransactionalEmailService } from "../../../notifications/application/transactional-email.service";
 
 export class CreateAppointmentUseCase {
   constructor(
@@ -279,6 +280,7 @@ export class CreateAppointmentUseCase {
       try {
         const ownerId = business.ownerId;
         const owner = await this.userRepository.find(ownerId);
+        const transactionalEmailService = new TransactionalEmailService();
 
         if (owner && owner.notifyNewAppointments) {
           const notificationService = new NotificationService(this.pushSubscriptionRepository);
@@ -299,6 +301,27 @@ export class CreateAppointmentUseCase {
             `${newAppointment.customerName} agendou ${newAppointment.serviceNameSnapshot} para ${formattedDate}`
           );
           console.log(`[WEBPUSH] Notificação de agendamento enviada para ${owner.email}`);
+        }
+
+        if (data.customerEmail) {
+          await transactionalEmailService.sendAppointmentConfirmationToCustomer({
+            to: data.customerEmail,
+            customerName: newAppointment.customerName,
+            serviceName: newAppointment.serviceNameSnapshot,
+            businessName: business.name,
+            scheduledAt: new Date(newAppointment.scheduledAt),
+          });
+        }
+
+        if (owner?.email) {
+          await transactionalEmailService.sendAppointmentAlertToOwner({
+            to: owner.email,
+            ownerName: owner.name || "Administrador",
+            customerName: newAppointment.customerName,
+            serviceName: newAppointment.serviceNameSnapshot,
+            businessName: business.name,
+            scheduledAt: new Date(newAppointment.scheduledAt),
+          });
         }
       } catch (notifyError: any) {
         console.error("[WEBPUSH_TRIGGER_ERROR]", notifyError?.message || notifyError);

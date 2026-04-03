@@ -102,7 +102,11 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           };
         }
 
-        if (business.active === false && (!user || (user.id !== business.ownerId && user.role !== "SUPER_ADMIN"))) {
+        const isBlockedStatus =
+          business.subscriptionStatus === "past_due" ||
+          business.subscriptionStatus === "canceled";
+
+        if ((business.active === false || isBlockedStatus) && (!user || (user.id !== business.ownerId && user.role !== "SUPER_ADMIN"))) {
           set.status = 403;
           return {
             error: "Business suspended",
