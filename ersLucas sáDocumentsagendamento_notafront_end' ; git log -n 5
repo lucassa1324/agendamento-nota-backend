@@ -1,0 +1,29 @@
+[33mcommit 29b0a25b4779a960e2ce6c082036580eea18158b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32msavepoint/local-db-setup[m[33m)[m
+Author: Lucas Sá <lucassa1324@gmail.com>
+Date:   Fri Apr 3 17:19:22 2026 -0300
+
+    savepoint: refine appointment creation, business controller, auth plugin and settings repository
+
+[33mcommit 27b37066d151015957bd4498fc91e84bda4a6881[m
+Author: Lucas Sá <lucassa1324@gmail.com>
+Date:   Fri Apr 3 10:21:25 2026 -0300
+
+    savepoint: implement transactional email service, refine appointment creation and auth logic
+
+[33mcommit a580dd65013c25d22955a7e0d36bd85221bc772c[m
+Author: Lucas Sá <lucassa1324@gmail.com>
+Date:   Thu Apr 2 16:16:12 2026 -0300
+
+    savepoint: database schema updates and master admin controller refinements
+
+[33mcommit db34aafe0d7b924efbb0ebefaa74b310baa4fcec[m[33m ([m[1;31morigin/savepoint/local-db-setup[m[33m)[m
+Author: Lucas Sá <lucassa1324@gmail.com>
+Date:   Thu Apr 2 14:28:40 2026 -0300
+
+    savepoint: business creation flow improvements and auth plugin fixes
+
+[33mcommit 4049e7115bf75508970e96b8e3d33fdb9996ca41[m
+Author: Lucas Sá <lucassa1324@gmail.com>
+Date:   Wed Apr 1 20:13:26 2026 -0300
+
+    savepoint: finalize auth plugin fixes and include block simulation script

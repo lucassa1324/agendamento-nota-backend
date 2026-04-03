@@ -208,13 +208,15 @@ export const auth = betterAuth({
                   .select({
                     id: schema.companies.id,
                     slug: schema.companies.slug,
+                    subscriptionStatus: schema.companies.subscriptionStatus,
+                    trialEndsAt: schema.companies.trialEndsAt,
                   })
                   .from(schema.companies)
                   .where(eq(schema.companies.ownerId, returned.user.id))
                   .limit(1);
 
                 if (business) {
-                  console.log(`[AUTH_HOOK] Injetando slug: ${business.slug}`);
+                  console.log(`[AUTH_HOOK] Injetando dados do business para: ${business.slug}`);
 
                   // Injeção direta no objeto que o Better Auth já ia retornar 
                   return {
@@ -223,7 +225,13 @@ export const auth = betterAuth({
                       user: {
                         ...returned.user,
                         slug: business.slug,
-                        businessId: business.id
+                        businessId: business.id,
+                        business: {
+                          id: business.id,
+                          slug: business.slug,
+                          subscriptionStatus: business.subscriptionStatus,
+                          trialEndsAt: business.trialEndsAt,
+                        }
                       }
                     }
                   };

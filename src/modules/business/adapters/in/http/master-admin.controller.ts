@@ -1305,6 +1305,8 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           slug: company.slug,
           active: company.active,
           createdAt: company.createdAt,
+          subscriptionStatus: company.subscriptionStatus,
+          trialEndsAt: company.trialEndsAt,
         } : null,
         stats: {
           totalAppointments: Number(appointmentStats?.count || 0),
