@@ -1299,13 +1299,19 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       // Cálculo simples da próxima fatura (mensal)
       const nextInvoice = new Date(company.createdAt);
       const now = new Date();
-      while (nextInvoice < now) {
-        nextInvoice.setMonth(nextInvoice.getMonth() + 1);
+
+      // Se estiver em trial, a primeira fatura é após o trial
+      if ((company.subscriptionStatus === 'trial' || company.subscriptionStatus === 'trialing') && company.trialEndsAt) {
+        nextInvoice.setTime(company.trialEndsAt.getTime());
+      } else {
+        while (nextInvoice < now) {
+          nextInvoice.setMonth(nextInvoice.getMonth() + 1);
+        }
       }
 
       return {
         status: statusMap[company.subscriptionStatus] || "Não identificado",
-        nextInvoiceDate: company.subscriptionStatus === 'active' ? nextInvoice.toISOString() : null,
+        nextInvoiceDate: (company.subscriptionStatus === 'active' || company.subscriptionStatus === 'trial' || company.subscriptionStatus === 'trialing') ? nextInvoice.toISOString() : null,
         lastPaymentDate: company.createdAt.toISOString(), // Simplificação
         history: [] // Histórico real exigiria busca no Asaas via API
       };
