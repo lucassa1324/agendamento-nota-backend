@@ -1247,13 +1247,77 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
 
       return {
         success: true,
-        message: `Senha resetada para o padrão: ${defaultPassword}`
+        message: `Senha de ${updatedAccount.userId} resetada para Mudar@123 com sucesso.`
       };
     } catch (error: any) {
       console.error("[MASTER_ADMIN_RESET_PASSWORD_ERROR]:", error);
       set.status = 500;
       return { error: "Erro ao resetar senha: " + error.message };
     }
+  })
+  .get("/financial-details", async ({ query, set }) => {
+    try {
+      const { email } = query;
+      if (!email) {
+        set.status = 400;
+        return { error: "Email é obrigatório" };
+      }
+
+      // Busca a empresa vinculada ao email (dono)
+      const [company] = await db
+        .select({
+          id: schema.companies.id,
+          subscriptionStatus: schema.companies.subscriptionStatus,
+          trialEndsAt: schema.companies.trialEndsAt,
+          createdAt: schema.companies.createdAt,
+        })
+        .from(schema.companies)
+        .innerJoin(schema.user, eq(schema.companies.ownerId, schema.user.id))
+        .where(eq(schema.user.email, email))
+        .limit(1);
+
+      if (!company) {
+        return {
+          status: "Não identificado",
+          nextInvoiceDate: null,
+          lastPaymentDate: null,
+          history: []
+        };
+      }
+
+      // Por enquanto, como não temos integração total de histórico com Asaas implementada no AsaasClient,
+      // retornamos um mock estruturado que o front espera baseado no status do banco.
+
+      const statusMap: Record<string, string> = {
+        active: "Ativo",
+        trialing: "Teste",
+        trial: "Teste",
+        past_due: "Vencido",
+        deleted: "Cancelado"
+      };
+
+      // Cálculo simples da próxima fatura (mensal)
+      const nextInvoice = new Date(company.createdAt);
+      const now = new Date();
+      while (nextInvoice < now) {
+        nextInvoice.setMonth(nextInvoice.getMonth() + 1);
+      }
+
+      return {
+        status: statusMap[company.subscriptionStatus] || "Não identificado",
+        nextInvoiceDate: company.subscriptionStatus === 'active' ? nextInvoice.toISOString() : null,
+        lastPaymentDate: company.createdAt.toISOString(), // Simplificação
+        history: [] // Histórico real exigiria busca no Asaas via API
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_FINANCIAL_DETAILS_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao buscar detalhes financeiros: " + error.message };
+    }
+  }, {
+    query: t.Object({
+      email: t.String()
+    })
   })
   .get("/users/:id/details", async ({ params, set }) => {
     try {
