@@ -321,14 +321,19 @@ export async function syncAsaasPaymentForCompany(
         const canActivateByPayment =
             billingSnapshot.hasAnyConfirmedPayment &&
             (isCurrentlyBlocked && !ignoreBlockDate
-                ? (hasNewPaymentAfterBlock || billingSnapshot.hasCurrentMonthPayment)
-                : (!requireCurrentMonthPayment || billingSnapshot.hasCurrentMonthPayment || latestPaymentIsRecent));
+                ? hasNewPaymentAfterBlock
+                : (requireCurrentMonthPayment
+                    ? billingSnapshot.hasCurrentMonthPayment
+                    : (billingSnapshot.hasCurrentMonthPayment || latestPaymentIsRecent)));
 
         const canActivateBySubscription =
             billingSnapshot.hasActiveSubscription &&
+            billingSnapshot.hasAnyConfirmedPayment &&
             (isCurrentlyBlocked && !ignoreBlockDate
-                ? (hasNewPaymentAfterBlock || billingSnapshot.hasCurrentMonthPayment || (!!billingSnapshot.subscriptionBaseDate && (billingSnapshot.subscriptionBaseDate.getTime() > (lastBlockDate.getTime() - safetyMargin))))
-                : (!requireCurrentMonthPayment || latestPaymentIsRecent || subscriptionBaseIsRecent));
+                ? hasNewPaymentAfterBlock
+                : (requireCurrentMonthPayment
+                    ? billingSnapshot.hasCurrentMonthPayment
+                    : (latestPaymentIsRecent || subscriptionBaseIsRecent)));
 
         if (!canActivateByPayment && !canActivateBySubscription) {
             console.log(`[AUTH_SYNC] Falha na ativação para companyId=${companyId}:`, {
@@ -564,7 +569,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                     user.email,
                                     {
                                         requireCurrentMonthPayment: true,
-                                        ignoreBlockDate: true
+                                        ignoreBlockDate: false
                                     },
                                 );
 
@@ -577,7 +582,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                         user.email,
                                         {
                                             requireCurrentMonthPayment: true,
-                                            ignoreBlockDate: true
+                                            ignoreBlockDate: false
                                         },
                                     );
                                 }
@@ -631,7 +636,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                         user.email,
                                         {
                                             requireCurrentMonthPayment: true,
-                                            ignoreBlockDate: true // Se não estiver ativo, força a busca real no Asaas
+                                            ignoreBlockDate: false
                                         },
                                     );
 

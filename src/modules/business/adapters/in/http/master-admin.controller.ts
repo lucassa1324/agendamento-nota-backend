@@ -262,7 +262,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
             owner?.email,
             {
               requireCurrentMonthPayment: true,
-              ignoreBlockDate: true // Sincronização manual do Master Admin ignora a data de bloqueio
+              ignoreBlockDate: false
             }
           );
 
@@ -362,7 +362,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         owner?.email,
         {
           requireCurrentMonthPayment: true,
-          ignoreBlockDate: true // Sincronização manual do Master Admin ignora a data de bloqueio
+          ignoreBlockDate: false
         }
       );
 

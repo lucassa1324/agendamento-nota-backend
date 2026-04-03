@@ -235,7 +235,7 @@ export const businessController = () => new Elysia({ prefix: "/business" })
             user!.email,
             {
               requireCurrentMonthPayment: true,
-              ignoreBlockDate: true // Sincronização manual pelo usuário ignora a data de bloqueio
+              ignoreBlockDate: false
             }
           );
 
