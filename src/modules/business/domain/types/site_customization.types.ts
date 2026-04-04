@@ -4,6 +4,7 @@ export interface SiteCustomization {
   gallery: GallerySection;
   aboutUs: AboutUsSection;
   appointmentFlow: AppointmentFlowSection;
+  [key: string]: any; // Permite seções extras sem perda de dados (Blindagem de Regressão)
 }
 
 // --- Layout Global ---
