@@ -5,10 +5,7 @@ export const signinDTO = t.Object({
   email: t.String({ format: "email" }),
   password: t.String({ minLength: 6 }),
   studioName: t.String(),
-  phone: t.String({
-    pattern: "^[0-9]{10,11}$|^\\([0-9]{2}\\)\\s?[0-9]{4,5}-[0-9]{4}$",
-    error: "Telefone inválido. Use o formato (99) 99999-9999 ou apenas números com DDD."
-  }),
+  phone: t.String(),
   cpfCnpj: t.Optional(t.String()),
   role: t.Optional(t.String()), // "USER" ou "SUPER_ADMIN"
 }, {

@@ -191,6 +191,34 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       active: t.Boolean()
     })
   })
+  .post("/users/:id/reset-email-verification", async ({ params, set }) => {
+    try {
+      const { id } = params;
+
+      const [updated] = await db
+        .update(schema.user)
+        .set({
+          emailVerified: false,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.user.id, id))
+        .returning();
+
+      if (!updated) {
+        set.status = 404;
+        return { error: "Usuário não encontrado" };
+      }
+
+      return {
+        success: true,
+        message: `Verificação de e-mail do usuário ${updated.name} resetada com sucesso.`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_RESET_EMAIL_VERIFICATION_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao resetar verificação: " + error.message };
+    }
+  })
   .patch("/companies/:id/subscription", async ({ params, body, set }) => {
     try {
       const { id } = params;
@@ -1431,6 +1459,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           trialEndsAt: schema.companies.trialEndsAt,
           accessType: schema.companies.accessType,
           createdAt: schema.companies.createdAt,
+          ownerId: schema.companies.ownerId,
           ownerEmail: schema.user.email,
         })
         .from(schema.companies)

@@ -185,11 +185,24 @@ export class CreateUserUseCase {
       throw err;
     });
 
+    // 3. Gera o link de verificação se o e-mail não estiver verificado
+    let verificationUrl = undefined;
+    if (!response.user.emailVerified) {
+      const { url } = await auth.api.generateEmailVerificationToken({
+        body: {
+          email: data.email,
+        },
+      });
+      verificationUrl = url;
+      console.log(`[USER_REGISTER_USE_CASE] Link de verificação gerado: ${verificationUrl}`);
+    }
+
     await transactionalEmailService
       .sendWelcomeEmail({
         to: data.email,
         name: data.name,
         studioName: result.newCompany.name,
+        verificationUrl: verificationUrl,
       })
       .catch((error) =>
         console.error("[WELCOME_EMAIL_ERROR]", error),

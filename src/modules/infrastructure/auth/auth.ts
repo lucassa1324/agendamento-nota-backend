@@ -143,8 +143,9 @@ export const auth = betterAuth({
     async sendVerificationEmail({ user, url }: { user: any; url: string }) {
       console.log(`[AUTH] Enviando e-mail de verificação para: ${user.email}`);
       try {
+        const fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
         const { data, error } = await resend.emails.send({
-          from: "Agendamento Nota <onboarding@resend.dev>",
+          from: `Agendamento Nota <${fromEmail}>`,
           to: [user.email],
           subject: "Verifique seu e-mail",
           html: `

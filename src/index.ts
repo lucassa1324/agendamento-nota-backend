@@ -65,14 +65,58 @@ const startServer = () => {
     const app = new Elysia({
       name: 'AgendamentoNota'
     })
+      .get("/email-verified", async ({ query }) => {
+        const { token } = query;
+        const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+        if (!token) {
+          console.log("[VERIFY_EMAIL] Chamado sem token, assumindo que veio de um redirecionamento de sucesso.");
+          return Response.redirect(`${frontendUrl}/admin?verified=true`, 302);
+        }
+
+        try {
+          console.log(`[VERIFY_EMAIL] Iniciando verificação para token: ${token}`);
+          await auth.api.verifyEmail({
+            query: {
+              token
+            }
+          });
+
+          console.log(`[VERIFY_EMAIL] Sucesso! Redirecionando para o login.`);
+          return Response.redirect(`${frontendUrl}/admin?verified=true`, 302);
+        } catch (e) {
+          console.error("[VERIFY_EMAIL_ERROR]", e);
+          return Response.redirect(`${frontendUrl}/admin?error=verification_failed`, 302);
+        }
+      })
       .all("/api/auth/*", async (ctx) => {
         console.log(`>>> [AUTH_HANDLER_START] ${ctx.request.method} ${ctx.path}`);
         try {
+          // Log do body se for POST para ajudar no debug do erro 400
+          if (ctx.request.method === "POST") {
+            try {
+              const clonedRequest = ctx.request.clone();
+              const bodyText = await clonedRequest.text();
+              console.log(`>>> [AUTH_BODY] ${bodyText}`);
+            } catch (e) {
+              console.warn(">>> [AUTH_BODY_ERROR] Não foi possível ler o corpo da requisição");
+            }
+          }
+
           // Passamos a requisição original. O Better Auth sabe lidar com ela.
-          // Se o Elysia já parseou o corpo, ele estará em ctx.body.
           const response = await auth.handler(ctx.request);
 
           console.log(`<<< [AUTH_HANDLER_END] Status: ${response.status}`);
+
+          if (response.status >= 400) {
+            try {
+              const clonedRes = response.clone();
+              const errorText = await clonedRes.text();
+              console.error(`<<< [AUTH_ERROR_DETAILS] ${errorText}`);
+            } catch (e) {
+              console.error("<<< [AUTH_ERROR_DETAILS_FAILED] Erro ao ler corpo do erro");
+            }
+          }
 
           // Se não houver resposta do Better Auth, retornamos erro 500
           if (!response) {
