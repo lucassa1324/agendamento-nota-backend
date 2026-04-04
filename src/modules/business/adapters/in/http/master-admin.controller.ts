@@ -219,6 +219,46 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       return { error: "Erro ao resetar verificação: " + error.message };
     }
   })
+  .post("/companies/:id/reset-onboarding", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+
+      const [company] = await db
+        .select()
+        .from(schema.companies)
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!company) {
+        set.status = 404;
+        return { error: "Empresa não encontrada." };
+      }
+
+      await db.update(schema.user)
+        .set({
+          hasCompletedOnboarding: false,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.user.id, company.ownerId));
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "RESET_ONBOARDING",
+        details: `Primeiro acesso resetado para ${company.name}.`,
+        level: "WARN",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message: "Primeiro acesso resetado com sucesso."
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_RESET_ONBOARDING_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao resetar primeiro acesso: " + error.message };
+    }
+  })
   .patch("/companies/:id/subscription", async ({ params, body, set }) => {
     try {
       const { id } = params;
