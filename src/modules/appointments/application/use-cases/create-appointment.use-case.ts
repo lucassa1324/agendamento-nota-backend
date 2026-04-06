@@ -123,6 +123,28 @@ export class CreateAppointmentUseCase {
     const parts = formatter.formatToParts(scheduledAt);
     const getPart = (type: string) => parts.find(p => p.type === type)?.value;
 
+    if (!userId) {
+      const nowInBrt = new Date();
+      const nowParts = formatter.formatToParts(nowInBrt);
+      const getNowPart = (type: string) =>
+        nowParts.find((p) => p.type === type)?.value || "00";
+
+      const scheduledDateKey = `${getPart("year")}${getPart("month")}${getPart("day")}`;
+      const nowDateKey = `${getNowPart("year")}${getNowPart("month")}${getNowPart("day")}`;
+      const scheduledMinuteOfDay =
+        parseInt(getPart("hour") || "0") * 60 + parseInt(getPart("minute") || "0");
+      const nowMinuteOfDay =
+        parseInt(getNowPart("hour")) * 60 + parseInt(getNowPart("minute"));
+
+      const isPastDate = Number(scheduledDateKey) < Number(nowDateKey);
+      const isPastTimeSameDay =
+        scheduledDateKey === nowDateKey && scheduledMinuteOfDay <= nowMinuteOfDay;
+
+      if (isPastDate || isPastTimeSameDay) {
+        throw new Error("Não é possível agendar em horário passado.");
+      }
+    }
+
     // Mapeamento de dia da semana do Intl para o nosso padrão
     const weekdayMap: Record<string, number> = {
       'domingo': 0, 'segunda-feira': 1, 'terça-feira': 2, 'quarta-feira': 3,

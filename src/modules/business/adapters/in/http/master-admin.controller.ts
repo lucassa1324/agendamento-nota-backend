@@ -1462,13 +1462,29 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
   .delete("/users/:id", async ({ params, set }) => {
     try {
       const { id } = params;
+      const deleted = await db.transaction(async (tx) => {
+        const ownedCompanies = await tx
+          .select({ id: schema.companies.id })
+          .from(schema.companies)
+          .where(eq(schema.companies.ownerId, id));
 
-      // O banco está configurado com ON DELETE CASCADE em todas as tabelas vinculadas:
-      // user -> companies -> (services, appointments, site_customizations, gallery, etc.)
-      const [deleted] = await db
-        .delete(schema.user)
-        .where(eq(schema.user.id, id))
-        .returning();
+        await tx
+          .delete(schema.systemLogs)
+          .where(eq(schema.systemLogs.userId, id));
+
+        for (const company of ownedCompanies) {
+          await tx
+            .delete(schema.systemLogs)
+            .where(eq(schema.systemLogs.companyId, company.id));
+        }
+
+        const [removedUser] = await tx
+          .delete(schema.user)
+          .where(eq(schema.user.id, id))
+          .returning();
+
+        return removedUser;
+      });
 
       if (!deleted) {
         set.status = 404;
