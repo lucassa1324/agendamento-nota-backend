@@ -3,7 +3,7 @@ import { authPlugin, syncAsaasPaymentForCompany } from "../../../../infrastructu
 import { auth } from "../../../../infrastructure/auth/auth";
 import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
-import { and, eq, sql, count } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 
 const writeSystemLog = async ({
   userId,
@@ -673,6 +673,102 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
 
       throw new Error("Erro ao buscar logs: " + message);
     }
+  })
+  .get("/bug-reports", async () => {
+    try {
+      const reports = await db
+        .select({
+          id: schema.bugReports.id,
+          type: schema.bugReports.type,
+          description: schema.bugReports.description,
+          screenshotUrl: schema.bugReports.screenshotUrl,
+          pageUrl: schema.bugReports.pageUrl,
+          userAgent: schema.bugReports.userAgent,
+          ipAddress: schema.bugReports.ipAddress,
+          acceptLanguage: schema.bugReports.acceptLanguage,
+          metadata: schema.bugReports.metadata,
+          status: schema.bugReports.status,
+          createdAt: schema.bugReports.createdAt,
+          reporterName: schema.user.name,
+          reporterEmail: schema.user.email,
+          companyName: schema.companies.name,
+          companySlug: schema.companies.slug,
+        })
+        .from(schema.bugReports)
+        .leftJoin(schema.user, eq(schema.bugReports.reporterUserId, schema.user.id))
+        .leftJoin(schema.companies, eq(schema.bugReports.companyId, schema.companies.id))
+        .orderBy(desc(schema.bugReports.createdAt))
+        .limit(100);
+
+      return reports;
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_BUG_REPORTS_ERROR]:", error);
+      const code = (error as any)?.code;
+      const message = String(error?.message || "");
+      if (code === "42P01" || message.toLowerCase().includes("bug_reports")) {
+        return [];
+      }
+      throw new Error("Erro ao buscar bug reports: " + message);
+    }
+  })
+  .delete("/bug-reports/:id", async ({ params, set }) => {
+    try {
+      const { id } = params;
+      const [deleted] = await db
+        .delete(schema.bugReports)
+        .where(eq(schema.bugReports.id, id))
+        .returning();
+
+      if (!deleted) {
+        set.status = 404;
+        return { error: "Feedback não encontrado" };
+      }
+
+      return { success: true, message: "Feedback removido com sucesso" };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_BUG_REPORT_DELETE_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao remover feedback: " + error.message };
+    }
+  })
+  .patch("/bug-reports/:id/move", async ({ params, body, set }) => {
+    try {
+      const { id } = params;
+      const { type } = body;
+
+      if (type !== "BUG" && type !== "SUGGESTION") {
+        set.status = 400;
+        return { error: "Tipo inválido. Use 'BUG' ou 'SUGGESTION'." };
+      }
+
+      const [updated] = await db
+        .update(schema.bugReports)
+        .set({
+          type: type as "BUG" | "SUGGESTION",
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.bugReports.id, id))
+        .returning();
+
+      if (!updated) {
+        set.status = 404;
+        return { error: "Feedback não encontrado" };
+      }
+
+      return {
+        success: true,
+        message: `Feedback movido para ${type === "BUG" ? "Bugs" : "Sugestões"}`,
+        report: updated
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_BUG_REPORT_MOVE_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao mover feedback: " + error.message };
+    }
+  }, {
+    body: t.Object({
+      type: t.String()
+    })
   })
   .post("/health/ensure-test-company", async ({ user, set }) => {
     try {

@@ -176,6 +176,30 @@ export class CreateAppointmentUseCase {
     const appM = parseInt(getPart('minute') || '0');
     const appTimeTotalMin = (appH * 60) + appM;
 
+    if (!userId) {
+      const minimumBookingLeadMinutes = Math.max(
+        0,
+        Number((settings as any).minimumBookingLeadMinutes ?? 0),
+      );
+      if (minimumBookingLeadMinutes > 0) {
+        const nowParts = formatter.formatToParts(new Date());
+        const getNowPart = (type: string) =>
+          nowParts.find((p) => p.type === type)?.value || "00";
+        const scheduledDateKey = `${getPart("year")}${getPart("month")}${getPart("day")}`;
+        const nowDateKey = `${getNowPart("year")}${getNowPart("month")}${getNowPart("day")}`;
+        if (scheduledDateKey === nowDateKey) {
+          const nowMinuteOfDay =
+            parseInt(getNowPart("hour")) * 60 + parseInt(getNowPart("minute"));
+          const diffMinutes = appTimeTotalMin - nowMinuteOfDay;
+          if (diffMinutes < minimumBookingLeadMinutes) {
+            throw new Error(
+              `É necessário agendar com pelo menos ${minimumBookingLeadMinutes} minutos de antecedência.`,
+            );
+          }
+        }
+      }
+    }
+
     const checkTimeInPeriod = (startStr?: string | null, endStr?: string | null) => {
       if (!startStr || !endStr) return false;
       const [sH, sM] = startStr.split(':').map(Number);

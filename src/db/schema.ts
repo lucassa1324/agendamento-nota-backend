@@ -172,6 +172,38 @@ export const accountCancellationFeedback = pgTable("account_cancellation_feedbac
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const bugReports = pgTable(
+  "bug_reports",
+  {
+    id: text("id").primaryKey(),
+    reporterUserId: text("reporter_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    companyId: text("company_id").references(() => companies.id, {
+      onDelete: "set null",
+    }),
+    type: text("type").default("BUG").notNull(),
+    description: text("description").notNull(),
+    screenshotUrl: text("screenshot_url"),
+    pageUrl: text("page_url").notNull(),
+    userAgent: text("user_agent"),
+    ipAddress: text("ip_address"),
+    acceptLanguage: text("accept_language"),
+    metadata: jsonb("metadata").default({}).notNull(),
+    status: text("status").default("NEW").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("bug_reports_created_at_idx").on(table.createdAt),
+    index("bug_reports_status_idx").on(table.status),
+    index("bug_reports_type_idx").on(table.type),
+  ],
+);
+
 export const systemSettings = pgTable("system_settings", {
   id: text("id").primaryKey(),
   key: text("key").notNull().unique(),
@@ -649,4 +681,3 @@ export const fixedExpensesRelations = relations(fixedExpenses, ({ one }) => ({
     references: [companies.id],
   }),
 }));
-

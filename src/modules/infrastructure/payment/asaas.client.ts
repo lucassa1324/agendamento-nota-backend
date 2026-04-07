@@ -78,10 +78,76 @@ export class AsaasClient {
       return { id: subscriptionId, status: "MOCK_CANCELLED" };
     }
 
-    return { id: subscriptionId, status: "CANCEL_PENDING_IMPL" };
+    try {
+      console.log(`[ASAAS_CLIENT] Cancelando assinatura ${subscriptionId}...`);
+
+      const response = await fetch(`${this.apiUrl}/subscriptions/${subscriptionId}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "access_token": this.apiKey
+        }
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        console.error("[ASAAS_CLIENT] Erro ao cancelar assinatura:", JSON.stringify(responseData));
+        throw new Error((responseData as any).errors?.[0]?.description || "Erro ao cancelar assinatura no Asaas");
+      }
+
+      return responseData;
+    } catch (error) {
+      console.error("[ASAAS_CLIENT] Exception no cancelamento:", error);
+      throw error;
+    }
   }
 
-  // Método placeholder para aplicar desconto
+  // Método para buscar pagamentos de uma assinatura
+  async listSubscriptionPayments(subscriptionId: string) {
+    if (!subscriptionId || !this.apiKey) return [];
+
+    try {
+      const response = await fetch(`${this.apiUrl}/subscriptions/${subscriptionId}/payments`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "access_token": this.apiKey
+        }
+      });
+
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.data || [];
+    } catch (error) {
+      console.error("[ASAAS_CLIENT] Erro ao listar pagamentos:", error);
+      return [];
+    }
+  }
+
+  // Método para estornar um pagamento
+  async refundPayment(paymentId: string) {
+    if (!paymentId || !this.apiKey) return null;
+
+    try {
+      console.log(`[ASAAS_CLIENT] Estornando pagamento ${paymentId}...`);
+      const response = await fetch(`${this.apiUrl}/payments/${paymentId}/refund`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "access_token": this.apiKey
+        }
+      });
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error("[ASAAS_CLIENT] Erro ao estornar pagamento:", error);
+      return null;
+    }
+  }
+
+  // Método para aplicar desconto
   async applyDiscount(subscriptionId: string, discount: { percentage: number; cycles: number }) {
     if (!subscriptionId) {
       console.warn("[ASAAS_CLIENT] SubscriptionId vazio. Ignorando desconto.");
@@ -93,8 +159,34 @@ export class AsaasClient {
       return { id: subscriptionId, status: "MOCK_DISCOUNT_APPLIED" };
     }
 
-    // Implementação real viria aqui (update subscription)
-    return { id: subscriptionId, status: "DISCOUNT_PENDING_IMPL" };
+    try {
+      console.log(`[ASAAS_CLIENT] Aplicando desconto na assinatura ${subscriptionId}...`);
+      // No Asaas, desconto é aplicado via atualização da assinatura ou criação de um desconto específico
+      // Aqui vamos usar o endpoint de atualização de assinatura para simplificar
+      const response = await fetch(`${this.apiUrl}/subscriptions/${subscriptionId}`, {
+        method: "POST", // POST em sub-recurso costuma ser atualização no Asaas
+        headers: {
+          "Content-Type": "application/json",
+          "access_token": this.apiKey
+        },
+        body: JSON.stringify({
+          discount: {
+            value: discount.percentage,
+            type: "PERCENTAGE",
+            durationInMonths: discount.cycles
+          }
+        })
+      });
+
+      const responseData = await response.json();
+      if (!response.ok) {
+        throw new Error((responseData as any).errors?.[0]?.description || "Erro ao aplicar desconto");
+      }
+      return responseData;
+    } catch (error) {
+      console.error("[ASAAS_CLIENT] Erro ao aplicar desconto:", error);
+      throw error;
+    }
   }
 }
 

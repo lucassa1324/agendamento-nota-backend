@@ -375,6 +375,7 @@ export interface AppointmentFlowSection {
     title: string;
     timeSlotStyle: 'list' | 'grid';
     timeSlotSize: number; // Intervalo em minutos (ex: 30, 60)
+    minimumBookingLeadMinutes: number; // Antecedência mínima em minutos
   };
   step4Confirmation: {
     title: string;

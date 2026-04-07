@@ -44,9 +44,14 @@ const normalizeKeys = (obj: any): any => {
     timeSlotSize: "timeSlotSize",
     time_slot_size: "timeSlotSize",
     card_config: "cardConfig",
-    card_bg_color: "backgroundColor",
-    cardBgColor: "backgroundColor",
+    card_bg_color: "cardBgColor",
+    card_background_color: "cardBgColor",
+    cardBgColor: "cardBgColor",
+    cardBackgroundColor: "cardBgColor",
     background_color: "backgroundColor",
+    backgroundColor: "backgroundColor",
+    bgColor: "bgColor",
+    bg_color: "bgColor",
     hero_banner: "heroBanner",
     hero: "heroBanner",
     services: "servicesSection",
@@ -523,6 +528,34 @@ export const settingsController = () => new Elysia({ prefix: "/settings" })
           console.log(`>>> [PATCH_DRAFT] Dados preparados para merge:`, JSON.stringify(dataToMerge, null, 2));
 
           const merged = deepMerge(draft, dataToMerge);
+
+          if (merged.home?.heroBanner && merged.layoutGlobal?.heroBanner) {
+            delete merged.layoutGlobal.heroBanner;
+          }
+          if (merged.home?.hero && merged.layoutGlobal?.hero) {
+            delete merged.layoutGlobal.hero;
+          }
+          if (merged.home?.aboutHero && merged.layoutGlobal?.aboutHero) {
+            delete merged.layoutGlobal.aboutHero;
+          }
+          if (merged.home?.storySection && merged.layoutGlobal?.story) {
+            delete merged.layoutGlobal.story;
+          }
+          if (merged.home?.teamSection && merged.layoutGlobal?.team) {
+            delete merged.layoutGlobal.team;
+          }
+          if (merged.home?.testimonialsSection && merged.layoutGlobal?.testimonials) {
+            delete merged.layoutGlobal.testimonials;
+          }
+          if (merged.home?.servicesSection && merged.layoutGlobal?.services) {
+            delete merged.layoutGlobal.services;
+          }
+          if (merged.home?.galleryPreview && merged.layoutGlobal?.galleryPreview) {
+            delete merged.layoutGlobal.galleryPreview;
+          }
+          if (merged.home?.ctaSection && merged.layoutGlobal?.cta) {
+            delete merged.layoutGlobal.cta;
+          }
 
           // Log ultra-específico antes do DB update
           console.log(`>>> [STYLING_DEBUG_FINAL] Estado final antes de salvar no DB (layoutGlobal):`, {
