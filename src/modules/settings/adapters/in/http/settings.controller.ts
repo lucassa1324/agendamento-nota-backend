@@ -58,6 +58,8 @@ const normalizeKeys = (obj: any): any => {
     services_section: "servicesSection",
     values: "valuesSection",
     values_section: "valuesSection",
+    home_values_settings: "homeValuesSettings",
+    about_us_values_settings: "aboutUsValuesSettings",
     gallery_preview: "galleryPreview",
     gallery_section: "galleryPreview",
     gallerySection: "galleryPreview",
@@ -484,9 +486,15 @@ export const settingsController = () => new Elysia({ prefix: "/settings" })
             "heroBanner",
             "servicesSection",
             "valuesSection",
+            "homeValuesSettings",
             "galleryPreview",
             "ctaSection",
             "backgroundAndEffect"
+          ];
+
+          // Mapeamento de seções que pertencem ao 'aboutUs' mas podem vir na raiz
+          const ABOUT_US_SECTIONS = [
+            "aboutUsValuesSettings"
           ];
 
           // Mapeamento de seções que pertencem ao 'layoutGlobal' mas podem vir na raiz
@@ -512,6 +520,9 @@ export const settingsController = () => new Elysia({ prefix: "/settings" })
             if (HOME_SECTIONS.includes(key)) {
               dataToMerge.home = dataToMerge.home || {};
               dataToMerge.home[key] = normalizedData[key];
+            } else if (ABOUT_US_SECTIONS.includes(key)) {
+              dataToMerge.aboutUs = dataToMerge.aboutUs || {};
+              dataToMerge.aboutUs[key] = normalizedData[key];
             } else if (LAYOUT_GLOBAL_SECTIONS.includes(key)) {
               dataToMerge.layoutGlobal = dataToMerge.layoutGlobal || {};
               dataToMerge.layoutGlobal[key] = normalizedData[key];
