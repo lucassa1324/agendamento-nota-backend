@@ -140,6 +140,25 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
     .notNull(),
 });
 
+export const customDomains = pgTable("custom_domains", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id")
+    .notNull()
+    .unique()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  domain: text("domain").notNull().unique(),
+  status: text("status", { enum: ["PENDING", "ACTIVE", "ERROR"] })
+    .default("PENDING")
+    .notNull(),
+  verificationData: jsonb("verification_data"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+
 export const prospects = pgTable("prospects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -522,7 +541,12 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
   inventory: many(inventory),
   fixedExpenses: many(fixedExpenses),
   galleryImages: many(galleryImages),
+  customDomain: one(customDomains, {
+    fields: [companies.id],
+    references: [customDomains.companyId],
+  }),
 }));
+
 
 export const galleryImagesRelations = relations(galleryImages, ({ one }) => ({
   business: one(companies, {
@@ -628,3 +652,9 @@ export const fixedExpensesRelations = relations(fixedExpenses, ({ one }) => ({
 }));
 
 
+export const customDomainsRelations = relations(customDomains, ({ one }) => ({
+  company: one(companies, {
+    fields: [customDomains.companyId],
+    references: [companies.id],
+  }),
+}));
