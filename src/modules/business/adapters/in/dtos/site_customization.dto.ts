@@ -321,6 +321,7 @@ export const AppointmentFlowSectionDTO = t.Object({
     title: t.String(),
     timeSlotStyle: t.Union([t.Literal("list"), t.Literal("grid")]),
     timeSlotSize: t.Number(),
+    minimumBookingLeadMinutes: t.Number(),
   }),
   step4Confirmation: t.Object({
     title: t.String(),
