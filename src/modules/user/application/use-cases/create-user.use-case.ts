@@ -185,16 +185,14 @@ export class CreateUserUseCase {
       throw err;
     });
 
-    // 3. Gera o link de verificação se o e-mail não estiver verificado
-    let verificationUrl = undefined;
+    // 3. Dispara o e-mail de verificação via Better Auth
     if (!response.user.emailVerified) {
-      const { url } = await auth.api.generateEmailVerificationToken({
+      await auth.api.sendVerificationEmail({
         body: {
           email: data.email,
         },
       });
-      verificationUrl = url;
-      console.log(`[USER_REGISTER_USE_CASE] Link de verificação gerado: ${verificationUrl}`);
+      console.log(`[USER_REGISTER_USE_CASE] E-mail de verificação disparado via Better Auth`);
     }
 
     await transactionalEmailService
@@ -202,7 +200,6 @@ export class CreateUserUseCase {
         to: data.email,
         name: data.name,
         studioName: result.newCompany.name,
-        verificationUrl: verificationUrl,
       })
       .catch((error) =>
         console.error("[WELCOME_EMAIL_ERROR]", error),
