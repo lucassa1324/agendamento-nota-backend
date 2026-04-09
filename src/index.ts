@@ -169,15 +169,16 @@ const startServer = () => {
           const origin = request.headers.get("origin");
           const allowedOrigins = [
             'http://localhost:3000',
+            'http://localhost:3001',
+            'http://localhost:3002',
             'http://127.0.0.1:3000',
-            'https://agendamento-nota-front.vercel.app',
-            'https://landingpage-agendamento-front.vercel.app',
-            'https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app'
+            'https://app.aurasistema.com.br',
+            'https://aurasistema.com.br'
           ];
 
           const isAllowed = allowedOrigins.includes(origin!) ||
             (origin && origin.match(/http:\/\/.*\.localhost:\d+$/)) ||
-            (origin && origin.match(/\.vercel\.app$/)) ||
+            (origin && (origin.endsWith('.aurasistema.com.br') || origin === 'https://aurasistema.com.br')) ||
             (origin && origin.endsWith('.vercel.app'));
 
           if (isAllowed && origin) {
@@ -198,22 +199,22 @@ const startServer = () => {
         const origin = request.headers.get("origin");
         const allowedOrigins = [
           'http://localhost:3000',
+          'http://localhost:3001',
           'http://localhost:3002',
           'http://127.0.0.1:3000',
-          'https://agendamento-nota-front.vercel.app',
-          'https://landingpage-agendamento-front.vercel.app',
-          'https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app'
+          'https://app.aurasistema.com.br',
+          'https://aurasistema.com.br'
         ];
 
         const isAllowed = allowedOrigins.includes(origin!) ||
           (origin && origin.match(/http:\/\/.*\.localhost:\d+$/)) ||
-          (origin && origin.match(/\.vercel\.app$/)) ||
+          (origin && (origin.endsWith('.aurasistema.com.br') || origin === 'https://aurasistema.com.br')) ||
           (origin && origin.endsWith('.vercel.app'));
 
         if (isAllowed && origin) {
           set.headers["Access-Control-Allow-Origin"] = origin;
           set.headers["Access-Control-Allow-Credentials"] = "true";
-          set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH";
+          set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH",
           set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control";
           set.headers["Access-Control-Expose-Headers"] = "Set-Cookie, set-cookie, Authorization, Cache-Control";
         }
