@@ -30,10 +30,17 @@ export class UserController {
         },
         {
           body: signinDTO,
-          onError({ error, body }: { error: any, body: any }) {
+          onError({ error, body, set }: { error: any, body: any, set: any }) {
             console.error("\n[USER_REGISTER_VALIDATION_ERROR]");
             console.error("> Body enviado:", JSON.stringify(body, null, 2));
             console.error("> Erro de validação:", error);
+            
+            set.status = 400;
+            return {
+              error: "VALIDATION_ERROR",
+              message: error.message || "Erro de validação nos dados enviados",
+              details: error.all || error
+            };
           }
         }
       )

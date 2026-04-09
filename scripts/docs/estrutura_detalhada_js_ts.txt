@@ -1,0 +1,73 @@
+ESTRUTURA HIERÁRQUICA DETALHADA (TS & JS)
+========================================
+
+Esta lista contém a estrutura completa de arquivos do projeto, organizados por diretórios, incluindo tanto os arquivos TypeScript (.ts) quanto suas versões compiladas ou espelhadas em JavaScript (.js), com suas respectivas funções.
+
+/ (RAIZ)
+├── drizzle.config.ts        # Configuração das migrações do banco de dados.
+├── package.json             # Dependências e scripts do projeto (Bun).
+├── tsconfig.json            # Configurações do compilador TypeScript.
+├── vercel.json              # Configurações de deploy para Vercel.
+├── .env.local               # Variáveis de ambiente (Segredos).
+└── README.md                # Documentação inicial do projeto.
+
+/scripts/
+├── estrutura_projeto.txt    # Mapa simplificado de responsabilidades.
+├── estrutura_detalhada.txt  # Este arquivo (Mapa completo JS/TS).
+├── monitorar_logs.ps1       # Script PowerShell para log em tempo real.
+└── debug_tools/             # Ferramentas de teste de API (Login, Senha).
+
+/src/
+├── index.ts / index.js      # Ponto de entrada (Main). Configura o servidor Elysia.
+├── routes.ts / routes.js    # Definição central de todas as rotas da API.
+├── local.ts / local.js      # Ponto de entrada específico para rodar localmente.
+├── declarations.d.ts        # Definições de tipos globais do TypeScript.
+│
+├── db/
+│   └── schema.ts / schema.js # Definição de todas as tabelas e relações do banco.
+│
+├── shared/
+│   └── utils/
+│       └── slug.ts / slug.js # Gerador de URLs amigáveis.
+│
+├── modules/ (Arquitetura por Domínio)
+│   ├── appointments/ (Agendamentos)
+│   │   ├── adapters/in/http/appointment.controller.{ts,js}
+│   │   ├── application/use-cases/create-appointment.use-case.{ts,js}
+│   │   └── domain/entities/appointment.entity.{ts,js}
+│   │
+│   ├── business/ (Empresas e Slugs)
+│   │   ├── adapters/in/http/business.controller.{ts,js}
+│   │   ├── application/use-cases/create-business.use-case.{ts,js}
+│   │   └── domain/entities/business.entity.{ts,js}
+│   │
+│   ├── infrastructure/ (Serviços Globais)
+│   │   ├── auth/
+│   │   │   ├── auth.{ts,js}        # Configuração do Better Auth.
+│   │   │   └── auth-plugin.{ts,js} # Middleware de proteção de rotas.
+│   │   ├── drizzle/
+│   │   │   └── database.{ts,js}    # Conexão com PostgreSQL.
+│   │   ├── payment/
+│   │   │   ├── asaas.client.{ts,js} # Integração com gateway Asaas.
+│   │   │   └── payment.controller.{ts,js}
+│   │   └── storage/
+│   │       └── b2.storage.{ts,js}   # Upload de arquivos para Backblaze.
+│   │
+│   ├── inventory/ (Estoque)
+│   │   ├── adapters/in/http/inventory.controller.{ts,js}
+│   │   └── application/use-cases/create-product.use-case.{ts,js}
+│   │
+│   ├── notifications/ (WebPush/E-mail)
+│   │   ├── application/notification.service.{ts,js}
+│   │   └── application/webpush.{ts,js}
+│   │
+│   ├── settings/ (Configurações do Site)
+│   │   ├── adapters/in/http/settings.controller.{ts,js}
+│   │   └── application/use-cases/save-settings.use-case.{ts,js}
+│   │
+│   └── user/ (Usuários e Perfis)
+│       ├── adapters/in/http/user.controller.{ts,js}
+│       └── domain/models/user.{ts,js}
+
+/drizzle/ (Migrações)
+└── *.sql                    # Arquivos de alteração histórica do banco de dados.

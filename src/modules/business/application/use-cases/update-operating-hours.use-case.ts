@@ -52,13 +52,18 @@ export class UpdateOperatingHoursUseCase {
     const business = await this.businessRepository.findById(companyId);
     const currentCustomization = business?.siteCustomization as any;
     const currentFlow = currentCustomization?.appointmentFlow || {};
+    const minimumBookingLeadMinutes = Math.max(
+      0,
+      Number((data as any).minimumBookingLeadMinutes ?? 0),
+    );
 
     const config: Partial<BusinessSiteCustomization> = {
       appointmentFlow: {
         ...currentFlow,
         step3Times: {
           ...(currentFlow.step3Times || currentFlow.step3Time || currentFlow.step_3_time || {}),
-          timeSlotSize: slotInterval
+          timeSlotSize: slotInterval,
+          minimumBookingLeadMinutes,
         }
       } as any,
     };

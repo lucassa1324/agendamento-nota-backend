@@ -5,6 +5,7 @@ import { CreateAppointmentInput } from "../../domain/entities/appointment.entity
 import { IPushSubscriptionRepository } from "../../../notifications/domain/ports/push-subscription.repository";
 import { UserRepository } from "../../../user/adapters/out/user.repository";
 import { NotificationService } from "../../../notifications/application/notification.service";
+import { TransactionalEmailService } from "../../../notifications/application/transactional-email.service";
 
 export class CreateAppointmentUseCase {
   constructor(
@@ -122,6 +123,28 @@ export class CreateAppointmentUseCase {
     const parts = formatter.formatToParts(scheduledAt);
     const getPart = (type: string) => parts.find(p => p.type === type)?.value;
 
+    if (!userId) {
+      const nowInBrt = new Date();
+      const nowParts = formatter.formatToParts(nowInBrt);
+      const getNowPart = (type: string) =>
+        nowParts.find((p) => p.type === type)?.value || "00";
+
+      const scheduledDateKey = `${getPart("year")}${getPart("month")}${getPart("day")}`;
+      const nowDateKey = `${getNowPart("year")}${getNowPart("month")}${getNowPart("day")}`;
+      const scheduledMinuteOfDay =
+        parseInt(getPart("hour") || "0") * 60 + parseInt(getPart("minute") || "0");
+      const nowMinuteOfDay =
+        parseInt(getNowPart("hour")) * 60 + parseInt(getNowPart("minute"));
+
+      const isPastDate = Number(scheduledDateKey) < Number(nowDateKey);
+      const isPastTimeSameDay =
+        scheduledDateKey === nowDateKey && scheduledMinuteOfDay <= nowMinuteOfDay;
+
+      if (isPastDate || isPastTimeSameDay) {
+        throw new Error("Não é possível agendar em horário passado.");
+      }
+    }
+
     // Mapeamento de dia da semana do Intl para o nosso padrão
     const weekdayMap: Record<string, number> = {
       'domingo': 0, 'segunda-feira': 1, 'terça-feira': 2, 'quarta-feira': 3,
@@ -152,6 +175,30 @@ export class CreateAppointmentUseCase {
     const appH = parseInt(getPart('hour') || '0');
     const appM = parseInt(getPart('minute') || '0');
     const appTimeTotalMin = (appH * 60) + appM;
+
+    if (!userId) {
+      const minimumBookingLeadMinutes = Math.max(
+        0,
+        Number((settings as any).minimumBookingLeadMinutes ?? 0),
+      );
+      if (minimumBookingLeadMinutes > 0) {
+        const nowParts = formatter.formatToParts(new Date());
+        const getNowPart = (type: string) =>
+          nowParts.find((p) => p.type === type)?.value || "00";
+        const scheduledDateKey = `${getPart("year")}${getPart("month")}${getPart("day")}`;
+        const nowDateKey = `${getNowPart("year")}${getNowPart("month")}${getNowPart("day")}`;
+        if (scheduledDateKey === nowDateKey) {
+          const nowMinuteOfDay =
+            parseInt(getNowPart("hour")) * 60 + parseInt(getNowPart("minute"));
+          const diffMinutes = appTimeTotalMin - nowMinuteOfDay;
+          if (diffMinutes < minimumBookingLeadMinutes) {
+            throw new Error(
+              `É necessário agendar com pelo menos ${minimumBookingLeadMinutes} minutos de antecedência.`,
+            );
+          }
+        }
+      }
+    }
 
     const checkTimeInPeriod = (startStr?: string | null, endStr?: string | null) => {
       if (!startStr || !endStr) return false;
@@ -279,6 +326,7 @@ export class CreateAppointmentUseCase {
       try {
         const ownerId = business.ownerId;
         const owner = await this.userRepository.find(ownerId);
+        const transactionalEmailService = new TransactionalEmailService();
 
         if (owner && owner.notifyNewAppointments) {
           const notificationService = new NotificationService(this.pushSubscriptionRepository);
@@ -299,6 +347,27 @@ export class CreateAppointmentUseCase {
             `${newAppointment.customerName} agendou ${newAppointment.serviceNameSnapshot} para ${formattedDate}`
           );
           console.log(`[WEBPUSH] Notificação de agendamento enviada para ${owner.email}`);
+        }
+
+        if (data.customerEmail) {
+          await transactionalEmailService.sendAppointmentConfirmationToCustomer({
+            to: data.customerEmail,
+            customerName: newAppointment.customerName,
+            serviceName: newAppointment.serviceNameSnapshot,
+            businessName: business.name,
+            scheduledAt: new Date(newAppointment.scheduledAt),
+          });
+        }
+
+        if (owner?.email) {
+          await transactionalEmailService.sendAppointmentAlertToOwner({
+            to: owner.email,
+            ownerName: owner.name || "Administrador",
+            customerName: newAppointment.customerName,
+            serviceName: newAppointment.serviceNameSnapshot,
+            businessName: business.name,
+            scheduledAt: new Date(newAppointment.scheduledAt),
+          });
         }
       } catch (notifyError: any) {
         console.error("[WEBPUSH_TRIGGER_ERROR]", notifyError?.message || notifyError);

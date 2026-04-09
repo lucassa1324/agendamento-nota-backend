@@ -37,6 +37,7 @@ export interface IBusinessRepository {
     }>;
     slotInterval: string;
     interval: string;
+    minimumBookingLeadMinutes: number;
     blocks: Array<{
       id: string;
       type: string;

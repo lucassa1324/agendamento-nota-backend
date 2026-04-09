@@ -18,6 +18,7 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         id: companies.id,
         name: companies.name,
         slug: companies.slug,
+        phone: companies.phone,
         createdAt: companies.createdAt,
         siteCustomization: {
           layoutGlobal: companySiteCustomizations.layoutGlobal,
@@ -40,11 +41,16 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         id: companies.id,
         name: companies.name,
         slug: companies.slug,
+        phone: companies.phone,
         address: companies.address,
         contact: companies.contact,
         ownerId: companies.ownerId,
+        active: companies.active,
         createdAt: companies.createdAt,
         updatedAt: companies.updatedAt,
+        subscriptionStatus: companies.subscriptionStatus,
+        trialEndsAt: companies.trialEndsAt,
+        accessType: companies.accessType,
         siteCustomization: {
           layoutGlobal: companySiteCustomizations.layoutGlobal,
           home: companySiteCustomizations.home,
@@ -68,11 +74,16 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         id: companies.id,
         name: companies.name,
         slug: companies.slug,
+        phone: companies.phone,
         address: companies.address,
         contact: companies.contact,
         ownerId: companies.ownerId,
+        active: companies.active,
         createdAt: companies.createdAt,
         updatedAt: companies.updatedAt,
+        subscriptionStatus: companies.subscriptionStatus,
+        trialEndsAt: companies.trialEndsAt,
+        accessType: companies.accessType,
         siteCustomization: {
           layoutGlobal: companySiteCustomizations.layoutGlobal,
           home: companySiteCustomizations.home,
@@ -99,6 +110,7 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         id: data.id,
         name: data.name,
         slug: data.slug,
+        phone: data.phone,
         ownerId: data.ownerId,
         subscriptionStatus: 'trial',
         trialEndsAt: trialEndsAt,
@@ -211,6 +223,7 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
     }>;
     slotInterval: string;
     interval: string;
+    minimumBookingLeadMinutes: number;
     blocks: Array<{
       id: string;
       type: string;
@@ -282,6 +295,11 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
     // Suportar tanto a chave antiga quanto a nova (plural) e as variações de snake/camel case
     const step3 = appointmentFlow.step3Times || appointmentFlow.step3Time || appointmentFlow.step_3_time || {};
     let slotInterval = step3.timeSlotSize || step3.slot_interval || step3.slotInterval || "00:30";
+    const minimumBookingLeadMinutes = Number(
+      step3.minimumBookingLeadMinutes ??
+      step3.minimum_booking_lead_minutes ??
+      0,
+    );
 
     // Garantir formato HH:mm se for número (ex: 30 -> "00:30")
     if (typeof slotInterval === 'number') {
@@ -299,6 +317,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
       weekly,
       slotInterval,
       interval: slotInterval,
+      minimumBookingLeadMinutes: Number.isFinite(minimumBookingLeadMinutes)
+        ? minimumBookingLeadMinutes
+        : 0,
       blocks
     };
   }

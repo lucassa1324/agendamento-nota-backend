@@ -1,7 +1,46 @@
 import { Elysia } from "elysia";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { db } from "../drizzle/database";
-import { companies } from "../../../db/schema";
+import { companies, user } from "../../../db/schema";
 import { eq } from "drizzle-orm";
+
+const normalizeEnvValue = (value?: string) =>
+  value?.trim().replace(/^['"]|['"]$/g, "") || "";
+
+const extractEnvValueFromContent = (content: string, key: string) => {
+  const regex = new RegExp(`^${key}=(.*)$`, "m");
+  const match = content.match(regex);
+  if (!match?.[1]) {
+    return "";
+  }
+  return normalizeEnvValue(match[1]);
+};
+
+const readEnvFallback = async (key: string) => {
+  const candidates = [
+    path.join(process.cwd(), ".env"),
+    path.join(process.cwd(), ".env.local"),
+    path.join(process.cwd(), "back_end", ".env"),
+    path.join(process.cwd(), "back_end", ".env.local"),
+    path.join(process.cwd(), "front_end", ".env.local"),
+    path.join(process.cwd(), "..", "back_end", ".env"),
+    path.join(process.cwd(), "..", "back_end", ".env.local"),
+    path.join(process.cwd(), "..", "front_end", ".env.local"),
+  ];
+
+  for (const envPath of candidates) {
+    try {
+      const content = await readFile(envPath, "utf8");
+      const value = extractEnvValueFromContent(content, key);
+      if (value) {
+        return value;
+      }
+    } catch { }
+  }
+
+  return "";
+};
 
 export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
   .post("/", async ({ request, set }) => {
@@ -9,46 +48,215 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
       const event = await request.json() as any;
       console.log(`[ASAAS_WEBHOOK] Evento recebido: ${event.event}`, event);
 
-      // Validação básica de segurança (Token no header se houver, ou verificar IP)
-      // Por enquanto, aceitamos qualquer post para teste, mas em prod deve validar o asaas-access-token
+      // Validação básica de segurança (Token no header se houver)
+      const asaasToken = request.headers.get("asaas-access-token");
+      if (process.env.ASAAS_WEBHOOK_TOKEN && asaasToken !== process.env.ASAAS_WEBHOOK_TOKEN) {
+        console.warn("[ASAAS_WEBHOOK] Token de segurança inválido!");
+        set.status = 401;
+        return { error: "Unauthorized" };
+      }
 
       if (!event || !event.payment) {
         return { status: "ignored", reason: "no_payment_data" };
       }
 
       const payment = event.payment;
-      const customerId = payment.customer;
-      const externalReference = payment.externalReference; // Ideal se enviarmos o companyId aqui ao criar a assinatura
+      const activationEvents = [
+        "PAYMENT_CONFIRMED",
+        "PAYMENT_RECEIVED",
+        "PAYMENT_RECEIVED_IN_CASH",
+      ];
+      const blockingEvents = ["PAYMENT_OVERDUE", "PAYMENT_REFUNDED"];
 
-      // Tenta encontrar a empresa pelo ID do cliente Asaas (se tivermos salvo) ou externalReference
-      // Como ainda não temos o campo asaas_customer_id, vamos assumir que o externalReference é o companyId
-      // OU vamos buscar pelo ownerId se tivermos essa ligação.
+      const asaasApiKey =
+        normalizeEnvValue(process.env.ASAAS_API_KEY) ||
+        normalizeEnvValue(process.env.ASAAS_ACCESS_TOKEN) ||
+        (await readEnvFallback("ASAAS_API_KEY")) ||
+        (await readEnvFallback("ASAAS_ACCESS_TOKEN"));
+      const asaasApiUrl =
+        normalizeEnvValue(process.env.ASAAS_API_URL) ||
+        normalizeEnvValue(process.env.ASAAS_BASE_URL) ||
+        (await readEnvFallback("ASAAS_API_URL")) ||
+        (await readEnvFallback("ASAAS_BASE_URL")) ||
+        "https://api-sandbox.asaas.com/v3";
 
-      // POR ENQUANTO: Apenas logamos e retornamos sucesso para não travar o Asaas
-      console.log(`[ASAAS_WEBHOOK] Processando pagamento para Customer: ${customerId}`);
+      const fetchAsaasResource = async <T>(resourcePath: string): Promise<T | null> => {
+        if (!asaasApiKey) {
+          return null;
+        }
+        try {
+          const response = await fetch(`${asaasApiUrl}${resourcePath}`, {
+            method: "GET",
+            headers: {
+              access_token: asaasApiKey,
+            },
+          });
+          if (!response.ok) {
+            return null;
+          }
+          return await response.json() as T;
+        } catch {
+          return null;
+        }
+      };
 
-      if (event.event === "PAYMENT_CONFIRMED" || event.event === "PAYMENT_RECEIVED") {
+      let externalReference = String(payment.externalReference || "");
+      let customerId = String(payment.customer || "");
+      let customerEmail = "";
+
+      if ((!externalReference || !customerId) && payment.subscription) {
+        const subscriptionData = await fetchAsaasResource<{ externalReference?: string; customer?: string }>(
+          `/subscriptions/${payment.subscription}`,
+        );
+        if (subscriptionData?.externalReference) {
+          externalReference = String(subscriptionData.externalReference);
+        }
+        if (subscriptionData?.customer) {
+          customerId = String(subscriptionData.customer);
+        }
+      }
+
+      if ((!externalReference || !customerId) && payment.id) {
+        const paymentData = await fetchAsaasResource<{ externalReference?: string; customer?: string; subscription?: string }>(
+          `/payments/${payment.id}`,
+        );
+        if (paymentData?.externalReference) {
+          externalReference = String(paymentData.externalReference);
+        }
+        if (paymentData?.customer) {
+          customerId = String(paymentData.customer);
+        }
+        if ((!externalReference || !customerId) && paymentData?.subscription) {
+          const subscriptionFromPayment = await fetchAsaasResource<{ externalReference?: string; customer?: string }>(
+            `/subscriptions/${paymentData.subscription}`,
+          );
+          if (subscriptionFromPayment?.externalReference) {
+            externalReference = String(subscriptionFromPayment.externalReference);
+          }
+          if (subscriptionFromPayment?.customer) {
+            customerId = String(subscriptionFromPayment.customer);
+          }
+        }
+      }
+
+      if ((!externalReference || !customerEmail) && customerId) {
+        const customerData = await fetchAsaasResource<{ externalReference?: string; email?: string }>(
+          `/customers/${customerId}`,
+        );
+        if (customerData?.externalReference) {
+          externalReference = String(customerData.externalReference);
+        }
+        if (customerData?.email) {
+          customerEmail = String(customerData.email).trim().toLowerCase();
+        }
+      }
+
+      if (!externalReference && customerEmail) {
+        let ownerByEmail = await db.select({ id: user.id })
+          .from(user)
+          .where(eq(user.email, customerEmail))
+          .limit(1);
+
+        if (ownerByEmail.length === 0) {
+          ownerByEmail = await db.select({ id: user.id })
+            .from(user)
+            .where(eq(user.email, customerEmail.trim()))
+            .limit(1);
+        }
+
+        const ownerId = ownerByEmail[0]?.id;
+        if (ownerId) {
+          const [companyByOwner] = await db.select({ id: companies.id })
+            .from(companies)
+            .where(eq(companies.ownerId, ownerId))
+            .limit(1);
+          if (companyByOwner?.id) {
+            externalReference = companyByOwner.id;
+          }
+        }
+      }
+
+      // Tenta encontrar a empresa pelo externalReference (que é o businessId)
+      if (activationEvents.includes(event.event)) {
         // Lógica de Ativação
         if (externalReference) {
-          const paymentDate = event.payment.paymentDate ? new Date(event.payment.paymentDate) : new Date();
+          console.log(`[ASAAS_WEBHOOK] Processando ativação para empresa: ${externalReference}`);
+
+          const paymentDate = payment.paymentDate ? new Date(payment.paymentDate) : new Date();
           const nextDue = new Date(paymentDate);
           nextDue.setDate(nextDue.getDate() + 30);
 
-          await db.update(companies)
-            .set({
-              subscriptionStatus: 'active',
-              trialEndsAt: nextDue, // Usado como data de vencimento
-              updatedAt: new Date()
-            })
-            .where(eq(companies.id, externalReference));
+          // 1. Buscar a empresa para obter o ownerId
+          const [company] = await db.select()
+            .from(companies)
+            .where(eq(companies.id, externalReference))
+            .limit(1);
 
-          console.log(`[ASAAS_WEBHOOK] Pagamento confirmado! Empresa ${externalReference} ativada até ${nextDue.toISOString()}.`);
+          if (company) {
+            if (company.active === false && company.accessType !== "automatic") {
+              console.warn(`[ASAAS_WEBHOOK] Empresa ${company.name} está bloqueada manualmente (active=false). Ativação automática ignorada.`);
+              return { received: true, skipped: "manual_block" };
+            }
+
+            const isManualGraceActive =
+              company.accessType === "manual" &&
+              !!company.trialEndsAt &&
+              new Date(company.trialEndsAt) > new Date();
+
+            // 2. Atualizar a empresa
+            await db.update(companies)
+              .set({
+                subscriptionStatus: 'active',
+                active: true,
+                accessType: isManualGraceActive ? 'manual' : 'automatic',
+                trialEndsAt: isManualGraceActive ? company.trialEndsAt : nextDue,
+                updatedAt: new Date()
+              })
+              .where(eq(companies.id, externalReference));
+
+            // 3. Ativar o dono da empresa também
+            await db.update(user)
+              .set({
+                active: true,
+                updatedAt: new Date()
+              })
+              .where(eq(user.id, company.ownerId));
+
+            console.log(`[ASAAS_WEBHOOK] Pagamento confirmado! Empresa ${company.name} (${externalReference}) e dono ${company.ownerId} ativados até ${nextDue.toISOString()}.`);
+          } else {
+            console.warn(`[ASAAS_WEBHOOK] Empresa ${externalReference} não encontrada.`);
+          }
         } else {
           console.warn("[ASAAS_WEBHOOK] ExternalReference ausente, não foi possível identificar a empresa.");
         }
-      } else if (event.event === "PAYMENT_OVERDUE" || event.event === "PAYMENT_REFUNDED") {
+      } else if (blockingEvents.includes(event.event)) {
         // Lógica de Bloqueio
         if (externalReference) {
+          const [company] = await db.select()
+            .from(companies)
+            .where(eq(companies.id, externalReference))
+            .limit(1);
+
+          if (!company) {
+            console.warn(`[ASAAS_WEBHOOK] Empresa ${externalReference} não encontrada para bloqueio.`);
+            return { received: true };
+          }
+
+          if (company.active === false && company.accessType !== "automatic") {
+            console.warn(`[ASAAS_WEBHOOK] Empresa ${company.name} já está bloqueada manualmente (active=false).`);
+            return { received: true, skipped: "manual_block" };
+          }
+
+          const hasManualOverride =
+            (company.accessType === "manual" || company.accessType === "extended_trial") &&
+            !!company.trialEndsAt &&
+            new Date(company.trialEndsAt) > new Date();
+
+          if (hasManualOverride) {
+            console.log(`[ASAAS_WEBHOOK] Bloqueio ignorado para ${company.name} por override manual ativo até ${company.trialEndsAt?.toISOString?.() || company.trialEndsAt}.`);
+            return { received: true, skipped: "manual_override" };
+          }
+
           await db.update(companies)
             .set({
               subscriptionStatus: 'past_due',
