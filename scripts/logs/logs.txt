@@ -1,0 +1,17 @@
+Perfeito — já avancei direto para a correção no cenário mais provável (camada/render da Services) e deixei validado no código.
+
+O Que Corrigi
+
+- Ajustei a normalização de bgType para decidir entre "color" e "image" com base em valor explícito e presença real de imagem, evitando estado ambíguo de fundo em services-section.tsx:L153-L164 .
+- Quando o fundo efetivo é cor, agora a seção limpa bgImage/backgroundImageUrl no objeto normalizado para evitar “dominância” visual de imagem antiga em services-section.tsx:L237-L244 .
+- Adicionei fallback visual direto no container <section> com backgroundColor (quando bgType !== "image" ), reduzindo dependência exclusiva da camada auxiliar em services-section.tsx:L493-L518 .
+- Isolei o contexto visual da seção ( isolate ) e forcei a camada de fundo com z-0 localmente, mitigando conflito com stack/z-index anterior em services-section.tsx:L510-L521 .
+Validação
+
+- Typecheck OK: npm run typecheck (sem erros).
+- Lint executado: npm run lint falhou, mas por problemas pré-existentes em outros arquivos do projeto (não introduzidos por esta alteração).
+Impacto Esperado
+
+- Cor de fundo da seção Services deve aparecer de forma consistente no preview/produção mesmo com histórico de bgImage .
+- Menor chance de “cor aplicada mas invisível” por conflito de camada.
+- Pipeline mais robusto para transição entre cor/imagem no fundo da Services.

@@ -55,7 +55,6 @@ how HEAD --stat'
 monitorar_logs.ps1
 
 # Organized Test and Debug Folders
-scripts/
 
 # Launch Checklist
 /LAUNCH_CHECKLIST.md
