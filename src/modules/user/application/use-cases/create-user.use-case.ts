@@ -5,13 +5,20 @@ import { db } from "../../../infrastructure/drizzle/database";
 import { companies, account, companySiteCustomizations, user } from "../../../../db/schema";
 import { generateUniqueSlug } from "../../../../shared/utils/slug";
 import { eq } from "drizzle-orm";
+import { TransactionalEmailService } from "../../../notifications/application/transactional-email.service";
 
 export class CreateUserUseCase {
   constructor(private readonly userRepository: UserRepository) { }
   async execute(data: SigninDTO) {
+    const transactionalEmailService = new TransactionalEmailService();
+    const cpfCnpj = data.cpfCnpj?.replace(/\D/g, "") || null;
     const alreadyExists = await this.userRepository.findByEmail(data.email);
 
     if (alreadyExists) {
+      if (cpfCnpj) {
+        await db.update(user).set({ cpfCnpj }).where(eq(user.id, alreadyExists.id));
+      }
+
       const userCompany = await db
         .select()
         .from(companies)
@@ -36,6 +43,7 @@ export class CreateUserUseCase {
           id: crypto.randomUUID(),
           name: data.studioName,
           slug,
+          phone: data.phone,
           ownerId: alreadyExists.id,
           trialEndsAt: trialEndsAt,
           subscriptionStatus: 'trial',
@@ -60,6 +68,7 @@ export class CreateUserUseCase {
               id: crypto.randomUUID(),
               name: data.studioName,
               slug: fallbackSlug,
+              phone: data.phone,
               ownerId: alreadyExists.id,
               trialEndsAt: trialEndsAt,
               subscriptionStatus: 'trial',
@@ -77,6 +86,16 @@ export class CreateUserUseCase {
         }
         throw err;
       });
+
+      await transactionalEmailService
+        .sendWelcomeEmail({
+          to: alreadyExists.email,
+          name: alreadyExists.name || data.name,
+          studioName: result.newCompany.name,
+        })
+        .catch((error) =>
+          console.error("[WELCOME_EMAIL_ERROR]", error),
+        );
 
       return {
         user: alreadyExists,
@@ -106,7 +125,10 @@ export class CreateUserUseCase {
 
     // Atualiza a role do usuário se fornecida, caso contrário define como "ADMIN" por padrão para quem vem da landing page
     const finalRole = data.role || "ADMIN";
-    await db.update(user).set({ role: finalRole, active: true }).where(eq(user.id, response.user.id));
+    await db
+      .update(user)
+      .set({ role: finalRole, active: true, cpfCnpj })
+      .where(eq(user.id, response.user.id));
     console.log(`[USER_REGISTER_USE_CASE] Role '${finalRole}' aplicada ao usuário ${response.user.id}`);
 
     const slug = await generateUniqueSlug(data.studioName);
@@ -120,6 +142,7 @@ export class CreateUserUseCase {
         id: crypto.randomUUID(),
         name: data.studioName,
         slug,
+        phone: data.phone,
         ownerId: response.user.id,
         trialEndsAt: trialEndsAt,
         subscriptionStatus: 'trial',
@@ -144,6 +167,7 @@ export class CreateUserUseCase {
             id: crypto.randomUUID(),
             name: data.studioName,
             slug: fallbackSlug,
+            phone: data.phone,
             ownerId: response.user.id,
             trialEndsAt: trialEndsAt,
             subscriptionStatus: 'trial',
@@ -160,6 +184,26 @@ export class CreateUserUseCase {
       }
       throw err;
     });
+
+    // 3. Dispara o e-mail de verificação via Better Auth
+    if (!response.user.emailVerified) {
+      await auth.api.sendVerificationEmail({
+        body: {
+          email: data.email,
+        },
+      });
+      console.log(`[USER_REGISTER_USE_CASE] E-mail de verificação disparado via Better Auth`);
+    }
+
+    await transactionalEmailService
+      .sendWelcomeEmail({
+        to: data.email,
+        name: data.name,
+        studioName: result.newCompany.name,
+      })
+      .catch((error) =>
+        console.error("[WELCOME_EMAIL_ERROR]", error),
+      );
 
     return {
       ...response,

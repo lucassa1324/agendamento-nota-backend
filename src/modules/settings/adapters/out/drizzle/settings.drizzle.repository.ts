@@ -80,12 +80,23 @@ export class DrizzleSettingsRepository implements SettingsRepository {
       return val;
     };
 
+    // 1. BLINDAGEM: Preservar todos os campos originais (incluindo seções dinâmicas)
+    // Isso evita regressões quando novos setores são adicionados no frontend.
+    const sanitized: any = {};
+    for (const key in data) {
+      // Ignorar campos internos do banco de dados
+      if (['id', 'companyId', 'createdAt', 'updatedAt'].includes(key)) continue;
+      sanitized[key] = sanitizeValue(data[key]);
+    }
+
+    // 2. Garantir que as seções básicas tenham ao menos um fallback para não quebrar o frontend
     return {
-      layoutGlobal: sanitizeValue(data.layoutGlobal),
-      home: sanitizeValue(data.home),
-      gallery: sanitizeValue(data.gallery),
-      aboutUs: sanitizeValue(data.aboutUs),
-      appointmentFlow: sanitizeValue(data.appointmentFlow),
+      layoutGlobal: sanitized.layoutGlobal || DEFAULT_LAYOUT_GLOBAL,
+      home: sanitized.home || DEFAULT_HOME_SECTION,
+      gallery: sanitized.gallery || DEFAULT_GALLERY_SECTION,
+      aboutUs: sanitized.aboutUs || DEFAULT_ABOUT_US_SECTION,
+      appointmentFlow: sanitized.appointmentFlow || DEFAULT_APPOINTMENT_FLOW_SECTION,
+      ...sanitized, // Spread final para garantir que campos extras (como 'sections') sejam mantidos
     } as SiteCustomization;
   }
 
@@ -118,7 +129,9 @@ export class DrizzleSettingsRepository implements SettingsRepository {
 
   async saveCustomization(businessId: string, data: SiteCustomization): Promise<SiteCustomization> {
     try {
+      // 1. BLINDAGEM: Preservar todos os campos originais (incluindo seções dinâmicas como 'sections')
       const dataToSave = {
+        ...data, // Spread do original para não perder campos novos
         layoutGlobal: data.layoutGlobal || DEFAULT_LAYOUT_GLOBAL,
         home: data.home || DEFAULT_HOME_SECTION,
         gallery: data.gallery || DEFAULT_GALLERY_SECTION,
@@ -180,7 +193,15 @@ export class DrizzleSettingsRepository implements SettingsRepository {
         .where(eq(siteDrafts.companyId, businessId))
         .limit(1);
 
-      if (!result) return null;
+      if (!result) {
+        return {
+          layoutGlobal: DEFAULT_LAYOUT_GLOBAL,
+          home: DEFAULT_HOME_SECTION,
+          gallery: DEFAULT_GALLERY_SECTION,
+          aboutUs: DEFAULT_ABOUT_US_SECTION,
+          appointmentFlow: DEFAULT_APPOINTMENT_FLOW_SECTION,
+        } as SiteCustomization;
+      }
 
       return this.sanitizeCustomization(result);
     } catch (error: any) {
@@ -191,7 +212,9 @@ export class DrizzleSettingsRepository implements SettingsRepository {
 
   async saveDraft(businessId: string, data: SiteCustomization): Promise<SiteCustomization> {
     try {
+      // 1. BLINDAGEM: Preservar todos os campos originais (incluindo seções dinâmicas como 'sections')
       const dataToSave = {
+        ...data, // Spread do original para não perder campos novos
         layoutGlobal: data.layoutGlobal || DEFAULT_LAYOUT_GLOBAL,
         home: data.home || DEFAULT_HOME_SECTION,
         gallery: data.gallery || DEFAULT_GALLERY_SECTION,

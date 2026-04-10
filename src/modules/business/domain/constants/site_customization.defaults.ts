@@ -297,6 +297,7 @@ export const DEFAULT_APPOINTMENT_FLOW_SECTION: AppointmentFlowSection = {
     title: "Escolha o Horário",
     timeSlotStyle: "grid",
     timeSlotSize: 30, // Intervalo em minutos (número)
+    minimumBookingLeadMinutes: 0, // Antecedência mínima padrão (0 = desativado)
   },
   step4Confirmation: {
     title: "Confirme seu Agendamento",

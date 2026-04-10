@@ -1,9 +1,47 @@
 import { Elysia, t } from "elysia";
-import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
+import { authPlugin, syncAsaasPaymentForCompany } from "../../../../infrastructure/auth/auth-plugin";
 import { auth } from "../../../../infrastructure/auth/auth";
 import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
-import { eq, sql, count } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
+
+const writeSystemLog = async ({
+  userId,
+  action,
+  details,
+  level = "INFO",
+  companyId,
+}: {
+  userId?: string;
+  action: string;
+  details?: string;
+  level?: string;
+  companyId?: string;
+}) => {
+  try {
+    await db.insert(schema.systemLogs).values({
+      id: crypto.randomUUID(),
+      userId,
+      action,
+      details,
+      level,
+      companyId,
+      createdAt: new Date()
+    });
+  } catch (error: any) {
+    const code = (error as any)?.code;
+    const message = String(error?.message || "");
+    if (code === "42P01" || message.toLowerCase().includes("system_logs")) {
+      return;
+    }
+    console.error("[MASTER_ADMIN_LOG_WRITE_ERROR]:", error);
+  }
+};
+
+const HEALTH_CHECK_COMPANY_SLUG = "sistema-health-check";
+const HEALTH_CHECK_COMPANY_NAME = "SISTEMA_HEALTH_CHECK";
+const HEALTH_CHECK_SERVICE_NAME = "Serviço Diagnóstico HC";
+const HEALTH_CHECK_CUSTOMER_EMAIL = "healthcheck@system.local";
 
 export const masterAdminController = () => new Elysia({ prefix: "/admin/master" })
   .use(authPlugin)
@@ -24,6 +62,15 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         WHERE subscription_status IN ('active', 'trialing', 'trial')
       `);
 
+      // Busca o preço dinâmico para o cálculo do faturamento
+      const [pricingSetting] = await db
+        .select()
+        .from(schema.systemSettings)
+        .where(eq(schema.systemSettings.key, "monthly_price"))
+        .limit(1);
+
+      const currentPrice = pricingSetting ? parseFloat(pricingSetting.value) : 49.90;
+
       const [revenue] = await db.execute(sql`
         SELECT COALESCE(SUM(plan_price), 0)::float as total
         FROM (
@@ -31,7 +78,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
             CASE 
               WHEN access_type = 'premium' THEN 97.00
               WHEN access_type = 'pro' THEN 197.00
-              WHEN access_type = 'automatic' THEN 47.00
+              WHEN access_type = 'automatic' THEN ${sql.raw(currentPrice.toString())}
               ELSE 0 
             END as plan_price
           FROM companies
@@ -111,6 +158,107 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       active: t.Boolean()
     })
   })
+  .patch("/companies/:id/status", async ({ params, body, set }) => {
+    try {
+      const { id } = params;
+      const { active } = body;
+
+      const [updated] = await db
+        .update(schema.companies)
+        .set({
+          active,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.companies.id, id))
+        .returning();
+
+      if (!updated) {
+        set.status = 404;
+        return { error: "Empresa não encontrada" };
+      }
+
+      return {
+        success: true,
+        message: `Status da empresa ${updated.name} alterado para ${active ? 'ativa' : 'inativa'}`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_COMPANY_STATUS_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao atualizar status da empresa: " + error.message };
+    }
+  }, {
+    body: t.Object({
+      active: t.Boolean()
+    })
+  })
+  .post("/users/:id/reset-email-verification", async ({ params, set }) => {
+    try {
+      const { id } = params;
+
+      const [updated] = await db
+        .update(schema.user)
+        .set({
+          emailVerified: false,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.user.id, id))
+        .returning();
+
+      if (!updated) {
+        set.status = 404;
+        return { error: "Usuário não encontrado" };
+      }
+
+      return {
+        success: true,
+        message: `Verificação de e-mail do usuário ${updated.name} resetada com sucesso.`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_RESET_EMAIL_VERIFICATION_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao resetar verificação: " + error.message };
+    }
+  })
+  .post("/companies/:id/reset-onboarding", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+
+      const [company] = await db
+        .select()
+        .from(schema.companies)
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!company) {
+        set.status = 404;
+        return { error: "Empresa não encontrada." };
+      }
+
+      await db.update(schema.user)
+        .set({
+          hasCompletedOnboarding: false,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.user.id, company.ownerId));
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "RESET_ONBOARDING",
+        details: `Primeiro acesso resetado para ${company.name}.`,
+        level: "WARN",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message: "Primeiro acesso resetado com sucesso."
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_RESET_ONBOARDING_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao resetar primeiro acesso: " + error.message };
+    }
+  })
   .patch("/companies/:id/subscription", async ({ params, body, set }) => {
     try {
       const { id } = params;
@@ -147,6 +295,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           updateData.subscriptionStatus = 'active';
           updateData.accessType = 'manual'; // Marca como manual para diferenciar
           updateData.trialEndsAt = nextDue;
+          updateData.active = true;
 
         } else if (actionType === 'extend_trial_custom') {
           // Opção 2: Definir Teste (Novo Prazo)
@@ -162,17 +311,42 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           // Força o tipo de acesso para 'extended_trial' para diferenciar do 'automatic' (padrão)
           // O Frontend usará isso para saber que houve uma extensão manual.
           updateData.accessType = 'extended_trial';
+          updateData.active = true;
 
         } else if (actionType === 'automatic') {
-          // Reset Automático: SEMPRE revoga acesso manual/extendido e bloqueia se não houver pagamento.
-          // Independente da idade da empresa, ao voltar para automático, o trial é zerado.
-          const yesterday = new Date(now);
-          yesterday.setDate(yesterday.getDate() - 1);
+          // Busca o email do proprietário para sincronização
+          const [owner] = await db
+            .select()
+            .from(schema.user)
+            .where(eq(schema.user.id, currentCompany.ownerId))
+            .limit(1);
 
-          updateData.subscriptionStatus = 'past_due';
-          updateData.trialEndsAt = yesterday;
-          updateData.accessType = 'automatic';
-          console.log(`[MASTER_ADMIN] Reset Automático: Trial zerado e acesso bloqueado (sem pagamento).`);
+          console.log(`[MASTER_ADMIN] Empresa ${id} voltando para modo automático. Sincronizando com Asaas...`);
+
+          // Executa a sincronização real com o Asaas
+          const syncResult = await syncAsaasPaymentForCompany(
+            id,
+            currentCompany.ownerId,
+            owner?.email,
+            {
+              requireCurrentMonthPayment: true,
+              ignoreBlockDate: false
+            }
+          );
+
+          if (syncResult && syncResult.activated) {
+            updateData.subscriptionStatus = 'active';
+            updateData.accessType = 'automatic';
+            updateData.trialEndsAt = syncResult.nextDue;
+            updateData.active = true;
+            console.log(`[MASTER_ADMIN] Sincronização bem-sucedida: Empresa ${id} ATIVA.`);
+          } else {
+            // Se não encontrar pagamento, define como past_due
+            updateData.subscriptionStatus = 'past_due';
+            updateData.accessType = 'automatic';
+            updateData.active = false;
+            console.log(`[MASTER_ADMIN] Sincronização falhou ou sem pagamento: Empresa ${id} bloqueada (past_due).`);
+          }
         }
       }
 
@@ -187,8 +361,31 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         return { error: "Empresa não encontrada" };
       }
 
+      if (actionType === 'automatic') {
+        if (updated.subscriptionStatus === 'past_due') {
+          try {
+            await db
+              .delete(schema.session)
+              .where(eq(schema.session.userId, updated.ownerId));
+
+            console.log(`[MASTER_ADMIN_KICK]: Sessões invalidadas para o estúdio ${updated.name} (Owner: ${updated.ownerId})`);
+          } catch (kickError) {
+            console.error("[MASTER_ADMIN_KICK_ERROR]:", kickError);
+          }
+        }
+      } else if (actionType === 'manual_custom_days' || actionType === 'extend_trial_custom') {
+        await db
+          .update(schema.user)
+          .set({
+            active: true,
+            updatedAt: new Date()
+          })
+          .where(eq(schema.user.id, updated.ownerId));
+      }
+
       return {
         success: true,
+        status: updated.subscriptionStatus,
         message: `Assinatura atualizada via ${actionType || 'direto'}: Status ${updated.subscriptionStatus}, Vence em ${updated.trialEndsAt?.toLocaleDateString()}`
       };
     } catch (error: any) {
@@ -203,6 +400,529 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       actionType: t.Optional(t.String()), // 'manual_custom_days' | 'extend_trial_custom' | 'automatic'
       trialDays: t.Optional(t.Number()) // Quantidade de dias customizável
     })
+  })
+  .post("/companies/:id/sync", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+
+      const [currentCompany] = await db
+        .select()
+        .from(schema.companies)
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!currentCompany) {
+        set.status = 404;
+        return { error: "Empresa não encontrada" };
+      }
+
+      const [owner] = await db
+        .select()
+        .from(schema.user)
+        .where(eq(schema.user.id, currentCompany.ownerId))
+        .limit(1);
+
+      console.log(`[MASTER_ADMIN] Sincronização manual solicitada para ${id}.`);
+
+      const syncResult = await syncAsaasPaymentForCompany(
+        id,
+        currentCompany.ownerId,
+        owner?.email,
+        {
+          requireCurrentMonthPayment: true,
+          ignoreBlockDate: false
+        }
+      );
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "SYNC_ASAAS",
+        details: `Sincronização manual solicitada. Resultado: ${syncResult?.activated ? 'Ativado' : 'Não alterado'}`,
+        level: "INFO",
+        companyId: id
+      });
+
+      if (syncResult && syncResult.activated) {
+        return {
+          success: true,
+          status: 'active',
+          message: "Pagamento confirmado e acesso liberado."
+        };
+      }
+
+      // Se não ativou via syncResult, garante que o status reflita a realidade (past_due se automático)
+      if (currentCompany.accessType === 'automatic') {
+        await db.update(schema.companies)
+          .set({ subscriptionStatus: 'past_due', updatedAt: new Date() })
+          .where(eq(schema.companies.id, id));
+
+        return {
+          success: true,
+          status: 'past_due',
+          message: "Nenhum pagamento confirmado encontrado. Status definido como Pendente."
+        };
+      }
+
+      return {
+        success: false,
+        status: currentCompany.subscriptionStatus,
+        message: "Nenhum novo pagamento identificado no Asaas."
+      };
+
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_SYNC_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao sincronizar: " + error.message };
+    }
+  })
+  .post("/companies/:id/simulate-block", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+
+      const [company] = await db.select()
+        .from(schema.companies)
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!company) {
+        set.status = 404;
+        return { error: "Empresa não encontrada." };
+      }
+
+      console.log(`[MASTER_ADMIN] Simulando bloqueio para: ${company.name} (ID: ${company.id})`);
+
+      // 1. Marcar como inadimplente e inativa
+      await db.update(schema.companies)
+        .set({
+          subscriptionStatus: "past_due",
+          active: false,
+          accessType: "automatic",
+          updatedAt: new Date() // CRITICAL: This date will be used by auth-plugin to ignore old payments
+        })
+        .where(eq(schema.companies.id, company.id));
+
+      // 2. Desativar o dono
+      await db.update(schema.user)
+        .set({
+          active: false,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.user.id, company.ownerId));
+
+      // 3. Matar sessões para forçar re-login/re-auth
+      await db.delete(schema.session)
+        .where(eq(schema.session.userId, company.ownerId));
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "SIMULATE_BLOCK",
+        details: `Bloqueio simulado para ${company.name}. Status: past_due, Active: false.`,
+        level: "WARN",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message: `Bloqueio simulado com sucesso para ${company.name}.`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_SIMULATE_BLOCK_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro na simulação: " + error.message };
+    }
+  })
+  .post("/companies/:id/reset-data", async ({ params, body, set, user }) => {
+    try {
+      const { id } = params;
+      const { resetAppointments, resetServices } = body;
+
+      if (resetAppointments) {
+        await db.delete(schema.appointments).where(eq(schema.appointments.companyId, id));
+      }
+
+      if (resetServices) {
+        await db.delete(schema.services).where(eq(schema.services.companyId, id));
+      }
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "RESET_DATA",
+        details: `Reset: ${[resetAppointments ? 'Agendamentos' : null, resetServices ? 'Serviços' : null].filter(Boolean).join(', ')}`,
+        level: "WARN",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message: `Dados resetados com sucesso: ${[resetAppointments ? 'Agendamentos' : null, resetServices ? 'Serviços' : null].filter(Boolean).join(', ')}`
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_RESET_DATA_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao resetar dados: " + error.message };
+    }
+  }, {
+    body: t.Object({
+      resetAppointments: t.Boolean(),
+      resetServices: t.Boolean()
+    })
+  })
+  .post("/companies/:id/test-expiration", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+      const pastDate = new Date();
+      pastDate.setDate(pastDate.getDate() - 1);
+
+      await db.update(schema.companies)
+        .set({
+          accessType: "manual",
+          subscriptionStatus: "active",
+          trialEndsAt: pastDate,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.companies.id, id));
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "TEST_EXPIRATION",
+        details: "Configurada expiração manual forçada para teste.",
+        level: "INFO",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message: "Empresa configurada como expirada (Acesso Manual). O sistema deve reverter para automático no próximo acesso."
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_TEST_EXPIRATION_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao configurar expiração: " + error.message };
+    }
+  })
+  .post("/companies/:id/simulate-past-due", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+
+      await db.update(schema.companies)
+        .set({
+          accessType: "automatic",
+          subscriptionStatus: "past_due",
+          active: false,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.companies.id, id));
+
+      // 2. Desativar o dono para garantir o bloqueio total
+      const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, id)).limit(1);
+      if (company) {
+        await db.update(schema.user)
+          .set({ active: false, updatedAt: new Date() })
+          .where(eq(schema.user.id, company.ownerId));
+
+        // 3. Matar sessões para forçar re-login/bloqueio imediato
+        await db.delete(schema.session)
+          .where(eq(schema.session.userId, company.ownerId));
+      }
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "SIMULATE_PAST_DUE",
+        details: "Simulação de vencimento automático (past_due) ativada.",
+        level: "INFO",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message: "Empresa definida como Vencida (Modo Automático)."
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_PAST_DUE_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao simular vencimento: " + error.message };
+    }
+  })
+  .get("/logs", async () => {
+    try {
+      const results = await db
+        .select({
+          id: schema.systemLogs.id,
+          userName: schema.user.name,
+          action: schema.systemLogs.action,
+          details: schema.systemLogs.details,
+          level: schema.systemLogs.level,
+          companyName: schema.companies.name,
+          createdAt: schema.systemLogs.createdAt,
+        })
+        .from(schema.systemLogs)
+        .leftJoin(schema.user, eq(schema.systemLogs.userId, schema.user.id))
+        .leftJoin(schema.companies, eq(schema.systemLogs.companyId, schema.companies.id))
+        .orderBy(sql`${schema.systemLogs.createdAt} DESC`)
+        .limit(50);
+
+      return results;
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_LOGS_ERROR]:", error);
+      const code = (error as any)?.code;
+      const message = String(error?.message || "");
+
+      if (code === "42P01" || message.toLowerCase().includes("system_logs")) {
+        return [];
+      }
+
+      throw new Error("Erro ao buscar logs: " + message);
+    }
+  })
+  .get("/bug-reports", async () => {
+    try {
+      const reports = await db
+        .select({
+          id: schema.bugReports.id,
+          type: schema.bugReports.type,
+          description: schema.bugReports.description,
+          screenshotUrl: schema.bugReports.screenshotUrl,
+          pageUrl: schema.bugReports.pageUrl,
+          userAgent: schema.bugReports.userAgent,
+          ipAddress: schema.bugReports.ipAddress,
+          acceptLanguage: schema.bugReports.acceptLanguage,
+          metadata: schema.bugReports.metadata,
+          status: schema.bugReports.status,
+          createdAt: schema.bugReports.createdAt,
+          reporterName: schema.user.name,
+          reporterEmail: schema.user.email,
+          companyName: schema.companies.name,
+          companySlug: schema.companies.slug,
+        })
+        .from(schema.bugReports)
+        .leftJoin(schema.user, eq(schema.bugReports.reporterUserId, schema.user.id))
+        .leftJoin(schema.companies, eq(schema.bugReports.companyId, schema.companies.id))
+        .orderBy(desc(schema.bugReports.createdAt))
+        .limit(100);
+
+      return reports;
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_BUG_REPORTS_ERROR]:", error);
+      const code = (error as any)?.code;
+      const message = String(error?.message || "");
+      if (code === "42P01" || message.toLowerCase().includes("bug_reports")) {
+        return [];
+      }
+      throw new Error("Erro ao buscar bug reports: " + message);
+    }
+  })
+  .delete("/bug-reports/:id", async ({ params, set }) => {
+    try {
+      const { id } = params;
+      const [deleted] = await db
+        .delete(schema.bugReports)
+        .where(eq(schema.bugReports.id, id))
+        .returning();
+
+      if (!deleted) {
+        set.status = 404;
+        return { error: "Feedback não encontrado" };
+      }
+
+      return { success: true, message: "Feedback removido com sucesso" };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_BUG_REPORT_DELETE_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao remover feedback: " + error.message };
+    }
+  })
+  .patch("/bug-reports/:id/move", async ({ params, body, set }) => {
+    try {
+      const { id } = params;
+      const { type } = body;
+
+      if (type !== "BUG" && type !== "SUGGESTION") {
+        set.status = 400;
+        return { error: "Tipo inválido. Use 'BUG' ou 'SUGGESTION'." };
+      }
+
+      const [updated] = await db
+        .update(schema.bugReports)
+        .set({
+          type: type as "BUG" | "SUGGESTION",
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.bugReports.id, id))
+        .returning();
+
+      if (!updated) {
+        set.status = 404;
+        return { error: "Feedback não encontrado" };
+      }
+
+      return {
+        success: true,
+        message: `Feedback movido para ${type === "BUG" ? "Bugs" : "Sugestões"}`,
+        report: updated
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_BUG_REPORT_MOVE_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao mover feedback: " + error.message };
+    }
+  }, {
+    body: t.Object({
+      type: t.String()
+    })
+  })
+  .post("/health/ensure-test-company", async ({ user, set }) => {
+    try {
+      const currentUserId = (user as any)?.id;
+
+      if (!currentUserId) {
+        set.status = 401;
+        return { error: "Usuário não autenticado." };
+      }
+
+      const [currentUser] = await db
+        .select()
+        .from(schema.user)
+        .where(eq(schema.user.id, currentUserId))
+        .limit(1);
+
+      if (!currentUser) {
+        set.status = 404;
+        return { error: "Usuário não encontrado." };
+      }
+
+      const now = new Date();
+
+      let [healthCompany] = await db
+        .select()
+        .from(schema.companies)
+        .where(eq(schema.companies.slug, HEALTH_CHECK_COMPANY_SLUG))
+        .limit(1);
+
+      if (!healthCompany) {
+        [healthCompany] = await db
+          .insert(schema.companies)
+          .values({
+            id: crypto.randomUUID(),
+            name: HEALTH_CHECK_COMPANY_NAME,
+            slug: HEALTH_CHECK_COMPANY_SLUG,
+            ownerId: currentUserId,
+            active: true,
+            subscriptionStatus: "active",
+            accessType: "manual",
+            trialEndsAt: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
+            createdAt: now,
+            updatedAt: now
+          })
+          .returning();
+      } else if (healthCompany.ownerId !== currentUserId) {
+        const [updatedCompany] = await db
+          .update(schema.companies)
+          .set({
+            ownerId: currentUserId,
+            active: true,
+            subscriptionStatus: "active",
+            accessType: "manual",
+            updatedAt: now
+          })
+          .where(eq(schema.companies.id, healthCompany.id))
+          .returning();
+
+        if (updatedCompany) {
+          healthCompany = updatedCompany;
+        }
+      }
+
+      if (!healthCompany) {
+        set.status = 500;
+        return { error: "Não foi possível preparar a empresa de teste." };
+      }
+
+      await db.delete(schema.operatingHours).where(eq(schema.operatingHours.companyId, healthCompany.id));
+
+      const operatingHoursPayload = Array.from({ length: 7 }).map((_, dayIndex) => ({
+        id: crypto.randomUUID(),
+        companyId: healthCompany.id,
+        dayOfWeek: String(dayIndex),
+        status: "OPEN",
+        morningStart: "09:00",
+        morningEnd: "12:00",
+        afternoonStart: "13:00",
+        afternoonEnd: "18:00",
+        createdAt: now,
+        updatedAt: now
+      }));
+
+      await db.insert(schema.operatingHours).values(operatingHoursPayload);
+
+      await db
+        .delete(schema.appointments)
+        .where(
+          and(
+            eq(schema.appointments.companyId, healthCompany.id),
+            eq(schema.appointments.customerEmail, HEALTH_CHECK_CUSTOMER_EMAIL)
+          )
+        );
+
+      let [healthService] = await db
+        .select()
+        .from(schema.services)
+        .where(
+          and(
+            eq(schema.services.companyId, healthCompany.id),
+            eq(schema.services.name, HEALTH_CHECK_SERVICE_NAME)
+          )
+        )
+        .limit(1);
+
+      if (!healthService) {
+        [healthService] = await db
+          .insert(schema.services)
+          .values({
+            id: crypto.randomUUID(),
+            companyId: healthCompany.id,
+            name: HEALTH_CHECK_SERVICE_NAME,
+            description: "Serviço usado para diagnóstico automático de rotas.",
+            price: "1.00",
+            duration: "00:30",
+            isVisible: false,
+            showOnHome: false,
+            createdAt: now,
+            updatedAt: now
+          })
+          .returning();
+      }
+
+      if (!healthService) {
+        set.status = 500;
+        return { error: "Não foi possível preparar o serviço de diagnóstico." };
+      }
+
+      await writeSystemLog({
+        userId: currentUserId,
+        action: "HEALTH_TEST_READY",
+        details: "Empresa de teste preparada para diagnóstico de rotas.",
+        level: "INFO",
+        companyId: healthCompany.id
+      });
+
+      return {
+        success: true,
+        companyId: healthCompany.id,
+        companyName: healthCompany.name,
+        companySlug: healthCompany.slug,
+        serviceId: healthService.id,
+        serviceName: healthService.name,
+        servicePrice: String(healthService.price),
+        serviceDuration: healthService.duration,
+        testCustomerName: "Health Check Bot",
+        testCustomerEmail: HEALTH_CHECK_CUSTOMER_EMAIL,
+        testCustomerPhone: "11999999999"
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_HEALTH_SETUP_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao preparar ambiente de teste: " + error.message };
+    }
   })
   // --- NOVAS ROTAS DE PROSPECTS (POSSÍVEIS CLIENTES) ---
   .get("/prospects", async () => {
@@ -481,15 +1201,23 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         WHERE subscription_status IN ('active', 'trialing', 'trial')
       `);
 
-      // 3. Faturamento Mensal Estimado
-      const [monthlyRevenue] = await db.execute(sql`
+      // 3. Faturamento Mensal Estimado usando preço dinâmico
+      const [pricingSetting] = await db
+        .select()
+        .from(schema.systemSettings)
+        .where(eq(schema.systemSettings.key, "monthly_price"))
+        .limit(1);
+
+      const currentPrice = pricingSetting ? parseFloat(pricingSetting.value) : 49.90;
+
+      const [revenue] = await db.execute(sql`
         SELECT COALESCE(SUM(plan_price), 0)::float as total
         FROM (
           SELECT 
             CASE 
               WHEN access_type = 'premium' THEN 97.00
               WHEN access_type = 'pro' THEN 197.00
-              WHEN access_type = 'automatic' THEN 47.00
+              WHEN access_type = 'automatic' THEN ${sql.raw(currentPrice.toString())}
               ELSE 0 
             END as plan_price
           FROM companies
@@ -504,12 +1232,13 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       const stats = {
         totalCompanies: Number(totalCompanies?.count || 0),
         activeSubscriptions: Number(activeSubscriptions?.count || 0),
-        monthlyRevenue: Number(monthlyRevenue?.total || 0),
+        monthlyRevenue: Number(revenue?.total || 0),
         totalAppointments: Number(totalAppointments?.count || 0),
         // Adicionando campos extras caso o front use nomes diferentes
-        revenue: Number(monthlyRevenue?.total || 0),
+        revenue: Number(revenue?.total || 0),
         appointments: Number(totalAppointments?.count || 0),
-        companies: Number(totalCompanies?.count || 0)
+        companies: Number(totalCompanies?.count || 0),
+        currentPricing: currentPrice
       };
 
       return stats;
@@ -518,9 +1247,70 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       throw new Error("Erro ao gerar estatísticas do dashboard: " + error.message);
     }
   })
+  .get("/settings/pricing", async () => {
+    try {
+      const [setting] = await db
+        .select()
+        .from(schema.systemSettings)
+        .where(eq(schema.systemSettings.key, "monthly_price"))
+        .limit(1);
+
+      return {
+        price: setting ? parseFloat(setting.value) : 49.90,
+        updatedAt: setting?.updatedAt || new Date()
+      };
+    } catch (error: any) {
+      throw new Error("Erro ao buscar preço: " + error.message);
+    }
+  })
+  .post("/settings/pricing", async ({ body, set }) => {
+    try {
+      const { price } = body;
+
+      const [updated] = await db
+        .insert(schema.systemSettings)
+        .values({
+          id: crypto.randomUUID(),
+          key: "monthly_price",
+          value: price.toString(),
+          description: "Preço da mensalidade do Plano Pro",
+          updatedAt: new Date()
+        })
+        .onConflictDoUpdate({
+          target: schema.systemSettings.key,
+          set: {
+            value: price.toString(),
+            updatedAt: new Date()
+          }
+        })
+        .returning();
+
+      return {
+        success: true,
+        price: parseFloat(updated.value),
+        message: "Preço da mensalidade atualizado com sucesso"
+      };
+    } catch (error: any) {
+      set.status = 500;
+      return { error: "Erro ao atualizar preço: " + error.message };
+    }
+  }, {
+    body: t.Object({
+      price: t.Number()
+    })
+  })
   // Alias para compatibilidade
   .get("/reports/financial", async ({ set }) => {
     try {
+      // Busca o preço dinâmico para o cálculo do faturamento
+      const [pricingSetting] = await db
+        .select()
+        .from(schema.systemSettings)
+        .where(eq(schema.systemSettings.key, "monthly_price"))
+        .limit(1);
+
+      const currentPrice = pricingSetting ? parseFloat(pricingSetting.value) : 49.90;
+
       const [monthlyRevenue] = await db.execute(sql`
         SELECT COALESCE(SUM(plan_price), 0)::float as total
         FROM (
@@ -528,7 +1318,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
             CASE 
               WHEN access_type = 'premium' THEN 97.00
               WHEN access_type = 'pro' THEN 197.00
-              WHEN access_type = 'automatic' THEN 47.00
+              WHEN access_type = 'automatic' THEN ${sql.raw(currentPrice.toString())}
               ELSE 0 
             END as plan_price
           FROM companies
@@ -621,13 +1411,83 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
 
       return {
         success: true,
-        message: `Senha resetada para o padrão: ${defaultPassword}`
+        message: `Senha de ${updatedAccount.userId} resetada para Mudar@123 com sucesso.`
       };
     } catch (error: any) {
       console.error("[MASTER_ADMIN_RESET_PASSWORD_ERROR]:", error);
       set.status = 500;
       return { error: "Erro ao resetar senha: " + error.message };
     }
+  })
+  .get("/financial-details", async ({ query, set }) => {
+    try {
+      const { email } = query;
+      if (!email) {
+        set.status = 400;
+        return { error: "Email é obrigatório" };
+      }
+
+      // Busca a empresa vinculada ao email (dono)
+      const [company] = await db
+        .select({
+          id: schema.companies.id,
+          subscriptionStatus: schema.companies.subscriptionStatus,
+          trialEndsAt: schema.companies.trialEndsAt,
+          createdAt: schema.companies.createdAt,
+        })
+        .from(schema.companies)
+        .innerJoin(schema.user, eq(schema.companies.ownerId, schema.user.id))
+        .where(eq(schema.user.email, email))
+        .limit(1);
+
+      if (!company) {
+        return {
+          status: "Não identificado",
+          nextInvoiceDate: null,
+          lastPaymentDate: null,
+          history: []
+        };
+      }
+
+      // Por enquanto, como não temos integração total de histórico com Asaas implementada no AsaasClient,
+      // retornamos um mock estruturado que o front espera baseado no status do banco.
+
+      const statusMap: Record<string, string> = {
+        active: "Ativo",
+        trialing: "Teste",
+        trial: "Teste",
+        past_due: "Vencido",
+        deleted: "Cancelado"
+      };
+
+      // Cálculo simples da próxima fatura (mensal)
+      const nextInvoice = new Date(company.createdAt);
+      const now = new Date();
+
+      // Se estiver em trial, a primeira fatura é após o trial
+      if ((company.subscriptionStatus === 'trial' || company.subscriptionStatus === 'trialing') && company.trialEndsAt) {
+        nextInvoice.setTime(company.trialEndsAt.getTime());
+      } else {
+        while (nextInvoice < now) {
+          nextInvoice.setMonth(nextInvoice.getMonth() + 1);
+        }
+      }
+
+      return {
+        status: statusMap[company.subscriptionStatus] || "Não identificado",
+        nextInvoiceDate: (company.subscriptionStatus === 'active' || company.subscriptionStatus === 'trial' || company.subscriptionStatus === 'trialing') ? nextInvoice.toISOString() : null,
+        lastPaymentDate: company.createdAt.toISOString(), // Simplificação
+        history: [] // Histórico real exigiria busca no Asaas via API
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_FINANCIAL_DETAILS_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao buscar detalhes financeiros: " + error.message };
+    }
+  }, {
+    query: t.Object({
+      email: t.String()
+    })
   })
   .get("/users/:id/details", async ({ params, set }) => {
     try {
@@ -679,6 +1539,8 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           slug: company.slug,
           active: company.active,
           createdAt: company.createdAt,
+          subscriptionStatus: company.subscriptionStatus,
+          trialEndsAt: company.trialEndsAt,
         } : null,
         stats: {
           totalAppointments: Number(appointmentStats?.count || 0),
@@ -696,13 +1558,29 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
   .delete("/users/:id", async ({ params, set }) => {
     try {
       const { id } = params;
+      const deleted = await db.transaction(async (tx) => {
+        const ownedCompanies = await tx
+          .select({ id: schema.companies.id })
+          .from(schema.companies)
+          .where(eq(schema.companies.ownerId, id));
 
-      // O banco está configurado com ON DELETE CASCADE em todas as tabelas vinculadas:
-      // user -> companies -> (services, appointments, site_customizations, gallery, etc.)
-      const [deleted] = await db
-        .delete(schema.user)
-        .where(eq(schema.user.id, id))
-        .returning();
+        await tx
+          .delete(schema.systemLogs)
+          .where(eq(schema.systemLogs.userId, id));
+
+        for (const company of ownedCompanies) {
+          await tx
+            .delete(schema.systemLogs)
+            .where(eq(schema.systemLogs.companyId, company.id));
+        }
+
+        const [removedUser] = await tx
+          .delete(schema.user)
+          .where(eq(schema.user.id, id))
+          .returning();
+
+        return removedUser;
+      });
 
       if (!deleted) {
         set.status = 404;
@@ -733,6 +1611,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           trialEndsAt: schema.companies.trialEndsAt,
           accessType: schema.companies.accessType,
           createdAt: schema.companies.createdAt,
+          ownerId: schema.companies.ownerId,
           ownerEmail: schema.user.email,
         })
         .from(schema.companies)

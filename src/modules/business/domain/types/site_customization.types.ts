@@ -4,6 +4,7 @@ export interface SiteCustomization {
   gallery: GallerySection;
   aboutUs: AboutUsSection;
   appointmentFlow: AppointmentFlowSection;
+  [key: string]: any; // Permite seções extras sem perda de dados (Blindagem de Regressão)
 }
 
 // --- Layout Global ---
@@ -374,6 +375,7 @@ export interface AppointmentFlowSection {
     title: string;
     timeSlotStyle: 'list' | 'grid';
     timeSlotSize: number; // Intervalo em minutos (ex: 30, 60)
+    minimumBookingLeadMinutes: number; // Antecedência mínima em minutos
   };
   step4Confirmation: {
     title: string;

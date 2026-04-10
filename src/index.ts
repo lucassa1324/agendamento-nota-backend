@@ -25,6 +25,7 @@ const startServer = () => {
     const { db } = require("./modules/infrastructure/drizzle/database");
     const schema = require("./db/schema");
     const { asaas } = require("./modules/infrastructure/payment/asaas.client");
+    const { uploadToB2 } = require("./modules/infrastructure/storage/b2.storage");
     const { eq, and, count, ilike } = require("drizzle-orm");
 
     // Controllers
@@ -50,6 +51,7 @@ const startServer = () => {
     const { pushController } = require("./modules/notifications/adapters/in/http/push.controller");
     const { userPreferencesController } = require("./modules/user/adapters/in/http/user-preferences.controller");
     const { paymentController } = require("./modules/infrastructure/payment/payment.controller");
+    const { asaasWebhookController } = require("./modules/infrastructure/payment/asaas.webhook.controller");
     const { billingController } = require("./modules/billing/adapters/in/http/billing.controller");
 
     console.log("[STARTUP] Módulos carregados. Instanciando dependências...");
@@ -65,14 +67,58 @@ const startServer = () => {
     const app = new Elysia({
       name: 'AgendamentoNota'
     })
+      .get("/email-verified", async ({ query }) => {
+        const { token } = query;
+        const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+        if (!token) {
+          console.log("[VERIFY_EMAIL] Chamado sem token, assumindo que veio de um redirecionamento de sucesso.");
+          return Response.redirect(`${frontendUrl}/admin?verified=true`, 302);
+        }
+
+        try {
+          console.log(`[VERIFY_EMAIL] Iniciando verificação para token: ${token}`);
+          await auth.api.verifyEmail({
+            query: {
+              token
+            }
+          });
+
+          console.log(`[VERIFY_EMAIL] Sucesso! Redirecionando para o login.`);
+          return Response.redirect(`${frontendUrl}/admin?verified=true`, 302);
+        } catch (e) {
+          console.error("[VERIFY_EMAIL_ERROR]", e);
+          return Response.redirect(`${frontendUrl}/admin?error=verification_failed`, 302);
+        }
+      })
       .all("/api/auth/*", async (ctx) => {
         console.log(`>>> [AUTH_HANDLER_START] ${ctx.request.method} ${ctx.path}`);
         try {
+          // Log do body se for POST para ajudar no debug do erro 400
+          if (ctx.request.method === "POST") {
+            try {
+              const clonedRequest = ctx.request.clone();
+              const bodyText = await clonedRequest.text();
+              console.log(`>>> [AUTH_BODY] ${bodyText}`);
+            } catch (e) {
+              console.warn(">>> [AUTH_BODY_ERROR] Não foi possível ler o corpo da requisição");
+            }
+          }
+
           // Passamos a requisição original. O Better Auth sabe lidar com ela.
-          // Se o Elysia já parseou o corpo, ele estará em ctx.body.
           const response = await auth.handler(ctx.request);
 
           console.log(`<<< [AUTH_HANDLER_END] Status: ${response.status}`);
+
+          if (response.status >= 400) {
+            try {
+              const clonedRes = response.clone();
+              const errorText = await clonedRes.text();
+              console.error(`<<< [AUTH_ERROR_DETAILS] ${errorText}`);
+            } catch (e) {
+              console.error("<<< [AUTH_ERROR_DETAILS_FAILED] Erro ao ler corpo do erro");
+            }
+          }
 
           // Se não houver resposta do Better Auth, retornamos erro 500
           if (!response) {
@@ -124,15 +170,16 @@ const startServer = () => {
           const origin = request.headers.get("origin");
           const allowedOrigins = [
             'http://localhost:3000',
+            'http://localhost:3001',
+            'http://localhost:3002',
             'http://127.0.0.1:3000',
-            'https://agendamento-nota-front.vercel.app',
-            'https://landingpage-agendamento-front.vercel.app',
-            'https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app'
+            'https://app.aurasistema.com.br',
+            'https://aurasistema.com.br'
           ];
 
           const isAllowed = allowedOrigins.includes(origin!) ||
             (origin && origin.match(/http:\/\/.*\.localhost:\d+$/)) ||
-            (origin && origin.match(/\.vercel\.app$/)) ||
+            (origin && (origin.endsWith('.aurasistema.com.br') || origin === 'https://aurasistema.com.br')) ||
             (origin && origin.endsWith('.vercel.app'));
 
           if (isAllowed && origin) {
@@ -153,21 +200,22 @@ const startServer = () => {
         const origin = request.headers.get("origin");
         const allowedOrigins = [
           'http://localhost:3000',
+          'http://localhost:3001',
+          'http://localhost:3002',
           'http://127.0.0.1:3000',
-          'https://agendamento-nota-front.vercel.app',
-          'https://landingpage-agendamento-front.vercel.app',
-          'https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app'
+          'https://app.aurasistema.com.br',
+          'https://aurasistema.com.br'
         ];
 
         const isAllowed = allowedOrigins.includes(origin!) ||
           (origin && origin.match(/http:\/\/.*\.localhost:\d+$/)) ||
-          (origin && origin.match(/\.vercel\.app$/)) ||
+          (origin && (origin.endsWith('.aurasistema.com.br') || origin === 'https://aurasistema.com.br')) ||
           (origin && origin.endsWith('.vercel.app'));
 
         if (isAllowed && origin) {
           set.headers["Access-Control-Allow-Origin"] = origin;
           set.headers["Access-Control-Allow-Credentials"] = "true";
-          set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH";
+          set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH",
           set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control";
           set.headers["Access-Control-Expose-Headers"] = "Set-Cookie, set-cookie, Authorization, Cache-Control";
         }
@@ -181,6 +229,157 @@ const startServer = () => {
       .use(userController.registerRoutes())
       .group("/api", (api) =>
         api
+          .post("/feedback", async ({ body, user, set, request }) => {
+            try {
+              const payload = body as {
+                type?: "bug" | "suggestion";
+                description?: string;
+                screenshot?: string;
+                url?: string;
+                userAgent?: string;
+                metadata?: Record<string, unknown>;
+              };
+
+              const feedbackType =
+                payload?.type?.toLowerCase() === "suggestion"
+                  ? "SUGGESTION"
+                  : "BUG";
+
+              if (!payload?.description?.trim()) {
+                set.status = 400;
+                return { error: "Descrição é obrigatória." };
+              }
+
+              if (feedbackType === "BUG" && !payload?.screenshot) {
+                set.status = 400;
+                return { error: "Screenshot é obrigatória para relato de bug." };
+              }
+
+              let screenshotUrl: string | null = null;
+
+              const pageUrl = payload.url || "";
+              let companyId: string | null = null;
+
+              if (pageUrl) {
+                try {
+                  const parsedUrl = new URL(pageUrl);
+                  const segments = parsedUrl.pathname
+                    .split("/")
+                    .map((segment) => segment.trim())
+                    .filter(Boolean);
+                  const blockedSlugs = new Set([
+                    "admin",
+                    "api",
+                    "dashboard",
+                    "master",
+                  ]);
+                  const maybeSlug = segments.find(
+                    (segment) => !blockedSlugs.has(segment.toLowerCase()),
+                  );
+
+                  if (maybeSlug) {
+                    const [company] = await db
+                      .select({ id: schema.companies.id })
+                      .from(schema.companies)
+                      .where(eq(schema.companies.slug, maybeSlug.toLowerCase()))
+                      .limit(1);
+                    companyId = company?.id || null;
+                  }
+                } catch { }
+              }
+
+              if (payload.screenshot) {
+                const matches = payload.screenshot.match(
+                  /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/,
+                );
+
+                if (!matches || !matches[1] || !matches[2]) {
+                  set.status = 400;
+                  return { error: "Formato de screenshot inválido." };
+                }
+
+                const contentType = matches[1];
+                const base64Data = matches[2];
+                const extensionMap: Record<string, string> = {
+                  "image/png": "png",
+                  "image/jpeg": "jpg",
+                  "image/jpg": "jpg",
+                  "image/webp": "webp",
+                };
+                const extension = extensionMap[contentType] || "png";
+                const screenshotBuffer = Buffer.from(base64Data, "base64");
+                const key = `feedback/${feedbackType.toLowerCase()}/${companyId || "unknown"}/${crypto.randomUUID()}.${extension}`;
+                screenshotUrl = await uploadToB2({
+                  buffer: screenshotBuffer,
+                  contentType,
+                  key,
+                  cacheControl: "public, max-age=31536000",
+                });
+              }
+
+              const forwardedFor = request.headers.get("x-forwarded-for");
+              const realIp = request.headers.get("x-real-ip");
+              const ipAddress = forwardedFor?.split(",")[0]?.trim() || realIp || null;
+              const acceptLanguage = request.headers.get("accept-language");
+              const clientMetadata =
+                payload.metadata && typeof payload.metadata === "object"
+                  ? payload.metadata
+                  : {};
+              const metadata = {
+                ...clientMetadata,
+                requestHost: request.headers.get("host"),
+                requestOrigin: request.headers.get("origin"),
+                requestReferer: request.headers.get("referer"),
+                secChUa: request.headers.get("sec-ch-ua"),
+                secChUaMobile: request.headers.get("sec-ch-ua-mobile"),
+                secChUaPlatform: request.headers.get("sec-ch-ua-platform"),
+                submittedAtServer: new Date().toISOString(),
+              };
+
+              const [created] = await db
+                .insert(schema.bugReports)
+                .values({
+                  id: crypto.randomUUID(),
+                  reporterUserId: user?.id || null,
+                  companyId,
+                  type: feedbackType,
+                  description: payload.description.trim(),
+                  screenshotUrl,
+                  pageUrl: pageUrl || "",
+                  userAgent: payload.userAgent || null,
+                  ipAddress,
+                  acceptLanguage,
+                  metadata,
+                  status: "NEW",
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                })
+                .returning({ id: schema.bugReports.id });
+
+              return {
+                success: true,
+                id: created?.id,
+                type: feedbackType,
+                screenshotUrl,
+              };
+            } catch (error: any) {
+              console.error("[BUG_REPORT_CREATE_ERROR]:", error);
+              set.status = 500;
+              return {
+                error: "Falha ao registrar feedback.",
+                message: error?.message || "Erro interno.",
+              };
+            }
+          }, {
+            body: t.Object({
+              type: t.Union([t.Literal("bug"), t.Literal("suggestion")]),
+              description: t.String(),
+              screenshot: t.Optional(t.String()),
+              url: t.Optional(t.String()),
+              userAgent: t.Optional(t.String()),
+              metadata: t.Optional(t.Any()),
+            }),
+          })
           .group("/account", (account) =>
             account
               .onBeforeHandle(({ user, set }) => {
@@ -295,11 +494,57 @@ const startServer = () => {
               .post("/terminate", async ({ user, body }) => {
                 const { subscriptionId } = body as { subscriptionId?: string };
 
-                if (subscriptionId) {
-                  await asaas.cancelSubscription(subscriptionId);
-                }
+                const [currentUser] = await db
+                  .select({
+                    createdAt: schema.user.createdAt,
+                  })
+                  .from(schema.user)
+                  .where(eq(schema.user.id, user!.id))
+                  .limit(1);
 
                 const now = new Date();
+                const accountCreatedAt = currentUser?.createdAt
+                  ? new Date(currentUser.createdAt)
+                  : now;
+                const diffInMs = now.getTime() - accountCreatedAt.getTime();
+                const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+                const eligibleFullRefund = diffInDays <= 7;
+                const refundPolicyMessage = eligibleFullRefund
+                  ? "Cancelamento dentro de 7 dias: elegível a reembolso total."
+                  : "Cancelamento após 7 dias: não há reembolso parcial ou total.";
+
+                if (subscriptionId) {
+                  await asaas.cancelSubscription(subscriptionId);
+
+                  // Se for elegível para reembolso total (7 dias), tenta estornar o último pagamento
+                  if (eligibleFullRefund) {
+                    try {
+                      console.log(`[TERMINATE] Usuário ${user!.id} elegível para reembolso total. Buscando pagamentos da assinatura ${subscriptionId}...`);
+                      const payments = await asaas.listSubscriptionPayments(subscriptionId);
+
+                      // Filtra pagamentos confirmados ou recebidos
+                      const refundablePayments = payments.filter((p: any) =>
+                        p.status === "CONFIRMED" || p.status === "RECEIVED"
+                      );
+
+                      if (refundablePayments.length > 0) {
+                        // Ordena por data e pega o mais recente (geralmente o único em 7 dias)
+                        const latestPayment = refundablePayments.sort((a: any, b: any) =>
+                          new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
+                        )[0];
+
+                        console.log(`[TERMINATE] Iniciando estorno do pagamento ${latestPayment.id} para usuário ${user!.id}`);
+                        await asaas.refundPayment(latestPayment.id);
+                      } else {
+                        console.warn(`[TERMINATE] Nenhum pagamento confirmando encontrado para reembolso da assinatura ${subscriptionId}`);
+                      }
+                    } catch (refundError) {
+                      console.error("[TERMINATE_REFUND_ERROR] Erro ao processar estorno automático:", refundError);
+                      // Não travamos o cancelamento se o estorno falhar, mas logamos
+                    }
+                  }
+                }
+
                 const retentionEndsAt = new Date(now);
                 retentionEndsAt.setDate(retentionEndsAt.getDate() + 365);
 
@@ -315,7 +560,12 @@ const startServer = () => {
                 return {
                   success: true,
                   status: "PENDING_CANCELLATION",
-                  retentionEndsAt
+                  retentionEndsAt,
+                  refundPolicy: {
+                    eligibleFullRefund,
+                    daysSinceAccountCreation: diffInDays,
+                    message: refundPolicyMessage,
+                  },
                 };
               }, {
                 body: t.Object({
@@ -337,6 +587,7 @@ const startServer = () => {
           .use(pushController())
           .use(userPreferencesController())
           .use(paymentController())
+          .use(asaasWebhookController)
           .use(billingController())
           .use(DNSController())
       )

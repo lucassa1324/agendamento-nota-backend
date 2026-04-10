@@ -232,7 +232,8 @@ export function appointmentController() {
               errorMessage.includes("exceed business hours") ||
               errorMessage.includes("closed on this day") ||
               errorMessage.includes("already occupied") ||
-              errorMessage.includes("operating hours not configured")
+              errorMessage.includes("operating hours not configured") ||
+              errorMessage.includes("horário passado")
             ) {
               set.status = 400;
               return { error: "Scheduling Error", message: errorMessage };

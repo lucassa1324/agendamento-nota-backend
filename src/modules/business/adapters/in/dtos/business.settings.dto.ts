@@ -37,12 +37,14 @@ export const updateOperatingHoursDTO = t.Union([
     weekly: t.Array(t.Union([weeklyOperatingHoursItemDTO, weeklyOperatingHoursAltDTO])),
     companyId: t.Optional(t.String()),
     blocks: t.Optional(t.Array(createAgendaBlockDTO)),
+    minimumBookingLeadMinutes: t.Optional(t.Number()),
   }),
   t.Object({
     timeInterval: t.String(),
     weekly: t.Array(t.Union([weeklyOperatingHoursItemDTO, weeklyOperatingHoursAltDTO])),
     companyId: t.Optional(t.String()),
     blocks: t.Optional(t.Array(createAgendaBlockDTO)),
+    minimumBookingLeadMinutes: t.Optional(t.Number()),
   })
 ]);
 
