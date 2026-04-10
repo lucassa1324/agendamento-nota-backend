@@ -12,15 +12,8 @@
     {
       "idx": 1,
       "version": "7",
-      "when": 1775062112228,
-      "tag": "0001_wealthy_prism",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1775729828121,
-      "tag": "0002_magical_tinkerer",
+      "when": 1775777652168,
+      "tag": "0001_lively_vanisher",
       "breakpoints": true
     }
   ]

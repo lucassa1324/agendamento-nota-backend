@@ -11,6 +11,7 @@ if (!process.env.BETTER_AUTH_SECRET) {
 }
 
 import { Elysia, t } from "elysia";
+import { DNSController } from './modules/dns/infrastructure/adapters/in/http/dns.controller'
 
 // Definição da App Wrapper para capturar erros de importação/inicialização
 const startServer = () => {
@@ -588,6 +589,7 @@ const startServer = () => {
           .use(paymentController())
           .use(asaasWebhookController)
           .use(billingController())
+          .use(DNSController())
       )
       .get("/", () => {
         const urlHint = process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
