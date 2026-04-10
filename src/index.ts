@@ -452,14 +452,30 @@ const startServer = () => {
                 }
 
                 return {
-                  available: true,
-                  offer: {
-                    type: "RETENTION_20_3M",
-                    percentage: 20,
-                    durationMonths: 3
-                  }
+                available: true,
+                offer: {
+                  type: "RETENTION_20_3M",
+                  percentage: 20,
+                  durationMonths: 3
+                }
+              };
+            })
+            .get("/system-announcement", async () => {
+              try {
+                const [announcement] = await db
+                  .select()
+                  .from(schema.systemSettings)
+                  .where(eq(schema.systemSettings.key, "global_announcement"))
+                  .limit(1);
+
+                return {
+                  message: announcement?.value || null,
+                  updatedAt: announcement?.updatedAt || null
                 };
-              })
+              } catch (error) {
+                return { message: null };
+              }
+            })
               .post("/accept-offer", async ({ user, body }) => {
                 const { subscriptionId } = body as { subscriptionId?: string };
 

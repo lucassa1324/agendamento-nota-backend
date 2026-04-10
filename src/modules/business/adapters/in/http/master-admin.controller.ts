@@ -125,6 +125,84 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       throw new Error("Erro ao buscar usuários: " + error.message);
     }
   })
+  .get("/settings", async () => {
+    try {
+      const settings = await db
+        .select()
+        .from(schema.systemSettings);
+
+      return settings;
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_GET_SETTINGS_ERROR]:", error);
+      throw new Error("Erro ao buscar configurações: " + error.message);
+    }
+  })
+  .get("/settings/:key", async ({ params }) => {
+    try {
+      const { key } = params;
+      const [setting] = await db
+        .select()
+        .from(schema.systemSettings)
+        .where(eq(schema.systemSettings.key, key))
+        .limit(1);
+
+      if (!setting) {
+        // Fallback para valores padrão se não existir no banco
+        if (key === "monthly_price") return { value: "49.90", updatedAt: new Date() };
+        return { value: "", updatedAt: new Date() };
+      }
+
+      return setting;
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_GET_SETTING_BY_KEY_ERROR]:", error);
+      throw new Error("Erro ao buscar configuração: " + error.message);
+    }
+  })
+  .post("/settings", async ({ body }) => {
+    try {
+      const { key, value, description } = body as { key: string; value: string; description?: string };
+
+      const [existing] = await db
+        .select()
+        .from(schema.systemSettings)
+        .where(eq(schema.systemSettings.key, key))
+        .limit(1);
+
+      if (existing) {
+        const [updated] = await db
+          .update(schema.systemSettings)
+          .set({
+            value,
+            description: description ?? existing.description,
+            updatedAt: new Date()
+          })
+          .where(eq(schema.systemSettings.key, key))
+          .returning();
+        return updated;
+      } else {
+        const [created] = await db
+          .insert(schema.systemSettings)
+          .values({
+            id: crypto.randomUUID(),
+            key,
+            value,
+            description,
+            updatedAt: new Date()
+          })
+          .returning();
+        return created;
+      }
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_UPSERT_SETTING_ERROR]:", error);
+      throw new Error("Erro ao salvar configuração: " + error.message);
+    }
+  }, {
+    body: t.Object({
+      key: t.String(),
+      value: t.String(),
+      description: t.Optional(t.String())
+    })
+  })
   .patch("/users/:id/status", async ({ params, body, set }) => {
     try {
       const { id } = params;
