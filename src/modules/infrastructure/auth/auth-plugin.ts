@@ -551,7 +551,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                     if (userCompany) {
                         // 1. BLOQUEIO POR CONTA DE USUÁRIO DESATIVADA (Restritivo)
-                        if (userCompany.active === false && !isMasterRoute && !isExemptFromBlocking && !isHealthRoute && user.role !== "SUPER_ADMIN") {
+                        if (userCompany.active === false && !isMasterRoute && !isExemptFromBlocking && !isHealthRoute && user.role !== "SUPER_ADMIN" && user.role !== "ADMIN") {
                             const isAutomaticBillingBlocked =
                                 userCompany.accessType === "automatic" &&
                                 (
