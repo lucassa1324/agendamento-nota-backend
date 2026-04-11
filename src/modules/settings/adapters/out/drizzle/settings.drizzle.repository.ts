@@ -129,9 +129,8 @@ export class DrizzleSettingsRepository implements SettingsRepository {
 
   async saveCustomization(businessId: string, data: SiteCustomization): Promise<SiteCustomization> {
     try {
-      // 1. BLINDAGEM: Preservar todos os campos originais (incluindo seções dinâmicas como 'sections')
+      // 1. BLINDAGEM: Garantir apenas colunas mapeadas no schema (Evita Erro 500 por colunas extras)
       const dataToSave = {
-        ...data, // Spread do original para não perder campos novos
         layoutGlobal: data.layoutGlobal || DEFAULT_LAYOUT_GLOBAL,
         home: data.home || DEFAULT_HOME_SECTION,
         gallery: data.gallery || DEFAULT_GALLERY_SECTION,
@@ -212,9 +211,8 @@ export class DrizzleSettingsRepository implements SettingsRepository {
 
   async saveDraft(businessId: string, data: SiteCustomization): Promise<SiteCustomization> {
     try {
-      // 1. BLINDAGEM: Preservar todos os campos originais (incluindo seções dinâmicas como 'sections')
+      // 1. BLINDAGEM: Garantir apenas colunas mapeadas no schema (Evita Erro 500 por colunas extras)
       const dataToSave = {
-        ...data, // Spread do original para não perder campos novos
         layoutGlobal: data.layoutGlobal || DEFAULT_LAYOUT_GLOBAL,
         home: data.home || DEFAULT_HOME_SECTION,
         gallery: data.gallery || DEFAULT_GALLERY_SECTION,
@@ -225,6 +223,7 @@ export class DrizzleSettingsRepository implements SettingsRepository {
       const existing = await this.findDraftByBusinessId(businessId);
 
       if (existing) {
+        console.log(`[DRIZZLE_REPOSITORY] Atualizando draft existente para companyId: ${businessId}`);
         const [updated] = await db
           .update(siteDrafts)
           .set({
@@ -241,6 +240,7 @@ export class DrizzleSettingsRepository implements SettingsRepository {
         return this.sanitizeCustomization(updated);
       }
 
+      console.log(`[DRIZZLE_REPOSITORY] Criando novo draft para companyId: ${businessId}`);
       const [created] = await db
         .insert(siteDrafts)
         .values({
@@ -272,6 +272,7 @@ export class DrizzleSettingsRepository implements SettingsRepository {
 
         if (!draft) return null;
 
+        // 1. BLINDAGEM: Garantir apenas colunas mapeadas no schema
         const dataToSave = {
           layoutGlobal: draft.layoutGlobal,
           home: draft.home,

@@ -99,9 +99,8 @@ export const auth = betterAuth({
     ...(process.env.VERCEL_URL ? [`https://${process.env.VERCEL_URL}`] : []),
     ...(process.env.NEXT_PUBLIC_VERCEL_URL ? [`https://${process.env.NEXT_PUBLIC_VERCEL_URL}`] : []),
     ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
-    "https://agendamento-nota-front.vercel.app/api-proxy", // Adicionado explicitamente o caminho do proxy
     "https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app", // Staging Environment
-    "https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app/api-proxy" // Staging Proxy
+    "http://127.0.0.1:3000"
   ],
   advanced: {
     // Configuração OBRIGATÓRIA para Vercel (Cross-Site) em Produção
@@ -110,7 +109,7 @@ export const auth = betterAuth({
     // Em localhost, usamos configurações mais relaxadas para evitar problemas com SSL/HTTP
     useSecureCookies: process.env.NODE_ENV === "production",
     cookie: {
-      domain: process.env.NODE_ENV === "production" ? undefined : "localhost",
+      domain: undefined,
       path: "/",
       sameSite: "lax",
       httpOnly: true,
@@ -199,9 +198,12 @@ export const auth = betterAuth({
             handler: async (ctx: any) => {
               const returned = ctx?.context?.returned;
 
-              // SEMPRE retornar um objeto com a propriedade 'response' para evitar crash no Better Auth (TypeError: null/undefined is not an object)
-              if (!returned || returned instanceof Response) {
+              if (returned instanceof Response) {
                 return { response: returned };
+              }
+
+              if (!returned) {
+                return { response: { user: null, session: null } };
               }
 
               try {

@@ -94,19 +94,34 @@ const startServer = () => {
       .all("/api/auth/*", async (ctx) => {
         console.log(`>>> [AUTH_HANDLER_START] ${ctx.request.method} ${ctx.path}`);
         try {
-          // Log do body se for POST para ajudar no debug do erro 400
-          if (ctx.request.method === "POST") {
-            try {
-              const clonedRequest = ctx.request.clone();
-              const bodyText = await clonedRequest.text();
-              console.log(`>>> [AUTH_BODY] ${bodyText}`);
-            } catch (e) {
-              console.warn(">>> [AUTH_BODY_ERROR] Não foi possível ler o corpo da requisição");
-            }
+          if (
+            ctx.request.method === "GET" &&
+            (ctx.path === "/api/auth/session" || ctx.path === "/api/auth/get-session")
+          ) {
+            const sessionData = await auth.api.getSession({
+              headers: ctx.request.headers,
+            });
+
+            return new Response(JSON.stringify(sessionData || null), {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
+              },
+            });
           }
 
-          // Passamos a requisição original. O Better Auth sabe lidar com ela.
           const response = await auth.handler(ctx.request);
+
+          if (!response) {
+            console.error("<<< [AUTH_HANDLER_END] Better Auth retornou resposta vazia");
+            return new Response(JSON.stringify({ error: "Internal Auth Error" }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" }
+            });
+          }
 
           console.log(`<<< [AUTH_HANDLER_END] Status: ${response.status}`);
 
@@ -118,14 +133,6 @@ const startServer = () => {
             } catch (e) {
               console.error("<<< [AUTH_ERROR_DETAILS_FAILED] Erro ao ler corpo do erro");
             }
-          }
-
-          // Se não houver resposta do Better Auth, retornamos erro 500
-          if (!response) {
-            return new Response(JSON.stringify({ error: "Internal Auth Error" }), {
-              status: 500,
-              headers: { "Content-Type": "application/json" }
-            });
           }
 
           // Pegamos o corpo da resposta. Se for nulo, usamos um JSON vazio.
@@ -156,7 +163,13 @@ const startServer = () => {
           return newResponse;
         } catch (e: any) {
           console.error(`!!! [AUTH_HANDLER_ERROR] ${e.message}`, e.stack);
-          throw e;
+          return new Response(
+            JSON.stringify({ error: "Auth handler failure", message: e?.message || "unknown" }),
+            {
+              status: 500,
+              headers: { "Content-Type": "application/json" }
+            },
+          );
         }
       })
       .onRequest(({ request, set }) => {
@@ -216,7 +229,7 @@ const startServer = () => {
           set.headers["Access-Control-Allow-Origin"] = origin;
           set.headers["Access-Control-Allow-Credentials"] = "true";
           set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-          set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control";
+            set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control";
           set.headers["Access-Control-Expose-Headers"] = "Set-Cookie, set-cookie, Authorization, Cache-Control";
         }
 
@@ -452,30 +465,30 @@ const startServer = () => {
                 }
 
                 return {
-                available: true,
-                offer: {
-                  type: "RETENTION_20_3M",
-                  percentage: 20,
-                  durationMonths: 3
-                }
-              };
-            })
-            .get("/system-announcement", async () => {
-              try {
-                const [announcement] = await db
-                  .select()
-                  .from(schema.systemSettings)
-                  .where(eq(schema.systemSettings.key, "global_announcement"))
-                  .limit(1);
-
-                return {
-                  message: announcement?.value || null,
-                  updatedAt: announcement?.updatedAt || null
+                  available: true,
+                  offer: {
+                    type: "RETENTION_20_3M",
+                    percentage: 20,
+                    durationMonths: 3
+                  }
                 };
-              } catch (error) {
-                return { message: null };
-              }
-            })
+              })
+              .get("/system-announcement", async () => {
+                try {
+                  const [announcement] = await db
+                    .select()
+                    .from(schema.systemSettings)
+                    .where(eq(schema.systemSettings.key, "global_announcement"))
+                    .limit(1);
+
+                  return {
+                    message: announcement?.value || null,
+                    updatedAt: announcement?.updatedAt || null
+                  };
+                } catch (error) {
+                  return { message: null };
+                }
+              })
               .post("/accept-offer", async ({ user, body }) => {
                 const { subscriptionId } = body as { subscriptionId?: string };
 
