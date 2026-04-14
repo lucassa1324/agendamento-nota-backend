@@ -234,6 +234,52 @@ export const systemSettings = pgTable("system_settings", {
     .notNull(),
 });
 
+export const masterTemplates = pgTable("master_templates", {
+  id: text("id").primaryKey(),
+  templateKey: text("template_key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const masterTemplateVariations = pgTable(
+  "master_template_variations",
+  {
+    id: text("id").primaryKey(),
+    templateId: text("template_id")
+      .notNull()
+      .references(() => masterTemplates.id, { onDelete: "cascade" }),
+    variationKey: text("variation_key").notNull(),
+    variationName: text("variation_name").notNull(),
+    niche: text("niche").notNull(),
+    sectionType: text("section_type", {
+      enum: ["banner", "servicos", "historia", "equipe"],
+    }).notNull(),
+    config: jsonb("config").notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("master_template_variations_template_id_idx").on(table.templateId),
+    index("master_template_variations_section_type_idx").on(table.sectionType),
+    uniqueIndex("master_template_variations_unique_section_per_variation").on(
+      table.templateId,
+      table.variationKey,
+      table.sectionType,
+    ),
+  ],
+);
+
 export const companies = pgTable("companies", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

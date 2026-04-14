@@ -3,7 +3,7 @@ import { authPlugin, syncAsaasPaymentForCompany } from "../../../../infrastructu
 import { auth } from "../../../../infrastructure/auth/auth";
 import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, sql } from "drizzle-orm";
 
 const writeSystemLog = async ({
   userId,
@@ -42,6 +42,7 @@ const HEALTH_CHECK_COMPANY_SLUG = "sistema-health-check";
 const HEALTH_CHECK_COMPANY_NAME = "SISTEMA_HEALTH_CHECK";
 const HEALTH_CHECK_SERVICE_NAME = "Serviço Diagnóstico HC";
 const HEALTH_CHECK_CUSTOMER_EMAIL = "healthcheck@system.local";
+type TemplateSectionType = "banner" | "servicos" | "historia" | "equipe";
 
 export const masterAdminController = () => new Elysia({ prefix: "/admin/master" })
   .use(authPlugin)
@@ -156,6 +157,80 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
     } catch (error: any) {
       console.error("[MASTER_ADMIN_GET_SETTING_BY_KEY_ERROR]:", error);
       throw new Error("Erro ao buscar configuração: " + error.message);
+    }
+  })
+  .get("/templates", async ({ set }) => {
+    try {
+      const rows = await db
+        .select({
+          rowId: schema.masterTemplateVariations.id,
+          templateKey: schema.masterTemplates.templateKey,
+          templateName: schema.masterTemplates.name,
+          variationKey: schema.masterTemplateVariations.variationKey,
+          variationName: schema.masterTemplateVariations.variationName,
+          niche: schema.masterTemplateVariations.niche,
+          sectionType: schema.masterTemplateVariations.sectionType,
+          config: schema.masterTemplateVariations.config,
+        })
+        .from(schema.masterTemplateVariations)
+        .innerJoin(
+          schema.masterTemplates,
+          eq(schema.masterTemplates.id, schema.masterTemplateVariations.templateId),
+        )
+        .where(
+          and(
+            eq(schema.masterTemplates.isActive, true),
+            eq(schema.masterTemplateVariations.isActive, true),
+          ),
+        )
+        .orderBy(
+          asc(schema.masterTemplates.templateKey),
+          asc(schema.masterTemplateVariations.variationKey),
+          asc(schema.masterTemplateVariations.sortOrder),
+        );
+
+      const grouped: Record<TemplateSectionType, any[]> = {
+        banner: [],
+        servicos: [],
+        historia: [],
+        equipe: [],
+      };
+
+      for (const row of rows) {
+        const sectionType = row.sectionType as TemplateSectionType;
+        if (!grouped[sectionType]) continue;
+
+        const config =
+          row.config && typeof row.config === "object"
+            ? (row.config as Record<string, any>)
+            : {};
+
+        grouped[sectionType].push({
+          ...config,
+          id: typeof config.id === "string" ? config.id : row.rowId,
+          niche:
+            typeof config.niche === "string" && config.niche.trim().length > 0
+              ? config.niche
+              : row.niche,
+          variationName:
+            typeof config.variationName === "string" &&
+              config.variationName.trim().length > 0
+              ? config.variationName
+              : row.variationName,
+          templateKey: row.templateKey,
+          templateName: row.templateName,
+          variationKey: row.variationKey,
+        });
+      }
+
+      return grouped;
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_GET_TEMPLATES_ERROR]:", error);
+      set.status = 500;
+      return {
+        error: "Erro ao buscar templates do banco.",
+        message: error?.message || "Erro interno",
+      };
     }
   })
   .post("/settings", async ({ body }) => {
