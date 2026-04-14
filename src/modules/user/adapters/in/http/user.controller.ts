@@ -2,6 +2,10 @@ import { Elysia, t } from "elysia";
 import { CreateUserUseCase } from "../../../application/use-cases/create-user.use-case";
 import { ListUsersUseCase } from "../../../application/use-cases/list-users.use-case";
 import { signinDTO } from "../dtos/signin.dto";
+import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
+import { db } from "../../../../infrastructure/drizzle/database";
+import { user } from "../../../../../db/schema";
+import { eq } from "drizzle-orm";
 
 export class UserController {
   constructor(
@@ -11,6 +15,7 @@ export class UserController {
 
   registerRoutes() {
     return new Elysia({ prefix: "/users" })
+      .use(authPlugin)
       .post(
         "/",
         async ({ body, set }) => {
@@ -43,6 +48,39 @@ export class UserController {
             };
           }
         }
+      )
+      .patch(
+        "/me/cpf-cnpj",
+        async ({ body, user: currentUser, set }) => {
+          if (!currentUser?.id) {
+            set.status = 401;
+            return { error: "Unauthorized" };
+          }
+
+          const normalizedCpfCnpj = body.cpfCnpj.replace(/\D/g, "");
+          if (normalizedCpfCnpj.length !== 11 && normalizedCpfCnpj.length !== 14) {
+            set.status = 400;
+            return { error: "CPF/CNPJ inválido. Informe 11 ou 14 dígitos." };
+          }
+
+          await db
+            .update(user)
+            .set({
+              cpfCnpj: normalizedCpfCnpj,
+              updatedAt: new Date(),
+            })
+            .where(eq(user.id, currentUser.id));
+
+          return {
+            success: true,
+            cpfCnpj: normalizedCpfCnpj,
+          };
+        },
+        {
+          body: t.Object({
+            cpfCnpj: t.String({ minLength: 11 }),
+          }),
+        },
       )
       .get("/", async () => {
         return this.listUsersUseCase.execute();

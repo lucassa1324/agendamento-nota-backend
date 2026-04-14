@@ -13,21 +13,18 @@ export const pushController = () => new Elysia({ prefix: "/push" })
     }
   })
   .post("/subscriptions", async ({ user, body, pushSubscriptionRepository }) => {
-    console.log(`[PUSH_CONTROLLER] Recebido payload:`, JSON.stringify(body));
-
     let subscription: any = (body as any).subscription || body;
 
+    if ((body as any).endpoint && (body as any).keys) {
+        subscription = body;
+    }
+
     if (!subscription || !subscription.endpoint) {
-      console.error("[PUSH_CONTROLLER] Payload inválido - sem endpoint:", JSON.stringify(body));
-      throw new Error("Invalid subscription object: missing endpoint");
+      console.error("[PUSH_CONTROLLER] Payload inválido recebido:", JSON.stringify(body));
+      throw new Error("Invalid subscription object");
     }
 
-    if (!subscription.keys || !subscription.keys.p256dh || !subscription.keys.auth) {
-      console.error("[PUSH_CONTROLLER] Payload inválido - sem chaves:", JSON.stringify(body));
-      throw new Error("Invalid subscription object: missing keys");
-    }
-
-    console.log(`[PUSH_CONTROLLER] Registrando/Atualizando inscrição para user: ${user!.id}`);
+    console.log(`[PUSH_CONTROLLER] Registrando nova inscrição para user: ${user!.id}`);
 
     await pushSubscriptionRepository.upsert(
       user!.id,
@@ -39,6 +36,7 @@ export const pushController = () => new Elysia({ prefix: "/push" })
     const payload = JSON.stringify({
       title: "Notificações Ativadas",
       body: "Você receberá atualizações sobre seus agendamentos.",
+      icon: '/android-chrome-192x192.png',
       data: {
         url: '/',
         timestamp: Date.now()
@@ -53,9 +51,4 @@ export const pushController = () => new Elysia({ prefix: "/push" })
     }
 
     return { success: true };
-  })
-  .get("/public-key", () => {
-    const publicKey = process.env.VAPID_PUBLIC_KEY || "";
-    console.log("[PUSH_CONTROLLER] Requested VAPID Public Key:", publicKey ? "FOUND" : "MISSING");
-    return { publicKey };
   });

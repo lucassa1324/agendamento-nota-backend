@@ -130,13 +130,11 @@ export const auth = betterAuth({
   }),
   user: {
     additionalFields: {
-      role: {
-        type: "string",
-      },
       cpfCnpj: {
         type: "string",
-        input: true,
-        returned: true,
+      },
+      role: {
+        type: "string",
       },
       active: {
         type: "boolean",

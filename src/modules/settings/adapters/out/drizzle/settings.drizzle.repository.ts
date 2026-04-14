@@ -12,106 +12,6 @@ import {
 } from "../../../../../modules/business/domain/constants/site_customization.defaults";
 
 export class DrizzleSettingsRepository implements SettingsRepository {
-  private resolvePreferredCardColor(record: Record<string, any>): string | undefined {
-    const cardConfig =
-      record.cardConfig && typeof record.cardConfig === "object"
-        ? (record.cardConfig as Record<string, any>)
-        : {};
-    const appearance =
-      record.appearance && typeof record.appearance === "object"
-        ? (record.appearance as Record<string, any>)
-        : {};
-
-    const candidates = [
-      record.cardBgColor,
-      record.card_bg_color,
-      record.card_background_color,
-      record.cardBackgroundColor,
-      cardConfig.cardBgColor,
-      cardConfig.card_bg_color,
-      cardConfig.card_background_color,
-      cardConfig.cardBackgroundColor,
-      cardConfig.backgroundColor,
-      cardConfig.background_color,
-      appearance.cardBgColor,
-      appearance.card_bg_color,
-      appearance.card_background_color,
-      appearance.cardBackgroundColor,
-    ];
-
-    const firstValid = candidates.find(
-      (value) => typeof value === "string" && value.trim().length > 0,
-    );
-
-    return typeof firstValid === "string" ? firstValid : undefined;
-  }
-
-  private normalizeCardColorAliases<T>(value: T): T {
-    if (Array.isArray(value)) {
-      return value.map((item) => this.normalizeCardColorAliases(item)) as T;
-    }
-
-    if (!value || typeof value !== "object") {
-      return value;
-    }
-
-    const source = value as Record<string, any>;
-    const normalized: Record<string, any> = {};
-    for (const key in source) {
-      normalized[key] = this.normalizeCardColorAliases(source[key]);
-    }
-
-    const preferredCardColor = this.resolvePreferredCardColor(normalized);
-    if (!preferredCardColor) {
-      return normalized as T;
-    }
-
-    normalized.cardBgColor = preferredCardColor;
-    normalized.cardBackgroundColor = preferredCardColor;
-    normalized.card_bg_color = preferredCardColor;
-    normalized.card_background_color = preferredCardColor;
-
-    if (normalized.cardConfig && typeof normalized.cardConfig === "object") {
-      normalized.cardConfig = {
-        ...(normalized.cardConfig as Record<string, any>),
-        cardBgColor: preferredCardColor,
-        cardBackgroundColor: preferredCardColor,
-        card_bg_color: preferredCardColor,
-        card_background_color: preferredCardColor,
-        backgroundColor: preferredCardColor,
-        background_color: preferredCardColor,
-      };
-    }
-
-    if (normalized.appearance && typeof normalized.appearance === "object") {
-      normalized.appearance = {
-        ...(normalized.appearance as Record<string, any>),
-        cardBgColor: preferredCardColor,
-        cardBackgroundColor: preferredCardColor,
-        card_bg_color: preferredCardColor,
-        card_background_color: preferredCardColor,
-      };
-    }
-
-    return normalized as T;
-  }
-
-  private normalizeCustomizationForPersistence(data: {
-    layoutGlobal: unknown;
-    home: unknown;
-    gallery: unknown;
-    aboutUs: unknown;
-    appointmentFlow: unknown;
-  }) {
-    return {
-      layoutGlobal: this.normalizeCardColorAliases(data.layoutGlobal),
-      home: this.normalizeCardColorAliases(data.home),
-      gallery: this.normalizeCardColorAliases(data.gallery),
-      aboutUs: this.normalizeCardColorAliases(data.aboutUs),
-      appointmentFlow: this.normalizeCardColorAliases(data.appointmentFlow),
-    };
-  }
-
   async findByBusinessId(businessId: string): Promise<BusinessProfile | null> {
     try {
       const [result] = await db
@@ -230,13 +130,13 @@ export class DrizzleSettingsRepository implements SettingsRepository {
   async saveCustomization(businessId: string, data: SiteCustomization): Promise<SiteCustomization> {
     try {
       // 1. BLINDAGEM: Garantir apenas colunas mapeadas no schema (Evita Erro 500 por colunas extras)
-      const dataToSave = this.normalizeCustomizationForPersistence({
+      const dataToSave = {
         layoutGlobal: data.layoutGlobal || DEFAULT_LAYOUT_GLOBAL,
         home: data.home || DEFAULT_HOME_SECTION,
         gallery: data.gallery || DEFAULT_GALLERY_SECTION,
         aboutUs: data.aboutUs || DEFAULT_ABOUT_US_SECTION,
         appointmentFlow: data.appointmentFlow || DEFAULT_APPOINTMENT_FLOW_SECTION,
-      });
+      };
 
       const [existing] = await db
         .select()
@@ -312,13 +212,13 @@ export class DrizzleSettingsRepository implements SettingsRepository {
   async saveDraft(businessId: string, data: SiteCustomization): Promise<SiteCustomization> {
     try {
       // 1. BLINDAGEM: Garantir apenas colunas mapeadas no schema (Evita Erro 500 por colunas extras)
-      const dataToSave = this.normalizeCustomizationForPersistence({
+      const dataToSave = {
         layoutGlobal: data.layoutGlobal || DEFAULT_LAYOUT_GLOBAL,
         home: data.home || DEFAULT_HOME_SECTION,
         gallery: data.gallery || DEFAULT_GALLERY_SECTION,
         aboutUs: data.aboutUs || DEFAULT_ABOUT_US_SECTION,
         appointmentFlow: data.appointmentFlow || DEFAULT_APPOINTMENT_FLOW_SECTION,
-      });
+      };
 
       const existing = await this.findDraftByBusinessId(businessId);
 
@@ -373,13 +273,13 @@ export class DrizzleSettingsRepository implements SettingsRepository {
         if (!draft) return null;
 
         // 1. BLINDAGEM: Garantir apenas colunas mapeadas no schema
-        const dataToSave = this.normalizeCustomizationForPersistence({
+        const dataToSave = {
           layoutGlobal: draft.layoutGlobal,
           home: draft.home,
           gallery: draft.gallery,
           aboutUs: draft.aboutUs,
           appointmentFlow: draft.appointmentFlow,
-        });
+        };
 
         const [published] = await tx
           .insert(companySiteCustomizations)

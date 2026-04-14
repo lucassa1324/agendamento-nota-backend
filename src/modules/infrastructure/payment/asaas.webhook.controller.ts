@@ -182,9 +182,11 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
         if (externalReference) {
           console.log(`[ASAAS_WEBHOOK] Processando ativação para empresa: ${externalReference}`);
 
-          const paymentDate = payment.paymentDate ? new Date(payment.paymentDate) : new Date();
+          const paidAtRaw =
+            payment.paymentDate || payment.confirmedDate || payment.clientPaymentDate;
+          const paymentDate = paidAtRaw ? new Date(paidAtRaw) : new Date();
           const nextDue = new Date(paymentDate);
-          nextDue.setDate(nextDue.getDate() + 30);
+          nextDue.setMonth(nextDue.getMonth() + 1);
 
           // 1. Buscar a empresa para obter o ownerId
           const [company] = await db.select()
