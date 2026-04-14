@@ -133,6 +133,11 @@ export const auth = betterAuth({
       role: {
         type: "string",
       },
+      cpfCnpj: {
+        type: "string",
+        input: true,
+        returned: true,
+      },
       active: {
         type: "boolean",
       },

@@ -539,8 +539,12 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                 userCompany.subscriptionStatus === "inactive" ||
                                 userCompany.subscriptionStatus === "canceled"
                             );
-                        if (isAutomaticBillingBlocked) {
-                            console.warn(`[AUTH_BLOCK]: Conta com flag inativa, mas bloqueio é de cobrança automática para ${userCompany.slug}.`);
+
+                        // Se for o dono da conta, permitimos o acesso para que ele possa pagar ou preencher o CPF
+                        const isOwner = !!userCompany && userCompany.ownerId === user.id;
+
+                        if (isAutomaticBillingBlocked || isOwner) {
+                            console.warn(`[AUTH_BLOCK]: Conta com flag inativa, mas permitindo acesso para o dono ${user.email} (${userCompany?.slug || "sem slug"}).`);
                         } else {
                             console.warn(`[AUTH_BLOCK]: Conta de usuário desativada: ${user.email}`);
 
@@ -551,7 +555,8 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                     if (userCompany) {
                         // 1. BLOQUEIO POR CONTA DE USUÁRIO DESATIVADA (Restritivo)
-                        if (userCompany.active === false && !isMasterRoute && !isExemptFromBlocking && !isHealthRoute && user.role !== "SUPER_ADMIN" && user.role !== "ADMIN") {
+                        const isOwner = userCompany.ownerId === user.id;
+                        if (userCompany.active === false && !isMasterRoute && !isExemptFromBlocking && !isHealthRoute && user.role !== "SUPER_ADMIN" && user.role !== "ADMIN" && !isOwner) {
                             const isAutomaticBillingBlocked =
                                 userCompany.accessType === "automatic" &&
                                 (
