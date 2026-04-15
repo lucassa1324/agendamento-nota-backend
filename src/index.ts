@@ -14,7 +14,7 @@ import { Elysia, t } from "elysia";
 import { DNSController } from './modules/dns/infrastructure/adapters/in/http/dns.controller'
 
 // Definição da App Wrapper para capturar erros de importação/inicialização
-const startServer = () => {
+const startServer = async () => {
   try {
     console.log("[STARTUP] Carregando módulos...");
 
@@ -26,7 +26,7 @@ const startServer = () => {
     const schema = require("./db/schema");
     const { asaas } = require("./modules/infrastructure/payment/asaas.client");
     const { uploadToB2 } = require("./modules/infrastructure/storage/b2.storage");
-    const { eq, and, count, ilike } = require("drizzle-orm");
+    const { eq, and, count, ilike, sql } = require("drizzle-orm");
 
     // Controllers
     const { UserController } = require("./modules/user/adapters/in/http/user.controller");
@@ -53,6 +53,16 @@ const startServer = () => {
     const { paymentController } = require("./modules/infrastructure/payment/payment.controller");
     const { asaasWebhookController } = require("./modules/infrastructure/payment/asaas.webhook.controller");
     const { billingController } = require("./modules/billing/adapters/in/http/billing.controller");
+
+    // Migração defensiva para evitar quebra de login por schema divergente em produção
+    try {
+      await db.execute(sql`ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "cpf_cnpj" text`);
+      await db.execute(sql`ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "accepted_terms" boolean DEFAULT false NOT NULL`);
+      await db.execute(sql`ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "accepted_terms_at" timestamp`);
+      console.log("[STARTUP] Colunas críticas de auth validadas com sucesso.");
+    } catch (migrationError) {
+      console.error("[STARTUP] Falha ao validar colunas críticas de auth:", migrationError);
+    }
 
     console.log("[STARTUP] Módulos carregados. Instanciando dependências...");
 
