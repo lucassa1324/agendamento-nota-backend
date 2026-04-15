@@ -56,35 +56,6 @@ export class CreateUserUseCase {
 
         await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, alreadyExists.id));
         return { newCompany, slug };
-      }).catch(async (err) => {
-        const code = (err as any)?.code || (err as any)?.cause?.code;
-        if (code === "23505") {
-          const fallbackSlug = await generateUniqueSlug(`${data.studioName}-${Date.now()}`);
-          const trialEndsAt = new Date();
-          trialEndsAt.setDate(trialEndsAt.getDate() + 14);
-
-          const result = await db.transaction(async (tx) => {
-            const [newCompany] = await tx.insert(companies).values({
-              id: crypto.randomUUID(),
-              name: data.studioName,
-              slug: fallbackSlug,
-              phone: data.phone,
-              ownerId: alreadyExists.id,
-              trialEndsAt: trialEndsAt,
-              subscriptionStatus: 'trial',
-            }).returning();
-
-            await tx.insert(companySiteCustomizations).values({
-              id: crypto.randomUUID(),
-              companyId: newCompany.id,
-            });
-
-            await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, alreadyExists.id));
-            return { newCompany, slug: fallbackSlug };
-          });
-          return result;
-        }
-        throw err;
       });
 
       await transactionalEmailService
@@ -153,36 +124,7 @@ export class CreateUserUseCase {
         companyId: created.id,
       });
 
-      return { newCompany: created, finalSlug: slug };
-    }).catch(async (err) => {
-      const code = (err as any)?.code || (err as any)?.cause?.code;
-      if (code === "23505") {
-        const fallbackSlug = await generateUniqueSlug(`${data.studioName}-${Date.now()}`);
-        const trialEndsAt = new Date();
-        trialEndsAt.setDate(trialEndsAt.getDate() + 14);
-
-        const result = await db.transaction(async (tx) => {
-          await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, response.user.id));
-          const [created] = await tx.insert(companies).values({
-            id: crypto.randomUUID(),
-            name: data.studioName,
-            slug: fallbackSlug,
-            phone: data.phone,
-            ownerId: response.user.id,
-            trialEndsAt: trialEndsAt,
-            subscriptionStatus: 'trial',
-          }).returning();
-
-          await tx.insert(companySiteCustomizations).values({
-            id: crypto.randomUUID(),
-            companyId: created.id,
-          });
-
-          return { newCompany: created, finalSlug: fallbackSlug };
-        });
-        return result;
-      }
-      throw err;
+      return { newCompany: created, slug };
     });
 
     // 3. Dispara o e-mail de verificação via Better Auth
@@ -208,7 +150,7 @@ export class CreateUserUseCase {
     return {
       ...response,
       business: result.newCompany,
-      slug: result.finalSlug
+      slug: result.slug
     };
   }
 }

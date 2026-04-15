@@ -233,6 +233,90 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       };
     }
   })
+  .post("/templates", async ({ body, set, user }) => {
+    try {
+      const { templateId, variationKey, variationName, niche, sectionType, config } = body as {
+        templateId: string;
+        variationKey: string;
+        variationName: string;
+        niche: string;
+        sectionType: TemplateSectionType;
+        config: any;
+      };
+
+      const id = `${templateId}_${variationKey}_${sectionType}`;
+
+      const [existing] = await db
+        .select()
+        .from(schema.masterTemplateVariations)
+        .where(eq(schema.masterTemplateVariations.id, id))
+        .limit(1);
+
+      if (existing) {
+        const [updated] = await db
+          .update(schema.masterTemplateVariations)
+          .set({
+            variationName,
+            niche,
+            config,
+            updatedAt: new Date()
+          })
+          .where(eq(schema.masterTemplateVariations.id, id))
+          .returning();
+
+        await writeSystemLog({
+          userId: (user as any)?.id,
+          action: "UPDATE_TEMPLATE_VARIATION",
+          details: `Template ${variationName} (${sectionType}) atualizado.`,
+          level: "INFO"
+        });
+
+        return updated;
+      } else {
+        const [created] = await db
+          .insert(schema.masterTemplateVariations)
+          .values({
+            id,
+            templateId,
+            variationKey,
+            variationName,
+            niche,
+            sectionType,
+            config,
+            isActive: true,
+            sortOrder: 0,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          })
+          .returning();
+
+        await writeSystemLog({
+          userId: (user as any)?.id,
+          action: "CREATE_TEMPLATE_VARIATION",
+          details: `Template ${variationName} (${sectionType}) criado no banco.`,
+          level: "INFO"
+        });
+
+        return created;
+      }
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_SAVE_TEMPLATE_ERROR]:", error);
+      set.status = 500;
+      return {
+        error: "Erro ao salvar template no banco.",
+        message: error?.message || "Erro interno",
+      };
+    }
+  }, {
+    body: t.Object({
+      templateId: t.String(),
+      variationKey: t.String(),
+      variationName: t.String(),
+      niche: t.String(),
+      sectionType: t.String(),
+      config: t.Any()
+    })
+  })
   .post("/settings", async ({ body }) => {
     try {
       const { key, value, description } = body as { key: string; value: string; description?: string };
