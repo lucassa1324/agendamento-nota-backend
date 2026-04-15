@@ -1,0 +1,22 @@
+@baseUrl = http://localhost:3001
+@companyId = REPLACE_COMPANY_ID
+@authToken = REPLACE_BEARER_TOKEN
+
+### Resetar trava de alteração do dia de cobrança (Super Admin)
+POST {{baseUrl}}/api/admin/master/companies/{{companyId}}/billing-day/reset-lock
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+### Sincronizar empresa com Asaas (Super Admin)
+POST {{baseUrl}}/api/admin/master/companies/{{companyId}}/sync
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+### Atualizar dia de cobrança (Usuário dono da empresa)
+PATCH {{baseUrl}}/api/business/billing/day
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "day": 15
+}

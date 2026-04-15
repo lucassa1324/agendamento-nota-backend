@@ -59,6 +59,33 @@ const SYNC_CACHE_TTL = 30000; // 30 segundos de cache para o resultado da sincro
 
 const paidStatuses = ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"];
 const ACTIVATION_WINDOW_DAYS = 60;
+const BILLING_GRACE_DAYS = 7;
+
+const daysInMonth = (year: number, monthIndex: number) =>
+    new Date(year, monthIndex + 1, 0).getDate();
+
+const clampBillingAnchorDay = (anchorDay: number) =>
+    Math.min(Math.max(anchorDay, 1), 31);
+
+const buildDateByAnchor = (year: number, monthIndex: number, anchorDay: number) => {
+    const maxDay = daysInMonth(year, monthIndex);
+    const day = Math.min(clampBillingAnchorDay(anchorDay), maxDay);
+    return new Date(year, monthIndex, day);
+};
+
+const calculateNextDueDate = (referenceDate: Date, anchorDay: number) => {
+    let due = buildDateByAnchor(referenceDate.getFullYear(), referenceDate.getMonth(), anchorDay);
+    if (referenceDate.getTime() >= due.getTime()) {
+        due = buildDateByAnchor(referenceDate.getFullYear(), referenceDate.getMonth() + 1, anchorDay);
+    }
+    return due;
+};
+
+const calculateGraceEndDate = (dueDate: Date) => {
+    const graceEnd = new Date(dueDate);
+    graceEnd.setDate(graceEnd.getDate() + BILLING_GRACE_DAYS);
+    return graceEnd;
+};
 
 const extractPaymentDate = (payment: Record<string, any>) => {
     const rawDate =
@@ -359,14 +386,16 @@ export async function syncAsaasPaymentForCompany(
         }
 
         const paymentDate = billingSnapshot.latestPaymentDate || billingSnapshot.subscriptionBaseDate || new Date();
-        const nextDue = new Date(paymentDate);
-        nextDue.setDate(nextDue.getDate() + 30);
+        const resolvedAnchorDay = currentCompany?.billingAnchorDay || paymentDate.getDate();
+        const nextDue = calculateNextDueDate(paymentDate, resolvedAnchorDay);
 
         await db.update(schema.companies)
             .set({
                 subscriptionStatus: "active",
                 active: true,
                 accessType: "automatic",
+                billingAnchorDay: resolvedAnchorDay,
+                billingGraceEndsAt: null,
                 trialEndsAt: nextDue,
                 updatedAt: new Date()
             })
@@ -512,6 +541,9 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             active: schema.companies.active,
                             subscriptionStatus: schema.companies.subscriptionStatus,
                             trialEndsAt: schema.companies.trialEndsAt,
+                            billingAnchorDay: schema.companies.billingAnchorDay,
+                            billingGraceEndsAt: schema.companies.billingGraceEndsAt,
+                            billingDayLastChangedAt: schema.companies.billingDayLastChangedAt,
                             accessType: schema.companies.accessType,
                         })
                         .from(schema.companies)
@@ -619,7 +651,8 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                         if (!isMasterRoute && !isExemptFromBlocking && !isHealthRoute && user.role !== "SUPER_ADMIN") {
                             const now = new Date();
                             let status = userCompany.subscriptionStatus;
-                            const trialEnds = userCompany.trialEndsAt ? new Date(userCompany.trialEndsAt) : null;
+                            let trialEnds = userCompany.trialEndsAt ? new Date(userCompany.trialEndsAt) : null;
+                            let graceEnds = userCompany.billingGraceEndsAt ? new Date(userCompany.billingGraceEndsAt) : null;
                             const isTrialStatus = status === 'trial' || status === 'trialing';
                             let isManualActive =
                                 userCompany.accessType === "manual" ||
@@ -644,20 +677,92 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                         userCompany.active = true;
                                         userCompany.subscriptionStatus = "active";
                                         userCompany.trialEndsAt = syncResult.nextDue;
+                                        userCompany.billingGraceEndsAt = null;
                                         status = "active";
+                                        trialEnds = syncResult.nextDue;
+                                        graceEnds = null;
                                         console.log(`[AUTH_SYNC] Pagamento confirmado no Asaas para ${userCompany.slug}. Acesso reativado automaticamente.`);
-                                    } else if (status === "active") {
-                                        // Rebaixa se não encontrou pagamento mas estava marcado como ativo
-                                        await db.update(schema.companies)
-                                            .set({
-                                                subscriptionStatus: "past_due",
-                                                updatedAt: new Date()
-                                            })
-                                            .where(eq(schema.companies.id, userCompany.id));
-                                        status = "past_due";
-                                        console.warn(`[AUTH_SYNC] Sem pagamento válido no mês atual para ${userCompany.slug}. Rebaixado para past_due.`);
+                                    } else if (status === "grace_period") {
+                                        const effectiveGraceEnd = graceEnds || (trialEnds ? calculateGraceEndDate(trialEnds) : null);
+                                        if (effectiveGraceEnd && now > effectiveGraceEnd) {
+                                            await db.update(schema.companies)
+                                                .set({
+                                                    subscriptionStatus: "past_due",
+                                                    active: false,
+                                                    billingGraceEndsAt: effectiveGraceEnd,
+                                                    updatedAt: new Date()
+                                                })
+                                                .where(eq(schema.companies.id, userCompany.id));
+                                            userCompany.active = false;
+                                            userCompany.subscriptionStatus = "past_due";
+                                            userCompany.billingGraceEndsAt = effectiveGraceEnd;
+                                            status = "past_due";
+                                            graceEnds = effectiveGraceEnd;
+                                        }
                                     }
                                 }
+
+                                // Venceu e não pagou: entra em carência de 7 dias antes de bloquear
+                                if (status === "active" && trialEnds && now > trialEnds) {
+                                    const graceEnd = calculateGraceEndDate(trialEnds);
+                                    await db.update(schema.companies)
+                                        .set({
+                                            subscriptionStatus: "grace_period",
+                                            active: true,
+                                            billingGraceEndsAt: graceEnd,
+                                            updatedAt: new Date()
+                                        })
+                                        .where(eq(schema.companies.id, userCompany.id));
+                                    status = "grace_period";
+                                    graceEnds = graceEnd;
+                                    userCompany.subscriptionStatus = "grace_period";
+                                    userCompany.billingGraceEndsAt = graceEnd;
+                                    console.warn(`[AUTH_GRACE] ${userCompany.slug} entrou em carência até ${graceEnd.toISOString()}.`);
+                                }
+
+                                if (status === "grace_period" && graceEnds && now > graceEnds) {
+                                    await db.update(schema.companies)
+                                        .set({
+                                            subscriptionStatus: "past_due",
+                                            active: false,
+                                            billingGraceEndsAt: graceEnds,
+                                            updatedAt: new Date()
+                                        })
+                                        .where(eq(schema.companies.id, userCompany.id));
+                                    status = "past_due";
+                                    userCompany.active = false;
+                                    userCompany.subscriptionStatus = "past_due";
+                                    console.warn(`[AUTH_SYNC] Carência expirada para ${userCompany.slug}. Rebaixado para past_due.`);
+                                }
+                            }
+
+                            if (status === "active" && trialEnds && now > trialEnds) {
+                                // Fallback de segurança para não deixar status ativo após vencimento.
+                                const graceEnd = calculateGraceEndDate(trialEnds);
+                                await db.update(schema.companies)
+                                    .set({
+                                        subscriptionStatus: "grace_period",
+                                        active: true,
+                                        billingGraceEndsAt: graceEnd,
+                                        updatedAt: new Date()
+                                    })
+                                    .where(eq(schema.companies.id, userCompany.id));
+                                status = "grace_period";
+                                userCompany.subscriptionStatus = "grace_period";
+                                userCompany.billingGraceEndsAt = graceEnd;
+                                graceEnds = graceEnd;
+                            }
+
+                            if (status === "grace_period" && graceEnds && now > graceEnds) {
+                                await db.update(schema.companies)
+                                    .set({
+                                        subscriptionStatus: "past_due",
+                                        active: false,
+                                        updatedAt: new Date()
+                                    })
+                                    .where(eq(schema.companies.id, userCompany.id));
+                                status = "past_due";
+                                userCompany.active = false;
                             }
 
                             // Validação final de acesso baseada no status resolvido

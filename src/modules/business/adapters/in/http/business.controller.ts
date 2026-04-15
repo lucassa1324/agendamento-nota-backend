@@ -15,6 +15,28 @@ import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
 import { eq } from "drizzle-orm";
 
+const BILLING_DAY_CHANGE_LOCK_MONTHS = 3;
+
+const daysInMonth = (year: number, monthIndex: number) =>
+  new Date(year, monthIndex + 1, 0).getDate();
+
+const clampBillingAnchorDay = (anchorDay: number) =>
+  Math.min(Math.max(anchorDay, 1), 31);
+
+const buildDateByAnchor = (year: number, monthIndex: number, anchorDay: number) => {
+  const maxDay = daysInMonth(year, monthIndex);
+  const day = Math.min(clampBillingAnchorDay(anchorDay), maxDay);
+  return new Date(year, monthIndex, day);
+};
+
+const calculateNextDueDate = (referenceDate: Date, anchorDay: number) => {
+  let due = buildDateByAnchor(referenceDate.getFullYear(), referenceDate.getMonth(), anchorDay);
+  if (referenceDate.getTime() >= due.getTime()) {
+    due = buildDateByAnchor(referenceDate.getFullYear(), referenceDate.getMonth() + 1, anchorDay);
+  }
+  return due;
+};
+
 export const businessController = () => new Elysia({ prefix: "/business" })
   .use(repositoriesPlugin)
   .use(authPlugin)
@@ -256,6 +278,82 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           set.status = 500;
           return { error: "Erro ao sincronizar: " + error.message };
         }
+      })
+      .patch("/billing/day", async ({ user, body, set }) => {
+        try {
+          const requestedDay = clampBillingAnchorDay(Number(body.day));
+          if (!Number.isFinite(requestedDay) || requestedDay < 1 || requestedDay > 31) {
+            set.status = 422;
+            return { error: "Dia de cobrança inválido. Use um valor entre 1 e 31." };
+          }
+
+          const [company] = await db.select()
+            .from(schema.companies)
+            .where(eq(schema.companies.ownerId, user!.id))
+            .limit(1);
+
+          if (!company) {
+            set.status = 404;
+            return { error: "Empresa não encontrada para este usuário." };
+          }
+
+          const now = new Date();
+          const lockedUntil = company.billingDayLastChangedAt
+            ? new Date(company.billingDayLastChangedAt)
+            : null;
+
+          if (lockedUntil && lockedUntil > now) {
+            set.status = 409;
+            return {
+              error: "ALTERACAO_BLOQUEADA",
+              message: "Você só pode alterar novamente o dia de cobrança após o período mínimo de 3 meses.",
+              nextAllowedChangeAt: lockedUntil.toISOString(),
+            };
+          }
+
+          const currentAnchor = company.billingAnchorDay || (company.trialEndsAt ? new Date(company.trialEndsAt).getDate() : null);
+          if (currentAnchor === requestedDay) {
+            const nextDue = calculateNextDueDate(now, requestedDay);
+            const nextLock = new Date(now);
+            nextLock.setMonth(nextLock.getMonth() + BILLING_DAY_CHANGE_LOCK_MONTHS);
+            return {
+              success: true,
+              billingAnchorDay: requestedDay,
+              nextInvoiceDate: nextDue.toISOString(),
+              nextAllowedChangeAt: (company.billingDayLastChangedAt || nextLock).toISOString(),
+              message: "O dia de cobrança já está configurado com este valor."
+            };
+          }
+
+          const nextDue = calculateNextDueDate(now, requestedDay);
+          const nextAllowedChangeAt = new Date(now);
+          nextAllowedChangeAt.setMonth(nextAllowedChangeAt.getMonth() + BILLING_DAY_CHANGE_LOCK_MONTHS);
+
+          const [updated] = await db.update(schema.companies)
+            .set({
+              billingAnchorDay: requestedDay,
+              billingDayLastChangedAt: nextAllowedChangeAt,
+              trialEndsAt: nextDue,
+              updatedAt: now,
+            })
+            .where(eq(schema.companies.id, company.id))
+            .returning();
+
+          return {
+            success: true,
+            billingAnchorDay: updated.billingAnchorDay,
+            nextInvoiceDate: updated.trialEndsAt?.toISOString?.() || nextDue.toISOString(),
+            nextAllowedChangeAt: updated.billingDayLastChangedAt?.toISOString?.() || nextAllowedChangeAt.toISOString(),
+            message: `Dia de cobrança alterado para ${requestedDay}. Nova alteração disponível em 3 meses.`
+          };
+        } catch (error: any) {
+          set.status = 500;
+          return { error: "Erro ao atualizar dia de cobrança: " + error.message };
+        }
+      }, {
+        body: t.Object({
+          day: t.Number(),
+        })
       })
       .post("/", async ({ user, body, set, businessRepository }) => {
         try {

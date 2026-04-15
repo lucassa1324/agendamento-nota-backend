@@ -350,15 +350,18 @@ export class UpdateAppointmentStatusUseCase {
                 let displayQty = comparisonQty;
                 let displayUnit = product.secondaryUnit || product.unit;
 
-                await notificationService.sendToUser(
+                const result = await notificationService.sendToUser(
                   business.ownerId,
-                  "📦 Estoque Baixo!",
-                  `O produto ${product.name} atingiu o nível crítico (${displayQty} ${displayUnit}).`
+                  "⚠️ Alerta de Estoque",
+                  `O produto ${product.name} atingiu a quantidade mínima (${displayQty} ${displayUnit}).`
                 );
+                console.log(`[WEBPUSH] Notificação de estoque enviada para ${owner.email}. Resultado:`, result);
                 notifiedLowStock.add(product.id);
+              } else {
+                console.log(`[WEBPUSH] Notificação de estoque ignorada para ${owner?.email}. Owner found: ${!!owner}, notifyInventoryAlerts: ${owner?.notifyInventoryAlerts}`);
               }
-            } catch (err) {
-              console.error("[INVENTORY_ALERT] Error sending notification:", err);
+            } catch (notifyError: any) {
+              console.error("[WEBPUSH_INVENTORY_ERROR]", notifyError?.message || notifyError);
             }
           }
         }

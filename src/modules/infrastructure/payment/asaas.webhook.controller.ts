@@ -7,6 +7,33 @@ import { eq } from "drizzle-orm";
 
 const normalizeEnvValue = (value?: string) =>
   value?.trim().replace(/^['"]|['"]$/g, "") || "";
+const BILLING_GRACE_DAYS = 7;
+
+const daysInMonth = (year: number, monthIndex: number) =>
+  new Date(year, monthIndex + 1, 0).getDate();
+
+const clampBillingAnchorDay = (anchorDay: number) =>
+  Math.min(Math.max(anchorDay, 1), 31);
+
+const buildDateByAnchor = (year: number, monthIndex: number, anchorDay: number) => {
+  const maxDay = daysInMonth(year, monthIndex);
+  const day = Math.min(clampBillingAnchorDay(anchorDay), maxDay);
+  return new Date(year, monthIndex, day);
+};
+
+const calculateNextDueDate = (referenceDate: Date, anchorDay: number) => {
+  let due = buildDateByAnchor(referenceDate.getFullYear(), referenceDate.getMonth(), anchorDay);
+  if (referenceDate.getTime() >= due.getTime()) {
+    due = buildDateByAnchor(referenceDate.getFullYear(), referenceDate.getMonth() + 1, anchorDay);
+  }
+  return due;
+};
+
+const calculateGraceEndDate = (dueDate: Date) => {
+  const graceEnd = new Date(dueDate);
+  graceEnd.setDate(graceEnd.getDate() + BILLING_GRACE_DAYS);
+  return graceEnd;
+};
 
 const extractEnvValueFromContent = (content: string, key: string) => {
   const regex = new RegExp(`^${key}=(.*)$`, "m");
@@ -185,8 +212,6 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
           const paidAtRaw =
             payment.paymentDate || payment.confirmedDate || payment.clientPaymentDate;
           const paymentDate = paidAtRaw ? new Date(paidAtRaw) : new Date();
-          const nextDue = new Date(paymentDate);
-          nextDue.setMonth(nextDue.getMonth() + 1);
 
           // 1. Buscar a empresa para obter o ownerId
           const [company] = await db.select()
@@ -204,6 +229,8 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
               company.accessType === "manual" &&
               !!company.trialEndsAt &&
               new Date(company.trialEndsAt) > new Date();
+            const resolvedAnchorDay = company.billingAnchorDay || paymentDate.getDate();
+            const nextDue = calculateNextDueDate(paymentDate, resolvedAnchorDay);
 
             // 2. Atualizar a empresa
             await db.update(companies)
@@ -211,6 +238,8 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
                 subscriptionStatus: 'active',
                 active: true,
                 accessType: isManualGraceActive ? 'manual' : 'automatic',
+                billingAnchorDay: resolvedAnchorDay,
+                billingGraceEndsAt: null,
                 trialEndsAt: isManualGraceActive ? company.trialEndsAt : nextDue,
                 updatedAt: new Date()
               })
@@ -259,13 +288,22 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
             return { received: true, skipped: "manual_override" };
           }
 
+          const dueDateRaw = payment.dueDate || company.trialEndsAt || new Date();
+          const dueDate = new Date(dueDateRaw);
+          const normalizedDueDate = Number.isNaN(dueDate.getTime()) ? new Date() : dueDate;
+          const graceEndsAt = calculateGraceEndDate(normalizedDueDate);
+          const isStillInGrace = new Date() <= graceEndsAt;
+
           await db.update(companies)
             .set({
-              subscriptionStatus: 'past_due',
+              subscriptionStatus: isStillInGrace ? 'grace_period' : 'past_due',
+              active: isStillInGrace,
+              trialEndsAt: normalizedDueDate,
+              billingGraceEndsAt: graceEndsAt,
               updatedAt: new Date()
             })
             .where(eq(companies.id, externalReference));
-          console.log(`[ASAAS_WEBHOOK] Pagamento pendente/estornado. Empresa ${externalReference} marcada como past_due.`);
+          console.log(`[ASAAS_WEBHOOK] Pagamento pendente/estornado. Empresa ${externalReference} marcada como ${isStillInGrace ? "grace_period" : "past_due"} até ${graceEndsAt.toISOString()}.`);
         }
       }
 

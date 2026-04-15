@@ -11,9 +11,12 @@ const privateKey = process.env.VAPID_PRIVATE_KEY;
 if (publicKey && privateKey) {
   try {
     webpush.setVapidDetails(subject, publicKey, privateKey);
+    console.log("[WEBPUSH] VAPID details set successfully");
   } catch (error) {
-    console.error("[WEBPUSH] Invalid VAPID subject:", error);
+    console.error("[WEBPUSH] Invalid VAPID configuration:", error);
   }
+} else {
+  console.warn("[WEBPUSH] VAPID keys missing. Push notifications will not work.");
 }
 
 export { webpush };

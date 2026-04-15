@@ -98,34 +98,26 @@ export class CreateInventoryTransactionUseCase {
 
       if (comparisonQty <= minQty) {
         try {
-          // Obter dono da empresa
           const business = await this.businessRepository.findById(input.companyId);
           if (business) {
             const owner = await this.userRepository.find(business.ownerId);
             if (owner && owner.notifyInventoryAlerts) {
               const notificationService = new NotificationService(this.pushSubscriptionRepository);
+              let displayQty = comparisonQty;
+              let displayUnit = product.secondaryUnit || product.unit;
 
-              // Lógica de Conversão para Exibição
-              let displayQty = Math.round(newQty);
-              let displayUnit = product.unit;
-
-              if (product.conversionFactor && product.secondaryUnit) {
-                const factor = Number(product.conversionFactor);
-                if (!isNaN(factor) && factor > 0) {
-                  displayQty = Math.round(newQty * factor);
-                  displayUnit = product.secondaryUnit;
-                }
-              }
-
-              await notificationService.sendToUser(
+              const result = await notificationService.sendToUser(
                 business.ownerId,
-                "📦 Estoque Baixo!",
-                `O produto ${product.name} atingiu o nível crítico (${displayQty} ${displayUnit}).`
+                "⚠️ Alerta de Estoque",
+                `O produto ${product.name} atingiu a quantidade mínima (${displayQty} ${displayUnit}).`
               );
+              console.log(`[WEBPUSH] Notificação de estoque enviada para ${owner.email}. Resultado:`, result);
+            } else {
+              console.log(`[WEBPUSH] Notificação de estoque ignorada para ${owner?.email}. Owner found: ${!!owner}, notifyInventoryAlerts: ${owner?.notifyInventoryAlerts}`);
             }
           }
-        } catch (err) {
-          console.error("[INVENTORY_ALERT] Error sending notification:", err);
+        } catch (notifyError: any) {
+          console.error("[WEBPUSH_INVENTORY_ERROR]", notifyError?.message || notifyError);
         }
       }
     }

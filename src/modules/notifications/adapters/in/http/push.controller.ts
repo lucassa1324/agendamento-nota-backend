@@ -51,4 +51,39 @@ export const pushController = () => new Elysia({ prefix: "/push" })
     }
 
     return { success: true };
+  })
+  .post("/test", async ({ user, pushSubscriptionRepository }) => {
+    const subscriptions = await pushSubscriptionRepository.findAllByUserId(user!.id);
+    
+    if (!subscriptions || subscriptions.length === 0) {
+      throw new Error("Nenhuma inscrição encontrada para este usuário.");
+    }
+
+    const payload = JSON.stringify({
+      title: "🔔 Teste de Notificação",
+      body: "Parabéns! Suas notificações estão funcionando corretamente.",
+      icon: '/android-chrome-192x192.png',
+      data: {
+        url: '/admin/dashboard',
+        timestamp: Date.now()
+      }
+    });
+
+    let sent = 0;
+    for (const sub of subscriptions) {
+      try {
+        await webpush.sendNotification({
+          endpoint: sub.endpoint,
+          keys: {
+            p256dh: sub.p256dh,
+            auth: sub.auth
+          }
+        }, payload);
+        sent++;
+      } catch (error) {
+        console.error(`[PUSH_TEST] Erro ao enviar para ${sub.endpoint}:`, error);
+      }
+    }
+
+    return { success: true, sent };
   });

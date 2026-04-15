@@ -67,13 +67,14 @@ const startServer = () => {
     const app = new Elysia({
       name: 'AgendamentoNota'
     })
-      .get("/email-verified", async ({ query }) => {
+      .get("/email-verified", async ({ query, set }) => {
         const { token } = query;
-        const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+        const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || "https://agendamento-nota-front.vercel.app";
 
         if (!token) {
           console.log("[VERIFY_EMAIL] Chamado sem token, assumindo que veio de um redirecionamento de sucesso.");
-          return Response.redirect(`${frontendUrl}/admin?verified=true`, 302);
+          set.redirect = `${frontendUrl}/admin?verified=true`;
+          return;
         }
 
         try {
@@ -84,11 +85,13 @@ const startServer = () => {
             }
           });
 
-          console.log(`[VERIFY_EMAIL] Sucesso! Redirecionando para o login.`);
-          return Response.redirect(`${frontendUrl}/admin?verified=true`, 302);
+          console.log(`[VERIFY_EMAIL] Sucesso! Redirecionando para tela de confirmação.`);
+          set.redirect = `${frontendUrl}/admin/email-verified?verified=true`;
+          return;
         } catch (e) {
           console.error("[VERIFY_EMAIL_ERROR]", e);
-          return Response.redirect(`${frontendUrl}/admin?error=verification_failed`, 302);
+          set.redirect = `${frontendUrl}/admin?error=verification_failed`;
+          return;
         }
       })
       .all("/api/auth/*", async (ctx) => {

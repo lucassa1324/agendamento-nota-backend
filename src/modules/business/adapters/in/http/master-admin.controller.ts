@@ -42,7 +42,14 @@ const HEALTH_CHECK_COMPANY_SLUG = "sistema-health-check";
 const HEALTH_CHECK_COMPANY_NAME = "SISTEMA_HEALTH_CHECK";
 const HEALTH_CHECK_SERVICE_NAME = "Serviço Diagnóstico HC";
 const HEALTH_CHECK_CUSTOMER_EMAIL = "healthcheck@system.local";
+const BILLING_GRACE_DAYS = 7;
 type TemplateSectionType = "banner" | "servicos" | "historia" | "equipe";
+
+const calculateGraceEndDate = (dueDate: Date) => {
+  const graceEnd = new Date(dueDate);
+  graceEnd.setDate(graceEnd.getDate() + BILLING_GRACE_DAYS);
+  return graceEnd;
+};
 
 export const masterAdminController = () => new Elysia({ prefix: "/admin/master" })
   .use(authPlugin)
@@ -60,7 +67,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       const [activeSubs] = await db.execute(sql`
         SELECT COUNT(*)::int as count 
         FROM companies 
-        WHERE subscription_status IN ('active', 'trialing', 'trial')
+        WHERE subscription_status IN ('active', 'trialing', 'trial', 'grace_period')
       `);
 
       // Busca o preço dinâmico para o cálculo do faturamento
@@ -83,7 +90,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
               ELSE 0 
             END as plan_price
           FROM companies
-          WHERE subscription_status IN ('active', 'trialing', 'trial')
+          WHERE subscription_status IN ('active', 'trialing', 'trial', 'grace_period')
         ) as prices
       `);
 
@@ -575,14 +582,20 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
             updateData.subscriptionStatus = 'active';
             updateData.accessType = 'automatic';
             updateData.trialEndsAt = syncResult.nextDue;
+            updateData.billingGraceEndsAt = null;
             updateData.active = true;
             console.log(`[MASTER_ADMIN] Sincronização bem-sucedida: Empresa ${id} ATIVA.`);
           } else {
-            // Se não encontrar pagamento, define como past_due
-            updateData.subscriptionStatus = 'past_due';
+            // Sem pagamento novo: aplica carência de 7 dias a partir do vencimento atual antes de bloquear.
+            const dueDate = currentCompany.trialEndsAt ? new Date(currentCompany.trialEndsAt) : new Date();
+            const graceEndsAt = calculateGraceEndDate(dueDate);
+            const isStillInGrace = now <= graceEndsAt;
+            updateData.subscriptionStatus = isStillInGrace ? 'grace_period' : 'past_due';
             updateData.accessType = 'automatic';
-            updateData.active = false;
-            console.log(`[MASTER_ADMIN] Sincronização falhou ou sem pagamento: Empresa ${id} bloqueada (past_due).`);
+            updateData.trialEndsAt = dueDate;
+            updateData.billingGraceEndsAt = graceEndsAt;
+            updateData.active = isStillInGrace;
+            console.log(`[MASTER_ADMIN] Sincronização sem pagamento: Empresa ${id} em ${updateData.subscriptionStatus} (carência até ${graceEndsAt.toISOString()}).`);
           }
         }
       }
@@ -689,14 +702,27 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
 
       // Se não ativou via syncResult, garante que o status reflita a realidade (past_due se automático)
       if (currentCompany.accessType === 'automatic') {
+        const now = new Date();
+        const dueDate = currentCompany.trialEndsAt ? new Date(currentCompany.trialEndsAt) : now;
+        const graceEndsAt = calculateGraceEndDate(dueDate);
+        const isStillInGrace = now <= graceEndsAt;
+
         await db.update(schema.companies)
-          .set({ subscriptionStatus: 'past_due', updatedAt: new Date() })
+          .set({
+            subscriptionStatus: isStillInGrace ? 'grace_period' : 'past_due',
+            active: isStillInGrace,
+            trialEndsAt: dueDate,
+            billingGraceEndsAt: graceEndsAt,
+            updatedAt: now
+          })
           .where(eq(schema.companies.id, id));
 
         return {
           success: true,
-          status: 'past_due',
-          message: "Nenhum pagamento confirmado encontrado. Status definido como Pendente."
+          status: isStillInGrace ? 'grace_period' : 'past_due',
+          message: isStillInGrace
+            ? `Nenhum pagamento confirmado. Empresa mantida em carência até ${graceEndsAt.toLocaleDateString("pt-BR")}.`
+            : "Nenhum pagamento confirmado. Carência encerrada, empresa bloqueada por inadimplência."
         };
       }
 
@@ -710,6 +736,46 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       console.error("[MASTER_ADMIN_SYNC_ERROR]:", error);
       set.status = 500;
       return { error: "Erro ao sincronizar: " + error.message };
+    }
+  })
+  .post("/companies/:id/billing-day/reset-lock", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+
+      const [company] = await db
+        .select()
+        .from(schema.companies)
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!company) {
+        set.status = 404;
+        return { error: "Empresa não encontrada." };
+      }
+
+      await db.update(schema.companies)
+        .set({
+          billingDayLastChangedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.companies.id, id));
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "RESET_BILLING_DAY_LOCK",
+        details: `Reset manual da trava de alteração do dia de cobrança para ${company.name}.`,
+        level: "WARN",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message: "Trava de alteração do dia de cobrança resetada com sucesso.",
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_RESET_BILLING_DAY_LOCK_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao resetar trava do dia de cobrança: " + error.message };
     }
   })
   .post("/companies/:id/simulate-block", async ({ params, set, user }) => {
@@ -1435,7 +1501,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       const [activeSubscriptions] = await db.execute(sql`
         SELECT COUNT(*)::int as count 
         FROM companies 
-        WHERE subscription_status IN ('active', 'trialing', 'trial')
+        WHERE subscription_status IN ('active', 'trialing', 'trial', 'grace_period')
       `);
 
       // 3. Faturamento Mensal Estimado usando preço dinâmico
@@ -1458,7 +1524,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
               ELSE 0 
             END as plan_price
           FROM companies
-          WHERE subscription_status IN ('active', 'trialing', 'trial')
+          WHERE subscription_status IN ('active', 'trialing', 'trial', 'grace_period')
         ) as prices
       `);
 
@@ -1559,7 +1625,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
               ELSE 0 
             END as plan_price
           FROM companies
-          WHERE subscription_status IN ('active', 'trialing', 'trial')
+          WHERE subscription_status IN ('active', 'trialing', 'trial', 'grace_period')
         ) as prices
       `);
 
@@ -1693,6 +1759,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         active: "Ativo",
         trialing: "Teste",
         trial: "Teste",
+        grace_period: "Carência",
         past_due: "Vencido",
         deleted: "Cancelado"
       };
@@ -1712,7 +1779,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
 
       return {
         status: statusMap[company.subscriptionStatus] || "Não identificado",
-        nextInvoiceDate: (company.subscriptionStatus === 'active' || company.subscriptionStatus === 'trial' || company.subscriptionStatus === 'trialing') ? nextInvoice.toISOString() : null,
+        nextInvoiceDate: (company.subscriptionStatus === 'active' || company.subscriptionStatus === 'trial' || company.subscriptionStatus === 'trialing' || company.subscriptionStatus === 'grace_period') ? nextInvoice.toISOString() : null,
         lastPaymentDate: company.createdAt.toISOString(), // Simplificação
         history: [] // Histórico real exigiria busca no Asaas via API
       };

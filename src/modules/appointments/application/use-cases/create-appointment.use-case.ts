@@ -341,12 +341,14 @@ export class CreateAppointmentUseCase {
           });
           const formattedDate = formatter.format(date);
 
-          await notificationService.sendToUser(
+          const result = await notificationService.sendToUser(
             ownerId,
             "📅 Novo Agendamento!",
             `${newAppointment.customerName} agendou ${newAppointment.serviceNameSnapshot} para ${formattedDate}`
           );
-          console.log(`[WEBPUSH] Notificação de agendamento enviada para ${owner.email}`);
+          console.log(`[WEBPUSH] Notificação de agendamento enviada para ${owner.email}. Resultado:`, result);
+        } else {
+          console.log(`[WEBPUSH] Notificação ignorada para ${owner?.email}. Owner found: ${!!owner}, notifyNewAppointments: ${owner?.notifyNewAppointments}`);
         }
 
         if (data.customerEmail) {
