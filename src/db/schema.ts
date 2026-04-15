@@ -38,6 +38,8 @@ export const user = pgTable("user", {
   retentionEndsAt: timestamp("retention_ends_at"),
   lastRetentionDiscountAt: timestamp("last_retention_discount_at"),
   hasCompletedOnboarding: boolean("has_completed_onboarding").default(false).notNull(),
+  acceptedTerms: boolean("accepted_terms").default(false).notNull(),
+  acceptedTermsAt: timestamp("accepted_terms_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

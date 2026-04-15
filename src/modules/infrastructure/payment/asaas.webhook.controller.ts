@@ -83,11 +83,24 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
         return { error: "Unauthorized" };
       }
 
-      if (!event || !event.payment) {
-        return { status: "ignored", reason: "no_payment_data" };
+      if (!event) {
+        return { status: "ignored", reason: "no_event_data" };
       }
 
-      const payment = event.payment;
+      const cancellationEvents = [
+        "SUBSCRIPTION_DELETED",
+        "SUBSCRIPTION_CANCELED",
+        "SUBSCRIPTION_CANCELLED",
+        "SUBSCRIPTION_INACTIVATED",
+      ];
+      const isSubscriptionCancellationEvent = cancellationEvents.includes(event.event);
+      const hasPaymentData = !!event.payment;
+
+      if (!hasPaymentData && !isSubscriptionCancellationEvent) {
+        return { status: "ignored", reason: "unsupported_event_payload" };
+      }
+
+      const payment = event.payment || {};
       const activationEvents = [
         "PAYMENT_CONFIRMED",
         "PAYMENT_RECEIVED",
@@ -131,9 +144,16 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
       let customerId = String(payment.customer || "");
       let customerEmail = "";
 
-      if ((!externalReference || !customerId) && payment.subscription) {
+      let subscriptionId = String(
+        payment.subscription ||
+        event?.subscription?.id ||
+        event?.subscription ||
+        "",
+      );
+
+      if ((!externalReference || !customerId) && subscriptionId) {
         const subscriptionData = await fetchAsaasResource<{ externalReference?: string; customer?: string }>(
-          `/subscriptions/${payment.subscription}`,
+          `/subscriptions/${subscriptionId}`,
         );
         if (subscriptionData?.externalReference) {
           externalReference = String(subscriptionData.externalReference);
@@ -154,8 +174,9 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
           customerId = String(paymentData.customer);
         }
         if ((!externalReference || !customerId) && paymentData?.subscription) {
+          subscriptionId = String(paymentData.subscription);
           const subscriptionFromPayment = await fetchAsaasResource<{ externalReference?: string; customer?: string }>(
-            `/subscriptions/${paymentData.subscription}`,
+            `/subscriptions/${subscriptionId}`,
           );
           if (subscriptionFromPayment?.externalReference) {
             externalReference = String(subscriptionFromPayment.externalReference);
@@ -305,6 +326,40 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
             .where(eq(companies.id, externalReference));
           console.log(`[ASAAS_WEBHOOK] Pagamento pendente/estornado. Empresa ${externalReference} marcada como ${isStillInGrace ? "grace_period" : "past_due"} até ${graceEndsAt.toISOString()}.`);
         }
+      } else if (isSubscriptionCancellationEvent) {
+        if (!externalReference) {
+          console.warn("[ASAAS_WEBHOOK] Evento de cancelamento sem externalReference. Não foi possível bloquear localmente.");
+          return { received: true, skipped: "missing_external_reference" };
+        }
+
+        const [company] = await db.select()
+          .from(companies)
+          .where(eq(companies.id, externalReference))
+          .limit(1);
+
+        if (!company) {
+          console.warn(`[ASAAS_WEBHOOK] Empresa ${externalReference} não encontrada para cancelamento.`);
+          return { received: true };
+        }
+
+        await db.update(companies)
+          .set({
+            subscriptionStatus: "canceled",
+            active: false,
+            trialEndsAt: new Date(),
+            billingGraceEndsAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(companies.id, externalReference));
+
+        await db.update(user)
+          .set({
+            active: false,
+            updatedAt: new Date(),
+          })
+          .where(eq(user.id, company.ownerId));
+
+        console.log(`[ASAAS_WEBHOOK] Assinatura cancelada no Asaas. Empresa ${company.name} (${externalReference}) bloqueada localmente.`);
       }
 
       return { received: true };

@@ -1014,7 +1014,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       throw new Error("Erro ao buscar bug reports: " + message);
     }
   })
-  .delete("/bug-reports/:id", async ({ params, set }) => {
+  .delete("/bug-reports/:id", async ({ params, set, user }) => {
     try {
       const { id } = params;
       const [deleted] = await db
@@ -1026,6 +1026,14 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         set.status = 404;
         return { error: "Feedback não encontrado" };
       }
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "MASTER_ADMIN_DELETE_BUG_REPORT",
+        details: `Feedback ${id} removido (tipo: ${deleted.type}).`,
+        level: "WARNING",
+        companyId: deleted.companyId || undefined,
+      });
 
       return { success: true, message: "Feedback removido com sucesso" };
     } catch (error: any) {
@@ -1421,7 +1429,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       notes: t.Optional(t.String())
     })
   })
-  .delete("/prospects/:id", async ({ params, set }) => {
+  .delete("/prospects/:id", async ({ params, set, user }) => {
     try {
       const { id } = params;
       const [deleted] = await db.delete(schema.prospects)
@@ -1432,6 +1440,13 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         set.status = 404;
         return { error: "Possível cliente não encontrado" };
       }
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "MASTER_ADMIN_DELETE_PROSPECT",
+        details: `Prospect ${deleted.name} (${id}) removido.`,
+        level: "WARNING",
+      });
 
       return { success: true, message: "Possível cliente removido" };
     } catch (error: any) {
@@ -1566,9 +1581,16 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       throw new Error("Erro ao buscar preço: " + error.message);
     }
   })
-  .post("/settings/pricing", async ({ body, set }) => {
+  .post("/settings/pricing", async ({ body, set, user }) => {
     try {
       const { price } = body;
+
+      const [previous] = await db
+        .select()
+        .from(schema.systemSettings)
+        .where(eq(schema.systemSettings.key, "monthly_price"))
+        .limit(1);
+      const previousPrice = previous ? Number.parseFloat(previous.value) : 49.9;
 
       const [updated] = await db
         .insert(schema.systemSettings)
@@ -1587,6 +1609,13 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           }
         })
         .returning();
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "MASTER_ADMIN_UPDATE_PRICING",
+        details: `Preço mensal alterado de R$ ${previousPrice.toFixed(2)} para R$ ${price.toFixed(2)}.`,
+        level: "WARNING",
+      });
 
       return {
         success: true,
@@ -1859,7 +1888,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       return { error: "Erro ao buscar detalhes: " + error.message };
     }
   })
-  .delete("/users/:id", async ({ params, set }) => {
+  .delete("/users/:id", async ({ params, set, user }) => {
     try {
       const { id } = params;
       const deleted = await db.transaction(async (tx) => {
@@ -1892,6 +1921,12 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       }
 
       console.log(`[MASTER_ADMIN_DELETE]: Usuário ${deleted.email} e todos os seus dados foram removidos.`);
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "MASTER_ADMIN_DELETE_USER",
+        details: `Usuário ${deleted.email} (${deleted.id}) e dados vinculados foram removidos permanentemente.`,
+        level: "WARNING",
+      });
 
       return {
         success: true,

@@ -101,9 +101,17 @@ const startServer = () => {
             ctx.request.method === "GET" &&
             (ctx.path === "/api/auth/session" || ctx.path === "/api/auth/get-session")
           ) {
-            const sessionData = await auth.api.getSession({
-              headers: ctx.request.headers,
-            });
+            let sessionData: unknown = null;
+            try {
+              sessionData = await auth.api.getSession({
+                headers: ctx.request.headers,
+              });
+            } catch (sessionError: any) {
+              console.warn(
+                `>>> [AUTH_SESSION_FALLBACK] getSession falhou (${sessionError?.message || "erro desconhecido"}). Retornando null.`,
+              );
+              sessionData = null;
+            }
 
             return new Response(JSON.stringify(sessionData || null), {
               status: 200,

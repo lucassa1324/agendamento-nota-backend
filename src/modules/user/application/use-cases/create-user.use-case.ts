@@ -85,6 +85,9 @@ export class CreateUserUseCase {
         role: "ADMIN",
         active: true,
         hasCompletedOnboarding: false,
+        cpfCnpj: data.cpfCnpj || "",
+        acceptedTerms: true,
+        acceptedTermsAt: new Date().toISOString(),
       },
     });
 

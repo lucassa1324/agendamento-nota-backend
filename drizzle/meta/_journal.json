@@ -15,6 +15,13 @@
       "when": 1775777652168,
       "tag": "0001_lively_vanisher",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776284670566,
+      "tag": "0002_large_sunset_bain",
+      "breakpoints": true
     }
   ]
 }

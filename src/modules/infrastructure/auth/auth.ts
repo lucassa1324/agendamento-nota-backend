@@ -142,6 +142,12 @@ export const auth = betterAuth({
       hasCompletedOnboarding: {
         type: "boolean",
       },
+      acceptedTerms: {
+        type: "boolean",
+      },
+      acceptedTermsAt: {
+        type: "string",
+      },
     },
   },
   emailVerification: {
