@@ -137,7 +137,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
   async updateConfig(id: string, userId: string, config: Partial<BusinessSiteCustomization>): Promise<Business | null> {
     return await db.transaction(async (tx) => {
       const [company] = await tx
-        .select()
+        .select({
+          id: companies.id,
+        })
         .from(companies)
         .where(and(eq(companies.id, id), eq(companies.ownerId, userId)))
         .limit(1);
@@ -178,7 +180,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
   ): Promise<boolean> {
     return await db.transaction(async (tx) => {
       const [company] = await tx
-        .select()
+        .select({
+          id: companies.id,
+        })
         .from(companies)
         .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
         .limit(1);
@@ -345,7 +349,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
     }
 
     const [company] = await db
-      .select()
+      .select({
+        id: companies.id,
+      })
       .from(companies)
       .where(and(...conditions))
       .limit(1);
@@ -385,7 +391,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
   }> {
     return await db.transaction(async (tx) => {
       const [company] = await tx
-        .select()
+        .select({
+          id: companies.id,
+        })
         .from(companies)
         .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
         .limit(1);
@@ -419,7 +427,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
   ): Promise<boolean> {
     return await db.transaction(async (tx) => {
       const [company] = await tx
-        .select()
+        .select({
+          id: companies.id,
+        })
         .from(companies)
         .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
         .limit(1);
