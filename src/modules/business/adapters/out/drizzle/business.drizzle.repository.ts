@@ -157,12 +157,11 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
           target: companySiteCustomizations.companyId,
           set: config
         })
-        .returning();
+        .returning({
+          id: companySiteCustomizations.id,
+        });
 
-      return {
-        ...company,
-        siteCustomization: updatedCustomization
-      } as Business;
+      return this.findById(id);
     });
   }
 
