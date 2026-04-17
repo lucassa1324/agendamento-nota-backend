@@ -4,6 +4,8 @@ import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.p
 import { ListAppointmentsUseCase } from "../../../application/use-cases/list-appointments.use-case";
 import { UpdateAppointmentStatusUseCase } from "../../../application/use-cases/update-appointment-status.use-case";
 import { DeleteAppointmentUseCase } from "../../../application/use-cases/delete-appointment.use-case";
+import { RescheduleAppointmentUseCase } from "../../../application/use-cases/reschedule-appointment.use-case";
+import { UpdateAppointmentUseCase } from "../../../application/use-cases/update-appointment.use-case";
 import { GetOperatingHoursUseCase } from "../../../../business/application/use-cases/get-operating-hours.use-case";
 
 export function appointmentController() {
@@ -259,6 +261,7 @@ export function appointmentController() {
             servicePriceSnapshot: t.String(),
             serviceDurationSnapshot: t.String(),
             notes: t.Optional(t.String()),
+            ignoreBusinessHoursValidation: t.Optional(t.Boolean()),
             items: t.Optional(t.Array(t.Object({
               serviceId: t.String(),
               serviceNameSnapshot: t.String(),
@@ -305,6 +308,98 @@ export function appointmentController() {
           query: t.Object({
             startDate: t.Optional(t.String()),
             endDate: t.Optional(t.String())
+          })
+        })
+        .patch("/:id/schedule", async ({ params: { id }, body, appointmentRepository, businessRepository, user, set }) => {
+          try {
+            const scheduledAt = new Date(body.scheduledAt);
+            if (isNaN(scheduledAt.getTime())) {
+              set.status = 400;
+              return {
+                error: "Validation error",
+                message: "Data/hora inválida para reagendamento.",
+              };
+            }
+
+            const useCase = new RescheduleAppointmentUseCase(
+              appointmentRepository,
+              businessRepository,
+            );
+            return await useCase.execute(id, scheduledAt, user!.id);
+          } catch (error: any) {
+            const message = error?.message || "Erro ao reagendar agendamento";
+            if (message.includes("Unauthorized")) {
+              set.status = 403;
+            } else if (
+              message.includes("not found") ||
+              message.includes("cancelado") ||
+              message.includes("ocupado")
+            ) {
+              set.status = 400;
+            } else {
+              set.status = 500;
+            }
+            return { error: "Reschedule error", message };
+          }
+        }, {
+          body: t.Object({
+            scheduledAt: t.String(),
+          })
+        })
+        .patch("/:id", async ({ params: { id }, body, appointmentRepository, serviceRepository, businessRepository, user, set }) => {
+          try {
+            const scheduledAt = new Date(body.scheduledAt);
+            if (isNaN(scheduledAt.getTime())) {
+              set.status = 400;
+              return { error: "Validation error", message: "Data/hora inválida para edição." };
+            }
+
+            const useCase = new UpdateAppointmentUseCase(
+              appointmentRepository,
+              serviceRepository,
+              businessRepository,
+            );
+
+            return await useCase.execute(
+              {
+                id,
+                scheduledAt,
+                customerName: body.customerName,
+                customerEmail: body.customerEmail,
+                customerPhone: body.customerPhone,
+                serviceId: body.serviceId,
+                servicePriceSnapshot: body.servicePriceSnapshot,
+                notes: body.notes,
+                ignoreBusinessHoursValidation: body.ignoreBusinessHoursValidation,
+              },
+              user!.id,
+            );
+          } catch (error: any) {
+            const message = error?.message || "Erro ao editar agendamento";
+            if (message.includes("Unauthorized")) {
+              set.status = 403;
+            } else if (
+              message.includes("not found") ||
+              message.includes("ocupado") ||
+              message.includes("horário de funcionamento") ||
+              message.includes("closed")
+            ) {
+              set.status = 400;
+            } else {
+              set.status = 500;
+            }
+            return { error: "Update error", message };
+          }
+        }, {
+          body: t.Object({
+            scheduledAt: t.String(),
+            customerName: t.String(),
+            customerEmail: t.String(),
+            customerPhone: t.String(),
+            serviceId: t.String(),
+            servicePriceSnapshot: t.String(),
+            notes: t.Optional(t.String()),
+            ignoreBusinessHoursValidation: t.Optional(t.Boolean()),
           })
         })
         .patch("/:id/status", async ({ params: { id }, body, appointmentRepository, businessRepository, userRepository, pushSubscriptionRepository, user, set }) => {

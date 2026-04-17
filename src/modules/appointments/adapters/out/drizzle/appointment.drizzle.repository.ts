@@ -2,7 +2,7 @@ import { db } from "../../../../infrastructure/drizzle/database";
 import { appointments, appointmentItems } from "../../../../../db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { IAppointmentRepository } from "../../../domain/ports/appointment.repository";
-import { Appointment, CreateAppointmentInput, AppointmentStatus, AppointmentItem } from "../../../domain/entities/appointment.entity";
+import { Appointment, CreateAppointmentInput, AppointmentStatus, AppointmentItem, UpdateAppointmentInput } from "../../../domain/entities/appointment.entity";
 
 export class DrizzleAppointmentRepository implements IAppointmentRepository {
   async findById(id: string): Promise<Appointment | null> {
@@ -108,6 +108,59 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
       ...(newAppointment as Appointment),
       items: createdItems,
     };
+  }
+
+  async update(id: string, data: UpdateAppointmentInput): Promise<Appointment | null> {
+    return db.transaction(async (tx) => {
+      const { items, ...appointmentData } = data;
+
+      const [updated] = await tx
+        .update(appointments)
+        .set({
+          ...appointmentData,
+          notes: appointmentData.notes ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(appointments.id, id))
+        .returning();
+
+      if (!updated) return null;
+
+      await tx
+        .delete(appointmentItems)
+        .where(eq(appointmentItems.appointmentId, id));
+
+      let createdItems: AppointmentItem[] = [];
+      if (items && items.length > 0) {
+        const itemsToInsert = items.map((item) => ({
+          id: crypto.randomUUID(),
+          appointmentId: id,
+          ...item,
+        }));
+
+        const insertedItems = await tx
+          .insert(appointmentItems)
+          .values(itemsToInsert)
+          .returning();
+
+        createdItems = insertedItems as AppointmentItem[];
+      }
+
+      return {
+        ...(updated as Appointment),
+        items: createdItems,
+      };
+    });
+  }
+
+  async updateSchedule(id: string, scheduledAt: Date): Promise<Appointment | null> {
+    const [updated] = await db
+      .update(appointments)
+      .set({ scheduledAt, updatedAt: new Date() })
+      .where(eq(appointments.id, id))
+      .returning();
+
+    return (updated as Appointment) || null;
   }
 
   async updateStatus(id: string, status: AppointmentStatus): Promise<Appointment | null> {

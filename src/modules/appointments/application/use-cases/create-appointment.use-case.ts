@@ -156,6 +156,8 @@ export class CreateAppointmentUseCase {
 
     const dayNames = ["DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO"];
     const dayName = dayNames[dayOfWeek];
+    const shouldIgnoreBusinessHours =
+      Boolean(data.ignoreBusinessHoursValidation) && Boolean(userId);
 
     const settings = await this.businessRepository.getOperatingHours(data.companyId);
     if (!settings) {
@@ -212,7 +214,7 @@ export class CreateAppointmentUseCase {
     const isInMorning = checkTimeInPeriod(dayConfig.morningStart, dayConfig.morningEnd);
     const isInAfternoon = checkTimeInPeriod(dayConfig.afternoonStart, dayConfig.afternoonEnd);
 
-    if (!isInMorning && !isInAfternoon) {
+    if (!shouldIgnoreBusinessHours && !isInMorning && !isInAfternoon) {
       throw new Error("O horário selecionado e a duração total excedem o horário de funcionamento.");
     }
 

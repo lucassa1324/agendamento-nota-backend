@@ -42,5 +42,19 @@ export interface CreateAppointmentInput {
   serviceDurationSnapshot: string;
   scheduledAt: Date;
   notes?: string;
+  ignoreBusinessHoursValidation?: boolean;
+  items?: Omit<AppointmentItem, "id" | "appointmentId" | "createdAt" | "updatedAt">[];
+}
+
+export interface UpdateAppointmentInput {
+  serviceId: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  serviceNameSnapshot: string;
+  servicePriceSnapshot: string;
+  serviceDurationSnapshot: string;
+  scheduledAt: Date;
+  notes?: string;
   items?: Omit<AppointmentItem, "id" | "appointmentId" | "createdAt" | "updatedAt">[];
 }
