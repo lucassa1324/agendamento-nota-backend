@@ -32,6 +32,8 @@ export class TransactionalEmailService {
     this.fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
     if (apiKey) {
       this.resend = new Resend(apiKey);
+    } else {
+      console.error("[TRANSACTIONAL_EMAIL_SERVICE] RESEND_API_KEY is missing! Emails will not be sent.");
     }
   }
 
