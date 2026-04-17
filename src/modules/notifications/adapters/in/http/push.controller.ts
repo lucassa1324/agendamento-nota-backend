@@ -24,7 +24,9 @@ export const pushController = () => new Elysia({ prefix: "/push" })
       throw new Error("Invalid subscription object");
     }
 
-    console.log(`[PUSH_CONTROLLER] Registrando nova inscrição para user: ${user!.id}`);
+    const [existing] = await Promise.all([
+      pushSubscriptionRepository.findByEndpoint(subscription.endpoint)
+    ]);
 
     await pushSubscriptionRepository.upsert(
       user!.id,
@@ -33,21 +35,26 @@ export const pushController = () => new Elysia({ prefix: "/push" })
       subscription.keys.auth
     );
 
-    const payload = JSON.stringify({
-      title: "Notificações Ativadas",
-      body: "Você receberá atualizações sobre seus agendamentos.",
-      icon: '/android-chrome-192x192.png',
-      data: {
-        url: '/',
-        timestamp: Date.now()
-      }
-    });
+    // Só envia notificação de boas-vindas se for uma NOVA inscrição
+    if (!existing) {
+      const payload = JSON.stringify({
+        title: "Notificações Ativadas",
+        body: "Você receberá atualizações sobre seus agendamentos.",
+        icon: '/android-chrome-192x192.png',
+        data: {
+          url: '/',
+          timestamp: Date.now()
+        }
+      });
 
-    try {
-      await webpush.sendNotification(subscription, payload);
-      console.log("[PUSH_CONTROLLER] Notificação de boas-vindas enviada com sucesso.");
-    } catch (error) {
-      console.error("[PUSH_CONTROLLER] Erro ao enviar boas-vindas:", error);
+      try {
+        await webpush.sendNotification(subscription, payload);
+        console.log("[PUSH_CONTROLLER] Notificação de boas-vindas enviada para nova inscrição.");
+      } catch (error) {
+        console.error("[PUSH_CONTROLLER] Erro ao enviar boas-vindas:", error);
+      }
+    } else {
+      console.log(`[PUSH_CONTROLLER] Inscrição atualizada para user: ${user!.id} (sem envio de boas-vindas)`);
     }
 
     return { success: true };
