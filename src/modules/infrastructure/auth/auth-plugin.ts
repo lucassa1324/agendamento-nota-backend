@@ -532,25 +532,65 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                 try {
                     // FIX: Busca explícita na tabela companies usando o ownerId
                     // Isso garante que o slug e o businessId estejam sempre atualizados
-                    const businessResults = await db
-                        .select({
-                            id: schema.companies.id,
-                            name: schema.companies.name,
-                            slug: schema.companies.slug,
-                            ownerId: schema.companies.ownerId,
-                            active: schema.companies.active,
-                            subscriptionStatus: schema.companies.subscriptionStatus,
-                            trialEndsAt: schema.companies.trialEndsAt,
-                            billingAnchorDay: schema.companies.billingAnchorDay,
-                            billingGraceEndsAt: schema.companies.billingGraceEndsAt,
-                            billingDayLastChangedAt: schema.companies.billingDayLastChangedAt,
-                            accessType: schema.companies.accessType,
-                        })
-                        .from(schema.companies)
-                        .where(eq(schema.companies.ownerId, user.id))
-                        .limit(1);
+                    let businessResults: any[] = [];
+                    try {
+                        businessResults = await db
+                            .select({
+                                id: schema.companies.id,
+                                name: schema.companies.name,
+                                slug: schema.companies.slug,
+                                ownerId: schema.companies.ownerId,
+                                active: schema.companies.active,
+                                subscriptionStatus: schema.companies.subscriptionStatus,
+                                trialEndsAt: schema.companies.trialEndsAt,
+                                billingAnchorDay: schema.companies.billingAnchorDay,
+                                billingGraceEndsAt: schema.companies.billingGraceEndsAt,
+                                billingDayLastChangedAt: schema.companies.billingDayLastChangedAt,
+                                accessType: schema.companies.accessType,
+                            })
+                            .from(schema.companies)
+                            .where(eq(schema.companies.ownerId, user.id))
+                            .limit(1);
+                    } catch (queryError: any) {
+                        const errorMessage = String(queryError?.message || "");
+                        const isMissingColumnError =
+                            queryError?.code === "42703" ||
+                            errorMessage.toLowerCase().includes("does not exist");
 
-                    const userCompany = businessResults[0];
+                        if (!isMissingColumnError) {
+                            throw queryError;
+                        }
+
+                        console.warn(
+                            `[AUTH_PLUGIN] Colunas de billing indisponíveis no banco atual. Aplicando fallback legado. Detalhe: ${errorMessage}`,
+                        );
+
+                        businessResults = await db
+                            .select({
+                                id: schema.companies.id,
+                                name: schema.companies.name,
+                                slug: schema.companies.slug,
+                                ownerId: schema.companies.ownerId,
+                                active: schema.companies.active,
+                                subscriptionStatus: schema.companies.subscriptionStatus,
+                                trialEndsAt: schema.companies.trialEndsAt,
+                            })
+                            .from(schema.companies)
+                            .where(eq(schema.companies.ownerId, user.id))
+                            .limit(1);
+                    }
+
+                    const baseCompany = businessResults[0];
+                    const userCompany = baseCompany
+                        ? {
+                            ...baseCompany,
+                            accessType: baseCompany.accessType || "automatic",
+                            billingAnchorDay: baseCompany.billingAnchorDay ?? null,
+                            billingGraceEndsAt: baseCompany.billingGraceEndsAt ?? null,
+                            billingDayLastChangedAt:
+                                baseCompany.billingDayLastChangedAt ?? null,
+                        }
+                        : null;
 
                     // Log de depuração detalhado para diagnosticar problemas de login
                     console.log(`>>> [AUTH_DEBUG] User: ${user.email} (ID: ${user.id})`);

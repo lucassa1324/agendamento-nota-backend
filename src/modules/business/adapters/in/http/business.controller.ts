@@ -401,7 +401,11 @@ export const businessController = () => new Elysia({ prefix: "/business" })
               updatedAt: new Date(),
             })
             .where(eq(schema.companies.id, id))
-            .returning();
+            .returning({
+              id: schema.companies.id,
+              active: schema.companies.active,
+              updatedAt: schema.companies.updatedAt,
+            });
 
           return {
             success: true,
