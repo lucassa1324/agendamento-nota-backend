@@ -151,8 +151,10 @@ export const auth = betterAuth({
     },
   },
   emailVerification: {
-    async sendVerificationEmail({ user, url }: { user: any; url: string }) {
-      console.log(`[AUTH] Enviando e-mail de verificação para: ${user.email}`);
+    autoSignInAfterVerification: true,
+    sendVerificationEmail: async ({ user, url }: { user: any; url: string }) => {
+      const verificationUrl = url.replace("/api/auth/verify-email", "/email-verified");
+
       try {
         const fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
         const { data, error } = await resend.emails.send({
@@ -166,7 +168,7 @@ export const auth = betterAuth({
                 Olá, ${user.name || "usuário"}! Obrigado por se cadastrar. Para começar a usar todas as funcionalidades, por favor confirme seu endereço de e-mail clicando no botão abaixo:
               </p>
               <div style="text-align: center; margin: 30px 0;">
-                <a href="${url}" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                <a href="${verificationUrl}" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
                   Verificar E-mail
                 </a>
               </div>
@@ -174,7 +176,7 @@ export const auth = betterAuth({
                 Se o botão acima não funcionar, copie e cole o link abaixo no seu navegador:
               </p>
               <p style="color: #007bff; font-size: 12px; text-align: center; word-break: break-all;">
-                ${url}
+                ${verificationUrl}
               </p>
               <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
               <p style="color: #999; font-size: 12px; text-align: center;">

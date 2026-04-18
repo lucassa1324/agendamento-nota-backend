@@ -68,12 +68,12 @@ const startServer = () => {
       name: 'AgendamentoNota'
     })
       .get("/email-verified", async ({ query, set }) => {
-        const { token } = query;
-        const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || "https://agendamento-nota-front.vercel.app";
+        const { token, callbackURL } = query;
+        const frontendUrl = callbackURL || process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || "https://agendamento-nota-front.vercel.app";
 
         if (!token) {
-          console.log("[VERIFY_EMAIL] Chamado sem token, assumindo que veio de um redirecionamento de sucesso.");
-          set.redirect = `${frontendUrl}/admin?verified=true`;
+          console.log("[VERIFY_EMAIL] Chamado sem token, redirecionando para callbackURL ou fallback.");
+          set.redirect = frontendUrl.includes('?') ? `${frontendUrl}&verified=true` : `${frontendUrl}?verified=true`;
           return;
         }
 
@@ -81,16 +81,20 @@ const startServer = () => {
           console.log(`[VERIFY_EMAIL] Iniciando verificação para token: ${token}`);
           await auth.api.verifyEmail({
             query: {
-              token
+              token,
+              callbackURL: frontendUrl
             }
           });
 
-          console.log(`[VERIFY_EMAIL] Sucesso! Redirecionando para tela de confirmação.`);
-          set.redirect = `${frontendUrl}/admin/email-verified?verified=true`;
+          console.log(`[VERIFY_EMAIL] Sucesso! Redirecionando para: ${frontendUrl}`);
+          // O próprio verifyEmail já pode retornar um redirecionamento se o callbackURL for passado,
+          // mas garantimos aqui o comportamento esperado.
+          set.redirect = frontendUrl.includes('?') ? `${frontendUrl}&verified=true` : `${frontendUrl}?verified=true`;
           return;
         } catch (e) {
           console.error("[VERIFY_EMAIL_ERROR]", e);
-          set.redirect = `${frontendUrl}/admin?error=verification_failed`;
+          const errorUrl = frontendUrl.includes('?') ? `${frontendUrl}&error=verification_failed` : `${frontendUrl}?error=verification_failed`;
+          set.redirect = errorUrl;
           return;
         }
       })
