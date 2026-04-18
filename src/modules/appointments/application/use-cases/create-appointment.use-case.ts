@@ -28,6 +28,93 @@ export class CreateAppointmentUseCase {
       throw new Error("Unauthorized: Only business owners can create manual appointments");
     }
 
+    // Regras antiabuso aplicadas somente no fluxo público (sem usuário logado)
+    if (!userId) {
+      const normalizePhone = (value: string) => value.replace(/\D/g, "");
+      const isValidEmail = (value: string) =>
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+      const activeStatuses = new Set(["PENDING", "CONFIRMED", "POSTPONED"]);
+      const phoneLimitWithoutEmail = 3;
+      const absolutePhoneLimit = 6;
+      const sameDayActiveLimit = 2;
+      const cooldownMinutes = 5;
+
+      const phoneDigits = normalizePhone(data.customerPhone || "");
+      const rawEmail = (data.customerEmail || "").trim().toLowerCase();
+      const hasEmail = rawEmail.length > 0;
+
+      if (phoneDigits.length !== 10 && phoneDigits.length !== 11) {
+        throw new Error("ANTI_ABUSE: Informe um telefone com DDD válido.");
+      }
+
+      if (/^(\d)\1+$/.test(phoneDigits)) {
+        throw new Error("ANTI_ABUSE: Informe um telefone real. Não use números repetidos.");
+      }
+
+      if (hasEmail && !isValidEmail(rawEmail)) {
+        throw new Error("ANTI_ABUSE: Informe um e-mail válido para continuar.");
+      }
+
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const companyAppointments = await this.appointmentRepository.findAllByCompanyId(
+        data.companyId,
+        thirtyDaysAgo,
+      );
+
+      const appointmentsByPhone = companyAppointments.filter((appointment) => {
+        if (appointment.status === "CANCELLED") return false;
+        return normalizePhone(appointment.customerPhone || "") === phoneDigits;
+      });
+
+      if (appointmentsByPhone.length >= phoneLimitWithoutEmail && !hasEmail) {
+        throw new Error(
+          "ANTI_ABUSE: Este telefone já realizou 3 agendamentos recentes. Para continuar, informe um e-mail válido.",
+        );
+      }
+
+      if (appointmentsByPhone.length >= absolutePhoneLimit) {
+        throw new Error(
+          "ANTI_ABUSE: Limite de agendamentos para este telefone atingido temporariamente. Tente novamente mais tarde.",
+        );
+      }
+
+      const now = Date.now();
+      const hasRecentAttempt = appointmentsByPhone.some((appointment) => {
+        const createdAtMs = new Date(appointment.createdAt).getTime();
+        return Number.isFinite(createdAtMs) && now - createdAtMs < cooldownMinutes * 60 * 1000;
+      });
+
+      if (hasRecentAttempt) {
+        throw new Error(
+          "ANTI_ABUSE: Aguarde alguns minutos antes de realizar um novo agendamento com este telefone.",
+        );
+      }
+
+      const scheduledDateKey = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Sao_Paulo",
+      }).format(new Date(data.scheduledAt));
+
+      const sameDayActiveByPhone = appointmentsByPhone.filter((appointment) => {
+        if (!activeStatuses.has(appointment.status)) return false;
+        const appointmentDateKey = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "America/Sao_Paulo",
+        }).format(new Date(appointment.scheduledAt));
+        return appointmentDateKey === scheduledDateKey;
+      });
+
+      if (sameDayActiveByPhone.length >= sameDayActiveLimit) {
+        throw new Error(
+          "ANTI_ABUSE: Este telefone já possui o limite de agendamentos ativos para este dia.",
+        );
+      }
+
+      // Normaliza os campos para persistência e comparações futuras
+      data.customerPhone = phoneDigits;
+      data.customerEmail = rawEmail;
+    }
+
     // Suporte a múltiplos serviços
     let serviceIds: string[] = [];
 

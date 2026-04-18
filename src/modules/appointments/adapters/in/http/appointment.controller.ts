@@ -229,6 +229,14 @@ export function appointmentController() {
               return { error: "Not Found", message: errorMessage };
             }
 
+            if (errorMessage.includes("ANTI_ABUSE:")) {
+              set.status = 400;
+              return {
+                error: "Validation error",
+                message: errorMessage.replace("ANTI_ABUSE:", "").trim(),
+              };
+            }
+
             // Erros de regra de negócio (horário, conflito, etc)
             if (
               errorMessage.includes("exceed business hours") ||
