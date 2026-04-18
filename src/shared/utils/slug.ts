@@ -21,7 +21,7 @@ export async function generateUniqueSlug(name: string): Promise<string> {
 
   while (true) {
     const existing = await db
-      .select()
+      .select({ id: companies.id })
       .from(companies)
       .where(eq(companies.slug, slug))
       .limit(1);

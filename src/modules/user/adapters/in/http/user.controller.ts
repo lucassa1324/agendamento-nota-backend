@@ -6,6 +6,7 @@ import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { db } from "../../../../infrastructure/drizzle/database";
 import { user } from "../../../../../db/schema";
 import { eq } from "drizzle-orm";
+import { UserAlreadyExistsError } from "../../../domain/error/user-already-exists.error";
 
 export class UserController {
   constructor(
@@ -28,9 +29,13 @@ export class UserController {
             set.status = 201;
             return user;
           } catch (err: any) {
-            console.error(`> [USER_REGISTER] Erro ao processar cadastro:`, err.message);
+            if (err instanceof UserAlreadyExistsError) {
+              set.status = 409;
+              return { error: "USER_ALREADY_EXISTS", message: err.message };
+            }
+
             set.status = 400;
-            return { error: err.message };
+            return { error: "REGISTRATION_FAILED", message: err.message };
           }
         },
         {

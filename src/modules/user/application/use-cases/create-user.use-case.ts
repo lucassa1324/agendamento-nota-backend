@@ -6,6 +6,7 @@ import { companies, account, companySiteCustomizations, user } from "../../../..
 import { generateUniqueSlug } from "../../../../shared/utils/slug";
 import { eq } from "drizzle-orm";
 import { TransactionalEmailService } from "../../../notifications/application/transactional-email.service";
+import { UserAlreadyExistsError } from "../../domain/error/user-already-exists.error";
 
 export class CreateUserUseCase {
   constructor(private readonly userRepository: UserRepository) { }
@@ -15,65 +16,7 @@ export class CreateUserUseCase {
     const alreadyExists = await this.userRepository.findByEmail(data.email);
 
     if (alreadyExists) {
-      if (cpfCnpj) {
-        await db.update(user).set({ cpfCnpj }).where(eq(user.id, alreadyExists.id));
-      }
-
-      const userCompany = await db
-        .select()
-        .from(companies)
-        .where(eq(companies.ownerId, alreadyExists.id))
-        .limit(1);
-
-      if (userCompany.length > 0) {
-        return {
-          user: alreadyExists,
-          session: null,
-          business: userCompany[0],
-          slug: userCompany[0].slug
-        };
-      }
-
-      const slug = await generateUniqueSlug(data.studioName);
-      const trialEndsAt = new Date();
-      trialEndsAt.setDate(trialEndsAt.getDate() + 14);
-
-      const result = await db.transaction(async (tx) => {
-        const [newCompany] = await tx.insert(companies).values({
-          id: crypto.randomUUID(),
-          name: data.studioName,
-          slug,
-          phone: data.phone,
-          ownerId: alreadyExists.id,
-          trialEndsAt: trialEndsAt,
-          subscriptionStatus: 'trial',
-        }).returning();
-
-        await tx.insert(companySiteCustomizations).values({
-          id: crypto.randomUUID(),
-          companyId: newCompany.id,
-        });
-
-        await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, alreadyExists.id));
-        return { newCompany, slug };
-      });
-
-      await transactionalEmailService
-        .sendWelcomeEmail({
-          to: alreadyExists.email,
-          name: alreadyExists.name || data.name,
-          studioName: result.newCompany.name,
-        })
-        .catch((error) =>
-          console.error("[WELCOME_EMAIL_ERROR]", error),
-        );
-
-      return {
-        user: alreadyExists,
-        session: null,
-        business: result.newCompany,
-        slug: result.slug
-      };
+      throw new UserAlreadyExistsError();
     }
 
     console.log(`[USER_REGISTER_USE_CASE] Iniciando signUpEmail para: ${data.email}`);
@@ -87,7 +30,7 @@ export class CreateUserUseCase {
         hasCompletedOnboarding: false,
         cpfCnpj: data.cpfCnpj || "",
         acceptedTerms: true,
-        acceptedTermsAt: new Date().toISOString(),
+        acceptedTermsAt: new Date(),
       },
     });
 
@@ -120,7 +63,12 @@ export class CreateUserUseCase {
         ownerId: response.user.id,
         trialEndsAt: trialEndsAt,
         subscriptionStatus: 'trial',
-      }).returning();
+      }).returning({
+        id: companies.id,
+        name: companies.name,
+        slug: companies.slug,
+        ownerId: companies.ownerId,
+      });
 
       await tx.insert(companySiteCustomizations).values({
         id: crypto.randomUUID(),
@@ -130,7 +78,6 @@ export class CreateUserUseCase {
       return { newCompany: created, slug };
     });
 
-    // 3. Dispara o e-mail de verificação via Better Auth
     if (!response.user.emailVerified) {
       await auth.api.sendVerificationEmail({
         body: {

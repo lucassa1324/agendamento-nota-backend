@@ -146,7 +146,7 @@ export const auth = betterAuth({
         type: "boolean",
       },
       acceptedTermsAt: {
-        type: "string",
+        type: "date",
       },
     },
   },
