@@ -69,12 +69,30 @@ const startServer = () => {
     })
       .get("/email-verified", async ({ query, set }) => {
         const { token, callbackURL } = query;
-        const frontendUrl = callbackURL || process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || "https://agendamento-nota-front.vercel.app";
+        const frontendBaseUrl =
+          process.env.FRONTEND_URL ||
+          process.env.NEXT_PUBLIC_APP_URL ||
+          "https://agendamento-nota-front.vercel.app";
+
+        const resolveFrontendCallbackUrl = (rawUrl?: string) => {
+          if (!rawUrl || rawUrl.trim() === "") {
+            return `${frontendBaseUrl}/admin/email-verified`;
+          }
+
+          if (/^https?:\/\//i.test(rawUrl)) {
+            return rawUrl;
+          }
+
+          const normalizedPath = rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`;
+          return `${frontendBaseUrl}${normalizedPath}`;
+        };
+
+        const frontendUrl = resolveFrontendCallbackUrl(callbackURL as string | undefined);
 
         if (!token) {
           console.log("[VERIFY_EMAIL] Chamado sem token, redirecionando para callbackURL ou fallback.");
-          set.redirect = frontendUrl.includes('?') ? `${frontendUrl}&verified=true` : `${frontendUrl}?verified=true`;
-          return;
+          const redirectUrl = frontendUrl.includes('?') ? `${frontendUrl}&verified=true` : `${frontendUrl}?verified=true`;
+          return Response.redirect(redirectUrl, 302);
         }
 
         try {
@@ -89,13 +107,12 @@ const startServer = () => {
           console.log(`[VERIFY_EMAIL] Sucesso! Redirecionando para: ${frontendUrl}`);
           // O próprio verifyEmail já pode retornar um redirecionamento se o callbackURL for passado,
           // mas garantimos aqui o comportamento esperado.
-          set.redirect = frontendUrl.includes('?') ? `${frontendUrl}&verified=true` : `${frontendUrl}?verified=true`;
-          return;
+          const redirectUrl = frontendUrl.includes('?') ? `${frontendUrl}&verified=true` : `${frontendUrl}?verified=true`;
+          return Response.redirect(redirectUrl, 302);
         } catch (e) {
           console.error("[VERIFY_EMAIL_ERROR]", e);
           const errorUrl = frontendUrl.includes('?') ? `${frontendUrl}&error=verification_failed` : `${frontendUrl}?error=verification_failed`;
-          set.redirect = errorUrl;
-          return;
+          return Response.redirect(errorUrl, 302);
         }
       })
       .all("/api/auth/*", async (ctx) => {

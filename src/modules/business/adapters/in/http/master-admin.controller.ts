@@ -903,6 +903,62 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       return { error: "Erro ao configurar expiração: " + error.message };
     }
   })
+  .post("/companies/:id/simulate-grace-period", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+
+      const [company] = await db
+        .select()
+        .from(schema.companies)
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!company) {
+        set.status = 404;
+        return { error: "Empresa não encontrada." };
+      }
+
+      const now = new Date();
+      const dueDate = new Date(now);
+      dueDate.setDate(dueDate.getDate() - 1);
+      const graceEndsAt = calculateGraceEndDate(dueDate);
+
+      await db.update(schema.companies)
+        .set({
+          accessType: "automatic",
+          subscriptionStatus: "grace_period",
+          trialEndsAt: dueDate,
+          billingGraceEndsAt: graceEndsAt,
+          active: true,
+          updatedAt: now
+        })
+        .where(eq(schema.companies.id, id));
+
+      await db.update(schema.user)
+        .set({
+          active: true,
+          updatedAt: now
+        })
+        .where(eq(schema.user.id, company.ownerId));
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "SIMULATE_GRACE_PERIOD",
+        details: `Empresa ${company.name} colocada em carência até ${graceEndsAt.toISOString()}.`,
+        level: "WARN",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message: `Empresa colocada em carência até ${graceEndsAt.toLocaleDateString("pt-BR")}.`,
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_GRACE_PERIOD_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao simular carência: " + error.message };
+    }
+  })
   .post("/companies/:id/simulate-past-due", async ({ params, set, user }) => {
     try {
       const { id } = params;
