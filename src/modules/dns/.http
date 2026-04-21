@@ -1,0 +1,10 @@
+GET http://localhost:3001/api/dns
+
+###
+
+POST http://localhost:3001/api/dns
+Content-Type: application/json
+
+{
+  "name": "example.com"
+}

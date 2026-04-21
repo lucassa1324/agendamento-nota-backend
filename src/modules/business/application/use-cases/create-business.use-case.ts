@@ -40,6 +40,7 @@ export class CreateBusinessUseCase {
     const newBusiness = await this.businessRepository.create({
       id: crypto.randomUUID(),
       name: data.name,
+      phone: data.phone,
       slug: slug,
       ownerId: userId,
     });

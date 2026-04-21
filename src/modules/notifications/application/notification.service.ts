@@ -40,10 +40,10 @@ export class NotificationService {
         }, payload);
         sentCount++;
       } catch (error: any) {
-        console.error(`[NOTIFICATION_SERVICE] Error sending to ${sub.endpoint}:`, error.statusCode);
+        console.error(`[NOTIFICATION_SERVICE] Error sending to ${sub.endpoint}:`, error.statusCode || error.message || error);
         
         if (error.statusCode === 410 || error.statusCode === 404) {
-          console.log(`[NOTIFICATION_SERVICE] Removing expired subscription: ${sub.id}`);
+          console.log(`[NOTIFICATION_SERVICE] Removing expired/invalid subscription for user ${userId}: ${sub.id}`);
           await this.pushSubscriptionRepository.deleteByEndpoint(sub.endpoint);
         }
         failedCount++;

@@ -25,6 +25,7 @@ export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
+  cpfCnpj: text("cpf_cnpj"),
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
   role: text("role").default("USER").notNull(), // USER ou SUPER_ADMIN
@@ -37,6 +38,8 @@ export const user = pgTable("user", {
   retentionEndsAt: timestamp("retention_ends_at"),
   lastRetentionDiscountAt: timestamp("last_retention_discount_at"),
   hasCompletedOnboarding: boolean("has_completed_onboarding").default(false).notNull(),
+  acceptedTerms: boolean("accepted_terms").default(false).notNull(),
+  acceptedTermsAt: timestamp("accepted_terms_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -140,6 +143,25 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
     .notNull(),
 });
 
+export const customDomains = pgTable("custom_domains", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id")
+    .notNull()
+    .unique()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  domain: text("domain").notNull().unique(),
+  status: text("status", { enum: ["PENDING", "ACTIVE", "ERROR"] })
+    .default("PENDING")
+    .notNull(),
+  verificationData: jsonb("verification_data"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+
 export const prospects = pgTable("prospects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -171,11 +193,101 @@ export const accountCancellationFeedback = pgTable("account_cancellation_feedbac
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const bugReports = pgTable(
+  "bug_reports",
+  {
+    id: text("id").primaryKey(),
+    reporterUserId: text("reporter_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    companyId: text("company_id").references(() => companies.id, {
+      onDelete: "set null",
+    }),
+    type: text("type").default("BUG").notNull(),
+    description: text("description").notNull(),
+    screenshotUrl: text("screenshot_url"),
+    pageUrl: text("page_url").notNull(),
+    userAgent: text("user_agent"),
+    ipAddress: text("ip_address"),
+    acceptLanguage: text("accept_language"),
+    metadata: jsonb("metadata").default({}).notNull(),
+    status: text("status").default("NEW").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("bug_reports_created_at_idx").on(table.createdAt),
+    index("bug_reports_status_idx").on(table.status),
+    index("bug_reports_type_idx").on(table.type),
+  ],
+);
+
+export const systemSettings = pgTable("system_settings", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull(),
+  description: text("description"),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const masterTemplates = pgTable("master_templates", {
+  id: text("id").primaryKey(),
+  templateKey: text("template_key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const masterTemplateVariations = pgTable(
+  "master_template_variations",
+  {
+    id: text("id").primaryKey(),
+    templateId: text("template_id")
+      .notNull()
+      .references(() => masterTemplates.id, { onDelete: "cascade" }),
+    variationKey: text("variation_key").notNull(),
+    variationName: text("variation_name").notNull(),
+    niche: text("niche").notNull(),
+    sectionType: text("section_type", {
+      enum: ["banner", "servicos", "historia", "equipe"],
+    }).notNull(),
+    config: jsonb("config").notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("master_template_variations_template_id_idx").on(table.templateId),
+    index("master_template_variations_section_type_idx").on(table.sectionType),
+    uniqueIndex("master_template_variations_unique_section_per_variation").on(
+      table.templateId,
+      table.variationKey,
+      table.sectionType,
+    ),
+  ],
+);
+
 export const companies = pgTable("companies", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   address: text("address"),
+  phone: text("phone"),
   contact: text("contact"),
   ownerId: text("owner_id")
     .notNull()
@@ -183,6 +295,9 @@ export const companies = pgTable("companies", {
   active: boolean("active").default(true).notNull(),
   subscriptionStatus: text("subscription_status").default('trial').notNull(),
   trialEndsAt: timestamp("trial_ends_at").defaultNow(),
+  billingAnchorDay: integer("billing_anchor_day"),
+  billingGraceEndsAt: timestamp("billing_grace_ends_at"),
+  billingDayLastChangedAt: timestamp("billing_day_last_changed_at"),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   accessType: text("access_type").default('automatic').notNull(),
@@ -191,6 +306,16 @@ export const companies = pgTable("companies", {
     .defaultNow()
     .$onUpdate(() => new Date())
     .notNull(),
+});
+
+export const systemLogs = pgTable("system_logs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => user.id),
+  action: text("action").notNull(),
+  details: text("details"),
+  level: text("level").default("INFO").notNull(), // INFO, WARN, ERROR
+  companyId: text("company_id").references(() => companies.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const inventoryLogs = pgTable("inventory_logs", {
@@ -207,12 +332,7 @@ export const inventoryLogs = pgTable("inventory_logs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const companySiteCustomizations = pgTable("company_site_customizations", {
-  id: text("id").primaryKey(),
-  companyId: text("company_id")
-    .notNull()
-    .unique()
-    .references(() => companies.id, { onDelete: "cascade" }),
+const siteCustomizationColumns = {
   layoutGlobal: jsonb("layout_global").default(DEFAULT_LAYOUT_GLOBAL).notNull(),
   home: jsonb("home").default(DEFAULT_HOME_SECTION).notNull(),
   gallery: jsonb("gallery").default(DEFAULT_GALLERY_SECTION).notNull(),
@@ -220,6 +340,29 @@ export const companySiteCustomizations = pgTable("company_site_customizations", 
   appointmentFlow: jsonb("appointment_flow")
     .default(DEFAULT_APPOINTMENT_FLOW_SECTION)
     .notNull(),
+};
+
+export const companySiteCustomizations = pgTable("company_site_customizations", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id")
+    .notNull()
+    .unique()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  ...siteCustomizationColumns,
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const siteDrafts = pgTable("site_drafts", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id")
+    .notNull()
+    .unique()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  ...siteCustomizationColumns,
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -504,7 +647,12 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
   inventory: many(inventory),
   fixedExpenses: many(fixedExpenses),
   galleryImages: many(galleryImages),
+  customDomain: one(customDomains, {
+    fields: [companies.id],
+    references: [customDomains.companyId],
+  }),
 }));
+
 
 export const galleryImagesRelations = relations(galleryImages, ({ one }) => ({
   business: one(companies, {
@@ -610,3 +758,9 @@ export const fixedExpensesRelations = relations(fixedExpenses, ({ one }) => ({
 }));
 
 
+export const customDomainsRelations = relations(customDomains, ({ one }) => ({
+  company: one(companies, {
+    fields: [customDomains.companyId],
+    references: [companies.id],
+  }),
+}));

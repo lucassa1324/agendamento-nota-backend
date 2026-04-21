@@ -9,20 +9,13 @@ export class UpdateSiteCustomizationUseCase {
   ) { }
 
   async execute(businessId: string, partialData: any): Promise<SiteCustomization> {
-    console.log('>>> [BACK_SAVE] Recebendo novos dados para ID:', businessId, partialData);
     const current = await this.getSiteCustomizationUseCase.execute(businessId);
 
     // Mapeamento manual de snake_case para camelCase se necessário
     const normalizedData = this.normalizeKeys(partialData);
-
     const merged = this.deepMerge(current, normalizedData);
 
-    console.log(`[UPDATE_SITE_CUSTOMIZATION] Objeto final após deep merge para businessId: ${businessId}`);
-    console.dir(merged, { depth: null, colors: true });
-
-    const result = await this.settingsRepository.saveCustomization(businessId, merged);
-    console.log(`>>> [BACK_SAVE_SUCCESS] Dados persistidos com sucesso para ID: ${businessId}`);
-    return result;
+    return await this.settingsRepository.saveCustomization(businessId, merged);
   }
 
   private normalizeKeys(obj: any): any {
@@ -52,7 +45,15 @@ export class UpdateSiteCustomizationUseCase {
       'cardBgColor': 'backgroundColor',
       'background_color': 'backgroundColor',
       'hero_banner': 'heroBanner',
+      'hero': 'heroBanner',
+      'services': 'servicesSection',
       'services_section': 'servicesSection',
+      'values': 'valuesSection',
+      'values_section': 'valuesSection',
+      'gallery': 'galleryPreview',
+      'gallery_preview': 'galleryPreview',
+      'cta': 'ctaSection',
+      'cta_section': 'ctaSection',
       'background_and_effect': 'backgroundAndEffect',
       'text_colors_header': 'textColors',
       'action_buttons_header': 'actionButtons'
@@ -80,6 +81,17 @@ export class UpdateSiteCustomizationUseCase {
           backgroundColor: value
         };
         continue;
+      }
+
+      // Caso especial: normalização de cores genéricas para campos específicos do contrato
+      if (key === 'color' && !mappings[key]) {
+        normalized['textColor'] = value;
+        // Não damos continue aqui para permitir que 'color' ainda exista se necessário, 
+        // mas o contrato prefere 'textColor'
+      }
+
+      if (key === 'bgColor' && !mappings[key]) {
+        normalized['backgroundColor'] = value;
       }
 
       normalized[targetKey] = this.normalizeKeys(value);

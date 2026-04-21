@@ -5,85 +5,18 @@ import { db } from "../../../infrastructure/drizzle/database";
 import { companies, account, companySiteCustomizations, user } from "../../../../db/schema";
 import { generateUniqueSlug } from "../../../../shared/utils/slug";
 import { eq } from "drizzle-orm";
+import { TransactionalEmailService } from "../../../notifications/application/transactional-email.service";
+import { UserAlreadyExistsError } from "../../domain/error/user-already-exists.error";
 
 export class CreateUserUseCase {
   constructor(private readonly userRepository: UserRepository) { }
   async execute(data: SigninDTO) {
+    const transactionalEmailService = new TransactionalEmailService();
+    const cpfCnpj = data.cpfCnpj?.replace(/\D/g, "") || null;
     const alreadyExists = await this.userRepository.findByEmail(data.email);
 
     if (alreadyExists) {
-      const userCompany = await db
-        .select()
-        .from(companies)
-        .where(eq(companies.ownerId, alreadyExists.id))
-        .limit(1);
-
-      if (userCompany.length > 0) {
-        return {
-          user: alreadyExists,
-          session: null,
-          business: userCompany[0],
-          slug: userCompany[0].slug
-        };
-      }
-
-      const slug = await generateUniqueSlug(data.studioName);
-      const trialEndsAt = new Date();
-      trialEndsAt.setDate(trialEndsAt.getDate() + 14);
-
-      const result = await db.transaction(async (tx) => {
-        const [newCompany] = await tx.insert(companies).values({
-          id: crypto.randomUUID(),
-          name: data.studioName,
-          slug,
-          ownerId: alreadyExists.id,
-          trialEndsAt: trialEndsAt,
-          subscriptionStatus: 'trial',
-        }).returning();
-
-        await tx.insert(companySiteCustomizations).values({
-          id: crypto.randomUUID(),
-          companyId: newCompany.id,
-        });
-
-        await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, alreadyExists.id));
-        return { newCompany, slug };
-      }).catch(async (err) => {
-        const code = (err as any)?.code || (err as any)?.cause?.code;
-        if (code === "23505") {
-          const fallbackSlug = await generateUniqueSlug(`${data.studioName}-${Date.now()}`);
-          const trialEndsAt = new Date();
-          trialEndsAt.setDate(trialEndsAt.getDate() + 14);
-
-          const result = await db.transaction(async (tx) => {
-            const [newCompany] = await tx.insert(companies).values({
-              id: crypto.randomUUID(),
-              name: data.studioName,
-              slug: fallbackSlug,
-              ownerId: alreadyExists.id,
-              trialEndsAt: trialEndsAt,
-              subscriptionStatus: 'trial',
-            }).returning();
-
-            await tx.insert(companySiteCustomizations).values({
-              id: crypto.randomUUID(),
-              companyId: newCompany.id,
-            });
-
-            await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, alreadyExists.id));
-            return { newCompany, slug: fallbackSlug };
-          });
-          return result;
-        }
-        throw err;
-      });
-
-      return {
-        user: alreadyExists,
-        session: null,
-        business: result.newCompany,
-        slug: result.slug
-      };
+      throw new UserAlreadyExistsError();
     }
 
     console.log(`[USER_REGISTER_USE_CASE] Iniciando signUpEmail para: ${data.email}`);
@@ -95,6 +28,9 @@ export class CreateUserUseCase {
         role: "ADMIN",
         active: true,
         hasCompletedOnboarding: false,
+        cpfCnpj: data.cpfCnpj || "",
+        acceptedTerms: true,
+        acceptedTermsAt: new Date(),
       },
     });
 
@@ -106,7 +42,10 @@ export class CreateUserUseCase {
 
     // Atualiza a role do usuário se fornecida, caso contrário define como "ADMIN" por padrão para quem vem da landing page
     const finalRole = data.role || "ADMIN";
-    await db.update(user).set({ role: finalRole, active: true }).where(eq(user.id, response.user.id));
+    await db
+      .update(user)
+      .set({ role: finalRole, active: true, cpfCnpj })
+      .where(eq(user.id, response.user.id));
     console.log(`[USER_REGISTER_USE_CASE] Role '${finalRole}' aplicada ao usuário ${response.user.id}`);
 
     const slug = await generateUniqueSlug(data.studioName);
@@ -120,51 +59,48 @@ export class CreateUserUseCase {
         id: crypto.randomUUID(),
         name: data.studioName,
         slug,
+        phone: data.phone,
         ownerId: response.user.id,
         trialEndsAt: trialEndsAt,
         subscriptionStatus: 'trial',
-      }).returning();
+      }).returning({
+        id: companies.id,
+        name: companies.name,
+        slug: companies.slug,
+        ownerId: companies.ownerId,
+      });
 
       await tx.insert(companySiteCustomizations).values({
         id: crypto.randomUUID(),
         companyId: created.id,
       });
 
-      return { newCompany: created, finalSlug: slug };
-    }).catch(async (err) => {
-      const code = (err as any)?.code || (err as any)?.cause?.code;
-      if (code === "23505") {
-        const fallbackSlug = await generateUniqueSlug(`${data.studioName}-${Date.now()}`);
-        const trialEndsAt = new Date();
-        trialEndsAt.setDate(trialEndsAt.getDate() + 14);
-
-        const result = await db.transaction(async (tx) => {
-          await tx.update(account).set({ scope: "ADMIN" }).where(eq(account.userId, response.user.id));
-          const [created] = await tx.insert(companies).values({
-            id: crypto.randomUUID(),
-            name: data.studioName,
-            slug: fallbackSlug,
-            ownerId: response.user.id,
-            trialEndsAt: trialEndsAt,
-            subscriptionStatus: 'trial',
-          }).returning();
-
-          await tx.insert(companySiteCustomizations).values({
-            id: crypto.randomUUID(),
-            companyId: created.id,
-          });
-
-          return { newCompany: created, finalSlug: fallbackSlug };
-        });
-        return result;
-      }
-      throw err;
+      return { newCompany: created, slug };
     });
+
+    if (!response.user.emailVerified) {
+      await auth.api.sendVerificationEmail({
+        body: {
+          email: data.email,
+        },
+      });
+      console.log(`[USER_REGISTER_USE_CASE] E-mail de verificação disparado via Better Auth`);
+    }
+
+    await transactionalEmailService
+      .sendWelcomeEmail({
+        to: data.email,
+        name: data.name,
+        studioName: result.newCompany.name,
+      })
+      .catch((error) =>
+        console.error("[WELCOME_EMAIL_ERROR]", error),
+      );
 
     return {
       ...response,
       business: result.newCompany,
-      slug: result.finalSlug
+      slug: result.slug
     };
   }
 }

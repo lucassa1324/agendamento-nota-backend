@@ -5,7 +5,11 @@ export const signinDTO = t.Object({
   email: t.String({ format: "email" }),
   password: t.String({ minLength: 6 }),
   studioName: t.String(),
+  phone: t.String(),
+  cpfCnpj: t.Optional(t.String()),
   role: t.Optional(t.String()), // "USER" ou "SUPER_ADMIN"
+}, {
+  additionalProperties: true
 });
 
 export type SigninDTO = typeof signinDTO.static;

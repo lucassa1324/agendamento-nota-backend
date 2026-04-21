@@ -3,6 +3,13 @@ import { companies, companySiteCustomizations, operatingHours, agendaBlocks } fr
 import { and, eq, ilike } from "drizzle-orm";
 import { IBusinessRepository } from "../../../domain/ports/business.repository";
 import { Business, BusinessSummary, CreateBusinessInput, BusinessSiteCustomization } from "../../../domain/entities/business.entity";
+import {
+  DEFAULT_LAYOUT_GLOBAL,
+  DEFAULT_HOME_SECTION,
+  DEFAULT_GALLERY_SECTION,
+  DEFAULT_ABOUT_US_SECTION,
+  DEFAULT_APPOINTMENT_FLOW_SECTION
+} from "../../../domain/constants/site_customization.defaults";
 
 export class DrizzleBusinessRepository implements IBusinessRepository {
   async findAllByUserId(userId: string): Promise<BusinessSummary[]> {
@@ -11,6 +18,7 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         id: companies.id,
         name: companies.name,
         slug: companies.slug,
+        phone: companies.phone,
         createdAt: companies.createdAt,
         siteCustomization: {
           layoutGlobal: companySiteCustomizations.layoutGlobal,
@@ -33,11 +41,16 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         id: companies.id,
         name: companies.name,
         slug: companies.slug,
+        phone: companies.phone,
         address: companies.address,
         contact: companies.contact,
         ownerId: companies.ownerId,
+        active: companies.active,
         createdAt: companies.createdAt,
         updatedAt: companies.updatedAt,
+        subscriptionStatus: companies.subscriptionStatus,
+        trialEndsAt: companies.trialEndsAt,
+        accessType: companies.accessType,
         siteCustomization: {
           layoutGlobal: companySiteCustomizations.layoutGlobal,
           home: companySiteCustomizations.home,
@@ -61,11 +74,16 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         id: companies.id,
         name: companies.name,
         slug: companies.slug,
+        phone: companies.phone,
         address: companies.address,
         contact: companies.contact,
         ownerId: companies.ownerId,
+        active: companies.active,
         createdAt: companies.createdAt,
         updatedAt: companies.updatedAt,
+        subscriptionStatus: companies.subscriptionStatus,
+        trialEndsAt: companies.trialEndsAt,
+        accessType: companies.accessType,
         siteCustomization: {
           layoutGlobal: companySiteCustomizations.layoutGlobal,
           home: companySiteCustomizations.home,
@@ -92,6 +110,7 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         id: data.id,
         name: data.name,
         slug: data.slug,
+        phone: data.phone,
         ownerId: data.ownerId,
         subscriptionStatus: 'trial',
         trialEndsAt: trialEndsAt,
@@ -101,6 +120,11 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
       const [newCustomization] = await tx.insert(companySiteCustomizations).values({
         id: crypto.randomUUID(),
         companyId: newCompany.id,
+        layoutGlobal: DEFAULT_LAYOUT_GLOBAL,
+        home: DEFAULT_HOME_SECTION,
+        gallery: DEFAULT_GALLERY_SECTION,
+        aboutUs: DEFAULT_ABOUT_US_SECTION,
+        appointmentFlow: DEFAULT_APPOINTMENT_FLOW_SECTION,
       }).returning();
 
       return {
@@ -113,7 +137,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
   async updateConfig(id: string, userId: string, config: Partial<BusinessSiteCustomization>): Promise<Business | null> {
     return await db.transaction(async (tx) => {
       const [company] = await tx
-        .select()
+        .select({
+          id: companies.id,
+        })
         .from(companies)
         .where(and(eq(companies.id, id), eq(companies.ownerId, userId)))
         .limit(1);
@@ -131,12 +157,11 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
           target: companySiteCustomizations.companyId,
           set: config
         })
-        .returning();
+        .returning({
+          id: companySiteCustomizations.id,
+        });
 
-      return {
-        ...company,
-        siteCustomization: updatedCustomization
-      } as Business;
+      return this.findById(id);
     });
   }
 
@@ -154,7 +179,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
   ): Promise<boolean> {
     return await db.transaction(async (tx) => {
       const [company] = await tx
-        .select()
+        .select({
+          id: companies.id,
+        })
         .from(companies)
         .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
         .limit(1);
@@ -199,6 +226,7 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
     }>;
     slotInterval: string;
     interval: string;
+    minimumBookingLeadMinutes: number;
     blocks: Array<{
       id: string;
       type: string;
@@ -270,6 +298,11 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
     // Suportar tanto a chave antiga quanto a nova (plural) e as variações de snake/camel case
     const step3 = appointmentFlow.step3Times || appointmentFlow.step3Time || appointmentFlow.step_3_time || {};
     let slotInterval = step3.timeSlotSize || step3.slot_interval || step3.slotInterval || "00:30";
+    const minimumBookingLeadMinutes = Number(
+      step3.minimumBookingLeadMinutes ??
+      step3.minimum_booking_lead_minutes ??
+      0,
+    );
 
     // Garantir formato HH:mm se for número (ex: 30 -> "00:30")
     if (typeof slotInterval === 'number') {
@@ -287,6 +320,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
       weekly,
       slotInterval,
       interval: slotInterval,
+      minimumBookingLeadMinutes: Number.isFinite(minimumBookingLeadMinutes)
+        ? minimumBookingLeadMinutes
+        : 0,
       blocks
     };
   }
@@ -312,7 +348,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
     }
 
     const [company] = await db
-      .select()
+      .select({
+        id: companies.id,
+      })
       .from(companies)
       .where(and(...conditions))
       .limit(1);
@@ -352,7 +390,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
   }> {
     return await db.transaction(async (tx) => {
       const [company] = await tx
-        .select()
+        .select({
+          id: companies.id,
+        })
         .from(companies)
         .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
         .limit(1);
@@ -386,7 +426,9 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
   ): Promise<boolean> {
     return await db.transaction(async (tx) => {
       const [company] = await tx
-        .select()
+        .select({
+          id: companies.id,
+        })
         .from(companies)
         .where(and(eq(companies.id, companyId), eq(companies.ownerId, userId)))
         .limit(1);

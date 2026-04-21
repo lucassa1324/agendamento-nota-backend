@@ -6,6 +6,7 @@ import { db } from "../drizzle/database";
 import * as schema from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import { verifyPassword as verifyScryptPassword } from "better-auth/crypto";
+import { UserSendMail } from "../../user/adapters/out/user-send-mail.service";
 
 export { verifyScryptPassword };
 
@@ -32,11 +33,6 @@ const getBaseUrl = () => {
 
 const baseURL = getBaseUrl();
 console.log("[AUTH] BaseURL configurado:", baseURL);
-
-const extraTrustedOrigins = (process.env.EXTRA_TRUSTED_ORIGINS || "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
 
 export const detectHashAlgorithm = (hash: string) => {
   if (!hash) return "empty";
@@ -92,25 +88,20 @@ export const auth = betterAuth({
       }
     }
   },
-  baseURL: baseURL,
+  baseURL: getBaseUrl(),
   trustedOrigins: [
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:3002",
-    "https://agendamento-nota-front.vercel.app",
-    "https://agendamento-nota-front-qmmb.vercel.app",
-    "https://landingpage-agendamento-front.vercel.app",
-    "https://staging.aurasistema.com.br",
-    "https://app.staging.aurasistema.com.br",
-    "https://aurasistema.com.br",
     "https://app.aurasistema.com.br",
+    "https://aurasistema.com.br",
+    "https://agendamento-nota-front.vercel.app",
+    "https://landingpage-agendamento-front.vercel.app",
     ...(process.env.VERCEL_URL ? [`https://${process.env.VERCEL_URL}`] : []),
     ...(process.env.NEXT_PUBLIC_VERCEL_URL ? [`https://${process.env.NEXT_PUBLIC_VERCEL_URL}`] : []),
     ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
-    ...extraTrustedOrigins,
-    "https://agendamento-nota-front.vercel.app/api-proxy", // Adicionado explicitamente o caminho do proxy
     "https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app", // Staging Environment
-    "https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app/api-proxy" // Staging Proxy
+    "http://127.0.0.1:3000"
   ],
   advanced: {
     // Configuração OBRIGATÓRIA para Vercel (Cross-Site) em Produção
@@ -119,7 +110,7 @@ export const auth = betterAuth({
     // Em localhost, usamos configurações mais relaxadas para evitar problemas com SSL/HTTP
     useSecureCookies: process.env.NODE_ENV === "production",
     cookie: {
-      domain: process.env.NODE_ENV === "production" ? undefined : "localhost",
+      domain: undefined,
       path: "/",
       sameSite: "lax",
       httpOnly: true,
@@ -140,6 +131,9 @@ export const auth = betterAuth({
   }),
   user: {
     additionalFields: {
+      cpfCnpj: {
+        type: "string",
+      },
       role: {
         type: "string",
       },
@@ -149,46 +143,24 @@ export const auth = betterAuth({
       hasCompletedOnboarding: {
         type: "boolean",
       },
+      acceptedTerms: {
+        type: "boolean",
+      },
+      acceptedTermsAt: {
+        type: "date",
+      },
     },
   },
   emailVerification: {
-    async sendVerificationEmail({ user, url }: { user: any; url: string }) {
-      console.log(`[AUTH] Enviando e-mail de verificação para: ${user.email}`);
-      try {
-        const { data, error } = await resend.emails.send({
-          from: "Agendamento Nota <onboarding@resend.dev>",
-          to: [user.email],
-          subject: "Verifique seu e-mail",
-          html: `
-            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-              <h2 style="color: #333; text-align: center;">Bem-vindo ao Agendamento Nota!</h2>
-              <p style="color: #666; font-size: 16px; line-height: 1.5;">
-                Olá, ${user.name || "usuário"}! Obrigado por se cadastrar. Para começar a usar todas as funcionalidades, por favor confirme seu endereço de e-mail clicando no botão abaixo:
-              </p>
-              <div style="text-align: center; margin: 30px 0;">
-                <a href="${url}" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
-                  Verificar E-mail
-                </a>
-              </div>
-              <p style="color: #999; font-size: 14px; text-align: center;">
-                Se o botão acima não funcionar, copie e cole o link abaixo no seu navegador:
-              </p>
-              <p style="color: #007bff; font-size: 12px; text-align: center; word-break: break-all;">
-                ${url}
-              </p>
-              <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-              <p style="color: #999; font-size: 12px; text-align: center;">
-                Se você não criou esta conta, por favor ignore este e-mail.
-              </p>
-            </div>
-          `,
-        });
+    sendOnSignUp: true,
+    autoSignInAfterVerification: true,
+    sendVerificationEmail: async ({ user, url }: { user: any; url: string }) => {
+      const userSendMail = new UserSendMail();
+      const verificationUrl = url.replace("/api/auth/verify-email", "/email-verified");
 
-        if (error) {
-          console.error("[AUTH] Erro ao enviar e-mail via Resend:", error);
-        } else {
-          console.log("[AUTH] E-mail enviado com sucesso:", data?.id);
-        }
+      try {
+        await userSendMail.sendVerificationEmail(user.email, user.name, verificationUrl);
+        console.log(`[AUTH] E-mail de verificação enviado com sucesso para: ${user.email}`);
       } catch (e) {
         console.error("[AUTH] Erro fatal no envio de e-mail:", e);
       }
@@ -207,9 +179,12 @@ export const auth = betterAuth({
             handler: async (ctx: any) => {
               const returned = ctx?.context?.returned;
 
-              // SEMPRE retornar um objeto com a propriedade 'response' para evitar crash no Better Auth (TypeError: null/undefined is not an object)
-              if (!returned || returned instanceof Response) {
+              if (returned instanceof Response) {
                 return { response: returned };
+              }
+
+              if (!returned) {
+                return { response: { user: null, session: null } };
               }
 
               try {
@@ -220,13 +195,15 @@ export const auth = betterAuth({
                   .select({
                     id: schema.companies.id,
                     slug: schema.companies.slug,
+                    subscriptionStatus: schema.companies.subscriptionStatus,
+                    trialEndsAt: schema.companies.trialEndsAt,
                   })
                   .from(schema.companies)
                   .where(eq(schema.companies.ownerId, returned.user.id))
                   .limit(1);
 
                 if (business) {
-                  console.log(`[AUTH_HOOK] Injetando slug: ${business.slug}`);
+                  console.log(`[AUTH_HOOK] Injetando dados do business para: ${business.slug}`);
 
                   // Injeção direta no objeto que o Better Auth já ia retornar 
                   return {
@@ -235,7 +212,13 @@ export const auth = betterAuth({
                       user: {
                         ...returned.user,
                         slug: business.slug,
-                        businessId: business.id
+                        businessId: business.id,
+                        business: {
+                          id: business.id,
+                          slug: business.slug,
+                          subscriptionStatus: business.subscriptionStatus,
+                          trialEndsAt: business.trialEndsAt,
+                        }
                       }
                     }
                   };

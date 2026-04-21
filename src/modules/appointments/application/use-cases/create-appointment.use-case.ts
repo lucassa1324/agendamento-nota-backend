@@ -5,6 +5,7 @@ import { CreateAppointmentInput } from "../../domain/entities/appointment.entity
 import { IPushSubscriptionRepository } from "../../../notifications/domain/ports/push-subscription.repository";
 import { UserRepository } from "../../../user/adapters/out/user.repository";
 import { NotificationService } from "../../../notifications/application/notification.service";
+import { TransactionalEmailService } from "../../../notifications/application/transactional-email.service";
 
 export class CreateAppointmentUseCase {
   constructor(
@@ -25,6 +26,93 @@ export class CreateAppointmentUseCase {
     // Se houver um userId, validamos se é o dono (agendamento manual via admin)
     if (userId && business.ownerId !== userId) {
       throw new Error("Unauthorized: Only business owners can create manual appointments");
+    }
+
+    // Regras antiabuso aplicadas somente no fluxo público (sem usuário logado)
+    if (!userId) {
+      const normalizePhone = (value: string) => value.replace(/\D/g, "");
+      const isValidEmail = (value: string) =>
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+      const activeStatuses = new Set(["PENDING", "CONFIRMED", "POSTPONED"]);
+      const phoneLimitWithoutEmail = 3;
+      const absolutePhoneLimit = 6;
+      const sameDayActiveLimit = 2;
+      const cooldownMinutes = 5;
+
+      const phoneDigits = normalizePhone(data.customerPhone || "");
+      const rawEmail = (data.customerEmail || "").trim().toLowerCase();
+      const hasEmail = rawEmail.length > 0;
+
+      if (phoneDigits.length !== 10 && phoneDigits.length !== 11) {
+        throw new Error("ANTI_ABUSE: Informe um telefone com DDD válido.");
+      }
+
+      if (/^(\d)\1+$/.test(phoneDigits)) {
+        throw new Error("ANTI_ABUSE: Informe um telefone real. Não use números repetidos.");
+      }
+
+      if (hasEmail && !isValidEmail(rawEmail)) {
+        throw new Error("ANTI_ABUSE: Informe um e-mail válido para continuar.");
+      }
+
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const companyAppointments = await this.appointmentRepository.findAllByCompanyId(
+        data.companyId,
+        thirtyDaysAgo,
+      );
+
+      const appointmentsByPhone = companyAppointments.filter((appointment) => {
+        if (appointment.status === "CANCELLED") return false;
+        return normalizePhone(appointment.customerPhone || "") === phoneDigits;
+      });
+
+      if (appointmentsByPhone.length >= phoneLimitWithoutEmail && !hasEmail) {
+        throw new Error(
+          "ANTI_ABUSE: Este telefone já realizou 3 agendamentos recentes. Para continuar, informe um e-mail válido.",
+        );
+      }
+
+      if (appointmentsByPhone.length >= absolutePhoneLimit) {
+        throw new Error(
+          "ANTI_ABUSE: Limite de agendamentos para este telefone atingido temporariamente. Tente novamente mais tarde.",
+        );
+      }
+
+      const now = Date.now();
+      const hasRecentAttempt = appointmentsByPhone.some((appointment) => {
+        const createdAtMs = new Date(appointment.createdAt).getTime();
+        return Number.isFinite(createdAtMs) && now - createdAtMs < cooldownMinutes * 60 * 1000;
+      });
+
+      if (hasRecentAttempt) {
+        throw new Error(
+          "ANTI_ABUSE: Aguarde alguns minutos antes de realizar um novo agendamento com este telefone.",
+        );
+      }
+
+      const scheduledDateKey = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Sao_Paulo",
+      }).format(new Date(data.scheduledAt));
+
+      const sameDayActiveByPhone = appointmentsByPhone.filter((appointment) => {
+        if (!activeStatuses.has(appointment.status)) return false;
+        const appointmentDateKey = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "America/Sao_Paulo",
+        }).format(new Date(appointment.scheduledAt));
+        return appointmentDateKey === scheduledDateKey;
+      });
+
+      if (sameDayActiveByPhone.length >= sameDayActiveLimit) {
+        throw new Error(
+          "ANTI_ABUSE: Este telefone já possui o limite de agendamentos ativos para este dia.",
+        );
+      }
+
+      // Normaliza os campos para persistência e comparações futuras
+      data.customerPhone = phoneDigits;
+      data.customerEmail = rawEmail;
     }
 
     // Suporte a múltiplos serviços
@@ -122,6 +210,28 @@ export class CreateAppointmentUseCase {
     const parts = formatter.formatToParts(scheduledAt);
     const getPart = (type: string) => parts.find(p => p.type === type)?.value;
 
+    if (!userId) {
+      const nowInBrt = new Date();
+      const nowParts = formatter.formatToParts(nowInBrt);
+      const getNowPart = (type: string) =>
+        nowParts.find((p) => p.type === type)?.value || "00";
+
+      const scheduledDateKey = `${getPart("year")}${getPart("month")}${getPart("day")}`;
+      const nowDateKey = `${getNowPart("year")}${getNowPart("month")}${getNowPart("day")}`;
+      const scheduledMinuteOfDay =
+        parseInt(getPart("hour") || "0") * 60 + parseInt(getPart("minute") || "0");
+      const nowMinuteOfDay =
+        parseInt(getNowPart("hour")) * 60 + parseInt(getNowPart("minute"));
+
+      const isPastDate = Number(scheduledDateKey) < Number(nowDateKey);
+      const isPastTimeSameDay =
+        scheduledDateKey === nowDateKey && scheduledMinuteOfDay <= nowMinuteOfDay;
+
+      if (isPastDate || isPastTimeSameDay) {
+        throw new Error("Não é possível agendar em horário passado.");
+      }
+    }
+
     // Mapeamento de dia da semana do Intl para o nosso padrão
     const weekdayMap: Record<string, number> = {
       'domingo': 0, 'segunda-feira': 1, 'terça-feira': 2, 'quarta-feira': 3,
@@ -133,6 +243,8 @@ export class CreateAppointmentUseCase {
 
     const dayNames = ["DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO"];
     const dayName = dayNames[dayOfWeek];
+    const shouldIgnoreBusinessHours =
+      Boolean(data.ignoreBusinessHoursValidation) && Boolean(userId);
 
     const settings = await this.businessRepository.getOperatingHours(data.companyId);
     if (!settings) {
@@ -153,6 +265,30 @@ export class CreateAppointmentUseCase {
     const appM = parseInt(getPart('minute') || '0');
     const appTimeTotalMin = (appH * 60) + appM;
 
+    if (!userId) {
+      const minimumBookingLeadMinutes = Math.max(
+        0,
+        Number((settings as any).minimumBookingLeadMinutes ?? 0),
+      );
+      if (minimumBookingLeadMinutes > 0) {
+        const nowParts = formatter.formatToParts(new Date());
+        const getNowPart = (type: string) =>
+          nowParts.find((p) => p.type === type)?.value || "00";
+        const scheduledDateKey = `${getPart("year")}${getPart("month")}${getPart("day")}`;
+        const nowDateKey = `${getNowPart("year")}${getNowPart("month")}${getNowPart("day")}`;
+        if (scheduledDateKey === nowDateKey) {
+          const nowMinuteOfDay =
+            parseInt(getNowPart("hour")) * 60 + parseInt(getNowPart("minute"));
+          const diffMinutes = appTimeTotalMin - nowMinuteOfDay;
+          if (diffMinutes < minimumBookingLeadMinutes) {
+            throw new Error(
+              `É necessário agendar com pelo menos ${minimumBookingLeadMinutes} minutos de antecedência.`,
+            );
+          }
+        }
+      }
+    }
+
     const checkTimeInPeriod = (startStr?: string | null, endStr?: string | null) => {
       if (!startStr || !endStr) return false;
       const [sH, sM] = startStr.split(':').map(Number);
@@ -165,7 +301,7 @@ export class CreateAppointmentUseCase {
     const isInMorning = checkTimeInPeriod(dayConfig.morningStart, dayConfig.morningEnd);
     const isInAfternoon = checkTimeInPeriod(dayConfig.afternoonStart, dayConfig.afternoonEnd);
 
-    if (!isInMorning && !isInAfternoon) {
+    if (!shouldIgnoreBusinessHours && !isInMorning && !isInAfternoon) {
       throw new Error("O horário selecionado e a duração total excedem o horário de funcionamento.");
     }
 
@@ -279,6 +415,7 @@ export class CreateAppointmentUseCase {
       try {
         const ownerId = business.ownerId;
         const owner = await this.userRepository.find(ownerId);
+        const transactionalEmailService = new TransactionalEmailService();
 
         if (owner && owner.notifyNewAppointments) {
           const notificationService = new NotificationService(this.pushSubscriptionRepository);
@@ -293,12 +430,35 @@ export class CreateAppointmentUseCase {
           });
           const formattedDate = formatter.format(date);
 
-          await notificationService.sendToUser(
+          const result = await notificationService.sendToUser(
             ownerId,
             "📅 Novo Agendamento!",
             `${newAppointment.customerName} agendou ${newAppointment.serviceNameSnapshot} para ${formattedDate}`
           );
-          console.log(`[WEBPUSH] Notificação de agendamento enviada para ${owner.email}`);
+          console.log(`[WEBPUSH] Notificação de agendamento enviada para ${owner.email}. Resultado:`, result);
+        } else {
+          console.log(`[WEBPUSH] Notificação ignorada para ${owner?.email}. Owner found: ${!!owner}, notifyNewAppointments: ${owner?.notifyNewAppointments}`);
+        }
+
+        if (data.customerEmail) {
+          await transactionalEmailService.sendAppointmentConfirmationToCustomer({
+            to: data.customerEmail,
+            customerName: newAppointment.customerName,
+            serviceName: newAppointment.serviceNameSnapshot,
+            businessName: business.name,
+            scheduledAt: new Date(newAppointment.scheduledAt),
+          });
+        }
+
+        if (owner?.email) {
+          await transactionalEmailService.sendAppointmentAlertToOwner({
+            to: owner.email,
+            ownerName: owner.name || "Administrador",
+            customerName: newAppointment.customerName,
+            serviceName: newAppointment.serviceNameSnapshot,
+            businessName: business.name,
+            scheduledAt: new Date(newAppointment.scheduledAt),
+          });
         }
       } catch (notifyError: any) {
         console.error("[WEBPUSH_TRIGGER_ERROR]", notifyError?.message || notifyError);

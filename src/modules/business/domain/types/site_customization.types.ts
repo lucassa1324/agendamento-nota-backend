@@ -4,6 +4,7 @@ export interface SiteCustomization {
   gallery: GallerySection;
   aboutUs: AboutUsSection;
   appointmentFlow: AppointmentFlowSection;
+  [key: string]: any; // Permite seções extras sem perda de dados (Blindagem de Regressão)
 }
 
 // --- Layout Global ---
@@ -59,6 +60,12 @@ export interface HomeSection {
       sizeMobile: string;
       sizeDesktop: string;
     };
+    badge?: {
+      text: string;
+      backgroundColor: string;
+      textColor: string;
+      font: string;
+    };
     subtitle: {
       text: string;
       color: string;
@@ -74,6 +81,8 @@ export interface HomeSection {
       destinationLink: string;
     };
     appearance: {
+      bgType?: 'color' | 'image';
+      backgroundColor?: string;
       backgroundImageUrl: string;
       glassEffect: {
         active: boolean;
@@ -87,10 +96,18 @@ export interface HomeSection {
       horizontalAlignment: 'left' | 'center' | 'right';
       sectionHeight: 'small' | 'medium' | 'full_screen';
     };
+    bgColor?: string;
   };
   servicesSection: {
     visibility: boolean;
     orderOnHome: number;
+    appearance?: {
+      backgroundImageUrl?: string;
+      overlay?: {
+        color: string;
+        opacity: number;
+      };
+    };
     header: {
       title: {
         text: string;
@@ -135,6 +152,13 @@ export interface HomeSection {
   valuesSection: {
     visibility: boolean;
     orderOnHome: number;
+    appearance?: {
+      backgroundImageUrl?: string;
+      overlay?: {
+        color: string;
+        opacity: number;
+      };
+    };
     header: {
       title: {
         text: string;
@@ -160,6 +184,13 @@ export interface HomeSection {
   galleryPreview: {
     visibility: boolean;
     orderOnHome: number;
+    appearance?: {
+      backgroundImageUrl?: string;
+      overlay?: {
+        color: string;
+        opacity: number;
+      };
+    };
     header: {
       title: {
         text: string;
@@ -198,6 +229,13 @@ export interface HomeSection {
   ctaSection: {
     visibility: boolean;
     orderOnHome: number;
+    appearance?: {
+      backgroundImageUrl?: string;
+      overlay?: {
+        color: string;
+        opacity: number;
+      };
+    };
     title: {
       text: string;
       color: string;
@@ -337,6 +375,7 @@ export interface AppointmentFlowSection {
     title: string;
     timeSlotStyle: 'list' | 'grid';
     timeSlotSize: number; // Intervalo em minutos (ex: 30, 60)
+    minimumBookingLeadMinutes: number; // Antecedência mínima em minutos
   };
   step4Confirmation: {
     title: string;

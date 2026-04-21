@@ -7,7 +7,6 @@ import { deleteFileFromB2 } from "../../../../infrastructure/storage/b2.storage"
 
 export const serviceController = () => new Elysia({ prefix: "/services" })
   .use(repositoriesPlugin)
-  .use(authPlugin)
   // --- ROTAS PÚBLICAS ---
   .get("/company/:companyId", async ({ params: { companyId }, serviceRepository, set }) => {
     try {
@@ -31,7 +30,7 @@ export const serviceController = () => new Elysia({ prefix: "/services" })
   })
   // --- ROTAS PRIVADAS (EXIGEM AUTH) ---
   .group("", (app) =>
-    app.onBeforeHandle(({ user, set }) => {
+    app.use(authPlugin).onBeforeHandle(({ user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "Unauthorized" };

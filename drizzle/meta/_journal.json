@@ -5,106 +5,22 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1767737124291,
-      "tag": "0000_silent_metal_master",
+      "when": 1772726182630,
+      "tag": "0000_init_baseline",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1768043563260,
-      "tag": "0001_outgoing_white_queen",
+      "when": 1775777652168,
+      "tag": "0001_lively_vanisher",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "7",
-      "when": 1768417147367,
-      "tag": "0002_pale_vance_astro",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1769293936735,
-      "tag": "0003_watery_the_call",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1770330084111,
-      "tag": "0004_ancient_newton_destine",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1770336898243,
-      "tag": "0005_new_chimera",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1770337664489,
-      "tag": "0006_sticky_ultimo",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1770399161814,
-      "tag": "0007_noisy_goblin_queen",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1770470971806,
-      "tag": "0008_first_the_fury",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1770839143077,
-      "tag": "0009_plain_shocker",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1770902666890,
-      "tag": "0010_steep_argent",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1770929982675,
-      "tag": "0011_brief_liz_osborn",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "7",
-      "when": 1771245715306,
-      "tag": "0012_special_quicksilver",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1771426613789,
-      "tag": "0013_safe_wonder_man",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "7",
-      "when": 1772279854853,
-      "tag": "0014_wet_darwin",
+      "when": 1776284670566,
+      "tag": "0002_large_sunset_bain",
       "breakpoints": true
     }
   ]

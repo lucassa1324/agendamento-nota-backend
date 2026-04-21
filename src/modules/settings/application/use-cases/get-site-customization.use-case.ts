@@ -73,6 +73,11 @@ export class GetSiteCustomizationUseCase {
       if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
         result[key] = this.deepMerge(result[key] || {}, source[key]);
       } else {
+        // Prevenção de strings vazias para campos de cor/font (opcional, mas evita bugs visuais)
+        if (typeof source[key] === 'string' && source[key] === '' && target[key]) {
+          // Se o novo valor for vazio mas o padrão tiver algo, mantém o padrão
+          continue;
+        }
         result[key] = source[key];
       }
     }
