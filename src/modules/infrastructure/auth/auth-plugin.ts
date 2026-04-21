@@ -429,13 +429,17 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             path.startsWith("/sign-out") ||
             path === "/get-session" ||
             path === "/session";
+        const isPublicAssetRoute = path.startsWith("/api/storage");
 
         const isExemptFromBlocking =
             isAuthRoute ||
+            isPublicAssetRoute ||
             path === "/api/business/settings/pricing" ||
             path === "/api/business/sync";
 
-        if (isAuthRoute) {
+        // Assets públicos (como logos/favicons) não dependem de sessão e
+        // não devem passar pelas regras de bloqueio de cobrança/acesso.
+        if (isAuthRoute || isPublicAssetRoute) {
             return { user: null, session: null };
         }
 
