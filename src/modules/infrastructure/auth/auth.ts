@@ -33,6 +33,11 @@ const getBaseUrl = () => {
 const baseURL = getBaseUrl();
 console.log("[AUTH] BaseURL configurado:", baseURL);
 
+const extraTrustedOrigins = (process.env.EXTRA_TRUSTED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 export const detectHashAlgorithm = (hash: string) => {
   if (!hash) return "empty";
   if (hash.startsWith("$argon2id$")) return "argon2id";
@@ -91,11 +96,18 @@ export const auth = betterAuth({
   trustedOrigins: [
     "http://localhost:3000",
     "http://localhost:3001",
+    "http://localhost:3002",
     "https://agendamento-nota-front.vercel.app",
+    "https://agendamento-nota-front-qmmb.vercel.app",
     "https://landingpage-agendamento-front.vercel.app",
+    "https://staging.aurasistema.com.br",
+    "https://app.staging.aurasistema.com.br",
+    "https://aurasistema.com.br",
+    "https://app.aurasistema.com.br",
     ...(process.env.VERCEL_URL ? [`https://${process.env.VERCEL_URL}`] : []),
     ...(process.env.NEXT_PUBLIC_VERCEL_URL ? [`https://${process.env.NEXT_PUBLIC_VERCEL_URL}`] : []),
     ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+    ...extraTrustedOrigins,
     "https://agendamento-nota-front.vercel.app/api-proxy", // Adicionado explicitamente o caminho do proxy
     "https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app", // Staging Environment
     "https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app/api-proxy" // Staging Proxy

@@ -121,12 +121,24 @@ const startServer = () => {
 
         if (request.method === "OPTIONS") {
           const origin = request.headers.get("origin");
+          const extraAllowedOrigins = (process.env.EXTRA_TRUSTED_ORIGINS || "")
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean);
           const allowedOrigins = [
             'http://localhost:3000',
+            'http://localhost:3001',
+            'http://localhost:3002',
             'http://127.0.0.1:3000',
             'https://agendamento-nota-front.vercel.app',
+            'https://agendamento-nota-front-qmmb.vercel.app',
             'https://landingpage-agendamento-front.vercel.app',
-            'https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app'
+            'https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app',
+            'https://staging.aurasistema.com.br',
+            'https://app.staging.aurasistema.com.br',
+            'https://aurasistema.com.br',
+            'https://app.aurasistema.com.br',
+            ...extraAllowedOrigins,
           ];
 
           const isAllowed = allowedOrigins.includes(origin!) ||
@@ -150,12 +162,24 @@ const startServer = () => {
       })
       .onBeforeHandle(({ request, set }) => {
         const origin = request.headers.get("origin");
+        const extraAllowedOrigins = (process.env.EXTRA_TRUSTED_ORIGINS || "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean);
         const allowedOrigins = [
           'http://localhost:3000',
+          'http://localhost:3001',
+          'http://localhost:3002',
           'http://127.0.0.1:3000',
           'https://agendamento-nota-front.vercel.app',
+          'https://agendamento-nota-front-qmmb.vercel.app',
           'https://landingpage-agendamento-front.vercel.app',
-          'https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app'
+          'https://agendamento-nota-front-git-staging-lucassa1324s-projects.vercel.app',
+          'https://staging.aurasistema.com.br',
+          'https://app.staging.aurasistema.com.br',
+          'https://aurasistema.com.br',
+          'https://app.aurasistema.com.br',
+          ...extraAllowedOrigins,
         ];
 
         const isAllowed = allowedOrigins.includes(origin!) ||
