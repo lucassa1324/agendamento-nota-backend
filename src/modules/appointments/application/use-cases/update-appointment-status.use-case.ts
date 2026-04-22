@@ -83,7 +83,7 @@ export class UpdateAppointmentStatusUseCase {
     const updatedAppointment = await db.transaction(async (tx) => {
       // Trava de Segurança: Buscar status atual dentro da transação para evitar estorno duplo (race condition)
       const [currentAppointment] = await tx
-        .select({ status: appointments.status })
+        .select({ status: appointments.status, auditLog: appointments.auditLog })
         .from(appointments)
         .where(eq(appointments.id, id));
 
@@ -383,7 +383,18 @@ export class UpdateAppointmentStatusUseCase {
       // 3. Atualizar status do agendamento
       const [updated] = await tx
         .update(appointments)
-        .set({ status, updatedAt: new Date() })
+        .set({
+          status,
+          auditLog: [
+            ...((currentAppointment.auditLog as Array<{ action: string; user: string; date: string }>) ?? []),
+            {
+              action: `Status changed to ${status}`,
+              user: userId,
+              date: new Date().toISOString(),
+            },
+          ],
+          updatedAt: new Date(),
+        })
         .where(eq(appointments.id, id))
         .returning();
 

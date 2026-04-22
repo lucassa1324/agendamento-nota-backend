@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { db } from "../drizzle/database";
 import * as schema from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { auth } from "./auth";
 
 export type User = typeof auth.$Infer.Session.user & {
@@ -479,6 +479,38 @@ export async function syncAsaasPaymentForCompany(
     syncCache.set(companyId, { promise: syncPromise, timestamp: nowTs });
     return syncPromise;
 }
+
+const resolveCompanyIdForAuthorization = async (user: any, request: Request) => {
+    const headerCompanyId = request.headers.get("x-company-id");
+    if (headerCompanyId) {
+        return headerCompanyId;
+    }
+
+    const slugFromHeader = request.headers.get("x-business-slug");
+    if (slugFromHeader) {
+        const [companyBySlug] = await db
+            .select({ id: schema.companies.id })
+            .from(schema.companies)
+            .where(eq(schema.companies.slug, slugFromHeader))
+            .limit(1);
+        if (companyBySlug?.id) return companyBySlug.id;
+    }
+
+    if (user?.businessId) {
+        return user.businessId;
+    }
+
+    if (user?.id) {
+        const [ownedCompany] = await db
+            .select({ id: schema.companies.id })
+            .from(schema.companies)
+            .where(eq(schema.companies.ownerId, user.id))
+            .limit(1);
+        if (ownedCompany?.id) return ownedCompany.id;
+    }
+
+    return null;
+};
 
 export const authPlugin = new Elysia({ name: "auth-plugin" })
     .derive({ as: 'global' }, async ({ request, path, set }) => {
@@ -1108,6 +1140,155 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                 if (!user) {
                     set.status = 401;
                     return { error: "Unauthorized" };
+                }
+            },
+        },
+        requireAdmin: {
+            async resolve({ user, set, request }) {
+                if (!user) {
+                    set.status = 401;
+                    return { error: "Unauthorized" };
+                }
+
+                if (user.role === "SUPER_ADMIN" || user.role === "ADMIN") {
+                    return;
+                }
+
+                const companyId = await resolveCompanyIdForAuthorization(user, request);
+                if (!companyId) {
+                    set.status = 403;
+                    return { error: "Forbidden: company context not found" };
+                }
+
+                const [company] = await db
+                    .select({ ownerId: schema.companies.ownerId })
+                    .from(schema.companies)
+                    .where(eq(schema.companies.id, companyId))
+                    .limit(1);
+                if (company?.ownerId === user.id) {
+                    return;
+                }
+
+                const [staffMember] = await db
+                    .select({
+                        isAdmin: schema.staff.isAdmin,
+                        isActive: schema.staff.isActive,
+                    })
+                    .from(schema.staff)
+                    .where(
+                        and(
+                            eq(schema.staff.companyId, companyId),
+                            eq(schema.staff.userId, user.id),
+                        ),
+                    )
+                    .limit(1);
+
+                if (!staffMember || !staffMember.isActive || !staffMember.isAdmin) {
+                    set.status = 403;
+                    return { error: "Forbidden: admin access required" };
+                }
+            },
+        },
+        requireSecretary: {
+            async resolve({ user, set, request }) {
+                if (!user) {
+                    set.status = 401;
+                    return { error: "Unauthorized" };
+                }
+
+                if (user.role === "SUPER_ADMIN" || user.role === "ADMIN") {
+                    return;
+                }
+
+                const companyId = await resolveCompanyIdForAuthorization(user, request);
+                if (!companyId) {
+                    set.status = 403;
+                    return { error: "Forbidden: company context not found" };
+                }
+
+                const [company] = await db
+                    .select({ ownerId: schema.companies.ownerId })
+                    .from(schema.companies)
+                    .where(eq(schema.companies.id, companyId))
+                    .limit(1);
+                if (company?.ownerId === user.id) {
+                    return;
+                }
+
+                const [staffMember] = await db
+                    .select({
+                        isAdmin: schema.staff.isAdmin,
+                        isSecretary: schema.staff.isSecretary,
+                        isActive: schema.staff.isActive,
+                    })
+                    .from(schema.staff)
+                    .where(
+                        and(
+                            eq(schema.staff.companyId, companyId),
+                            eq(schema.staff.userId, user.id),
+                        ),
+                    )
+                    .limit(1);
+
+                if (
+                    !staffMember ||
+                    !staffMember.isActive ||
+                    (!staffMember.isAdmin && !staffMember.isSecretary)
+                ) {
+                    set.status = 403;
+                    return { error: "Forbidden: secretary access required" };
+                }
+            },
+        },
+        requireFinancialAccess: {
+            async resolve({ user, set, request }) {
+                if (!user) {
+                    set.status = 401;
+                    return { error: "Unauthorized" };
+                }
+
+                const companyId = await resolveCompanyIdForAuthorization(user, request);
+                if (!companyId) {
+                    set.status = 403;
+                    return { error: "Forbidden: company context not found" };
+                }
+
+                const [company] = await db
+                    .select({
+                        ownerId: schema.companies.ownerId,
+                        financialPassword: schema.companies.financialPassword,
+                    })
+                    .from(schema.companies)
+                    .where(eq(schema.companies.id, companyId))
+                    .limit(1);
+
+                if (!company) {
+                    set.status = 403;
+                    return { error: "Forbidden: company not found" };
+                }
+
+                if (company.ownerId === user.id || user.role === "SUPER_ADMIN" || user.role === "ADMIN") {
+                    return;
+                }
+
+                if (!company.financialPassword) {
+                    return;
+                }
+
+                const financialPasswordHeader = request.headers.get("x-financial-password");
+                if (!financialPasswordHeader) {
+                    set.status = 403;
+                    return { error: "Forbidden: financial password required" };
+                }
+
+                const passwordMatches = await Bun.password.verify(
+                    financialPasswordHeader,
+                    company.financialPassword,
+                );
+
+                if (!passwordMatches) {
+                    set.status = 403;
+                    return { error: "Forbidden: invalid financial password" };
                 }
             },
         },

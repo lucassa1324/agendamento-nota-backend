@@ -6,6 +6,13 @@ import { IPushSubscriptionRepository } from "../../../notifications/domain/ports
 import { UserRepository } from "../../../user/adapters/out/user.repository";
 import { NotificationService } from "../../../notifications/application/notification.service";
 import { TransactionalEmailService } from "../../../notifications/application/transactional-email.service";
+import { db } from "../../../infrastructure/drizzle/database";
+import { scheduleBlocks } from "../../../../db/schema";
+import { eq } from "drizzle-orm";
+import {
+  assertNoSchedulingConflict,
+  parseDurationToMinutes,
+} from "../utils/scheduling-conflict.util";
 
 export class CreateAppointmentUseCase {
   constructor(
@@ -154,16 +161,7 @@ export class CreateAppointmentUseCase {
       services.push(service);
 
       // Calcula a duração total do agendamento
-      let durationMin = 0;
-      if (service.duration && typeof service.duration === 'string') {
-        if (service.duration.includes(':')) {
-          const [h, m] = service.duration.split(':').map(Number);
-          durationMin = (h * 60) + (m || 0);
-        } else if (/^\d+$/.test(service.duration)) {
-          durationMin = parseInt(service.duration);
-        }
-      }
-      totalDurationMin += durationMin;
+      totalDurationMin += parseDurationToMinutes(service.duration);
     }
 
     // Define o ID do serviço principal como o primeiro (necessário para compatibilidade com a FK do banco)
@@ -323,47 +321,32 @@ export class CreateAppointmentUseCase {
       endOfDay
     );
 
-    // Converte a data do agendamento para o timezone local de Brasília
-    const appStartMin = appTimeTotalMin;
-    const appEndMin = appStartMin + totalDurationMin;
+    const targetStaffId = data.staffId ?? null;
+    const sameStaffAppointments = targetStaffId
+      ? existingAppointments.filter((app) => app.staffId === targetStaffId)
+      : [];
+    const staffScheduleBlocks = targetStaffId
+      ? await db
+        .select({
+          startTime: scheduleBlocks.startTime,
+          endTime: scheduleBlocks.endTime,
+          isOverrideable: scheduleBlocks.isOverrideable,
+        })
+        .from(scheduleBlocks)
+        .where(eq(scheduleBlocks.staffId, targetStaffId))
+      : [];
 
-    const hasConflict = existingAppointments.some(app => {
-      if (app.status === 'CANCELLED') return false;
-
-      const dbDate = new Date(app.scheduledAt);
-
-      // Comparação de dia usando o timezone de Brasília
-      const dbDateParts = formatter.formatToParts(dbDate);
-      const dbDay = dbDateParts.find(p => p.type === 'day')?.value;
-      const dbMonth = dbDateParts.find(p => p.type === 'month')?.value;
-      const schDay = parts.find(p => p.type === 'day')?.value;
-      const schMonth = parts.find(p => p.type === 'month')?.value;
-
-      if (dbDay !== schDay || dbMonth !== schMonth) {
-        return false;
-      }
-
-      const dbH = parseInt(dbDateParts.find(p => p.type === 'hour')?.value || '0');
-      const dbM = parseInt(dbDateParts.find(p => p.type === 'minute')?.value || '0');
-      const existingStart = (dbH * 60) + dbM;
-
-      let existingDuration = 30;
-      if (app.serviceDurationSnapshot) {
-        if (app.serviceDurationSnapshot.includes(':')) {
-          const [dH, dM] = app.serviceDurationSnapshot.split(':').map(Number);
-          existingDuration = (dH * 60) + dM;
-        } else if (/^\d+$/.test(app.serviceDurationSnapshot)) {
-          existingDuration = parseInt(app.serviceDurationSnapshot);
-        }
-      }
-      const existingEnd = existingStart + existingDuration;
-
-      return appStartMin < existingEnd && appEndMin > existingStart;
+    assertNoSchedulingConflict({
+      scheduledAt,
+      durationMinutes: totalDurationMin,
+      existingAppointments: sameStaffAppointments,
+      scheduleBlocks: staffScheduleBlocks.map((block) => ({
+        startTime: new Date(block.startTime),
+        endTime: new Date(block.endTime),
+        isOverrideable: block.isOverrideable,
+      })),
+      force: Boolean(data.force && userId),
     });
-
-    if (hasConflict) {
-      throw new Error("O horário selecionado já está ocupado.");
-    }
 
     // --- NOVA VALIDAÇÃO: PROCEDIMENTOS INCOMPATÍVEIS (Advanced Rules) ---
     // Verifica se o cliente já tem agendamentos no MESMO DIA que sejam incompatíveis com os novos serviços
@@ -407,6 +390,16 @@ export class CreateAppointmentUseCase {
     }
 
     // Persistência no repositório
+    data.createdBy = userId ?? null;
+    data.auditLog = [
+      ...(data.auditLog ?? []),
+      {
+        action: "Appointment created",
+        user: userId ?? "public",
+        date: new Date().toISOString(),
+      },
+    ];
+
     const newAppointment = await this.appointmentRepository.create(data);
 
     // Web Push Notification: notify business owner about the new appointment

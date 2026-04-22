@@ -268,6 +268,8 @@ export function appointmentController() {
             serviceNameSnapshot: t.String(),
             servicePriceSnapshot: t.String(),
             serviceDurationSnapshot: t.String(),
+            staffId: t.Optional(t.Nullable(t.String())),
+            force: t.Optional(t.Boolean()),
             notes: t.Optional(t.String()),
             ignoreBusinessHoursValidation: t.Optional(t.Boolean()),
             items: t.Optional(t.Array(t.Object({
@@ -333,7 +335,7 @@ export function appointmentController() {
               appointmentRepository,
               businessRepository,
             );
-            return await useCase.execute(id, scheduledAt, user!.id);
+            return await useCase.execute(id, scheduledAt, user!.id, Boolean(body.force));
           } catch (error: any) {
             const message = error?.message || "Erro ao reagendar agendamento";
             if (message.includes("Unauthorized")) {
@@ -352,6 +354,7 @@ export function appointmentController() {
         }, {
           body: t.Object({
             scheduledAt: t.String(),
+            force: t.Optional(t.Boolean()),
           })
         })
         .patch("/:id", async ({ params: { id }, body, appointmentRepository, serviceRepository, businessRepository, user, set }) => {
@@ -377,6 +380,8 @@ export function appointmentController() {
                 customerPhone: body.customerPhone,
                 serviceId: body.serviceId,
                 servicePriceSnapshot: body.servicePriceSnapshot,
+                staffId: body.staffId,
+                force: body.force,
                 notes: body.notes,
                 ignoreBusinessHoursValidation: body.ignoreBusinessHoursValidation,
               },
@@ -406,6 +411,8 @@ export function appointmentController() {
             customerPhone: t.String(),
             serviceId: t.String(),
             servicePriceSnapshot: t.String(),
+            staffId: t.Optional(t.Nullable(t.String())),
+            force: t.Optional(t.Boolean()),
             notes: t.Optional(t.String()),
             ignoreBusinessHoursValidation: t.Optional(t.Boolean()),
           })
@@ -429,6 +436,7 @@ export function appointmentController() {
               PENDING: "PENDING",
               CONFIRMED: "CONFIRMED",
               COMPLETED: "COMPLETED",
+              ONGOING: "ONGOING",
               CANCELLED: "CANCELLED",
               POSTPONED: "POSTPONED"
             } as const),

@@ -22,6 +22,13 @@
       "when": 1776284670566,
       "tag": "0002_large_sunset_bain",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776897729049,
+      "tag": "0003_serious_beyonder",
+      "breakpoints": true
     }
   ]
 }

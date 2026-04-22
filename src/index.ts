@@ -38,6 +38,7 @@ const startServer = () => {
     const { serviceController } = require("./modules/services/adapters/in/http/service.controller");
     const { reportController } = require("./modules/reports/adapters/in/http/report.controller");
     const { appointmentController } = require("./modules/appointments/adapters/in/http/appointment.controller");
+    const { staffController } = require("./modules/staff/adapters/in/http/staff.controller");
     // Tratamento especial para settingsController que teve problemas de export default/named
     const settingsModule = require("./modules/settings/adapters/in/http/settings.controller");
     const settingsController = settingsModule.default || settingsModule.settingsController;
@@ -660,6 +661,7 @@ const startServer = () => {
           .use(serviceController())
           .use(reportController())
           .use(appointmentController())
+          .use(staffController())
           .use(settingsController ? settingsController() : (app: any) => app) // Fallback seguro se settingsController falhar
           .use(inventoryController())
           .use(expenseController())
