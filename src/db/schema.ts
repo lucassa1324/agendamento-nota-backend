@@ -300,6 +300,7 @@ export const companies = pgTable("companies", {
   billingDayLastChangedAt: timestamp("billing_day_last_changed_at"),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
+  asaasSubscriptionId: text("asaas_subscription_id"),
   accessType: text("access_type").default('automatic').notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")

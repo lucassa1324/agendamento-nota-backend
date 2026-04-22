@@ -168,6 +168,37 @@ async function runAudit() {
     results.push(check);
   }
 
+  // 4.1) Modo de auditoria de billing no auth-plugin
+  {
+    const hasAuditModeFlag = /BILLING_AUDIT_MODE/.test(authContent);
+    const hasStructuredAuditLog = /\[BILLING_AUDIT\]/.test(authContent);
+    const hasAuditDecisions =
+      /type BillingAuditDecision = "ACTIVE" \| "GRACE" \| "BLOCKED"/.test(authContent);
+
+    const check = assert(
+      hasAuditModeFlag && hasStructuredAuditLog && hasAuditDecisions,
+      "Auth plugin possui BILLING_AUDIT_MODE e log estruturado de decisão (ACTIVE/GRACE/BLOCKED).",
+      "Modo de auditoria de billing está incompleto (flag/log/decisões).",
+    );
+    check.key = "Modo Auditoria Billing";
+    results.push(check);
+  }
+
+  // 4.2) Sync anti-falso-bloqueio
+  {
+    const hasBypassCache = /bypassCache:\s*true/.test(authContent);
+    const hasIgnoreBlockDate = /ignoreBlockDate:\s*true/.test(authContent);
+    const hasFinalSyncBeforeBlock = /Última tentativa confirmou pagamento e evitou bloqueio/.test(authContent);
+
+    const check = assert(
+      hasBypassCache && hasIgnoreBlockDate && hasFinalSyncBeforeBlock,
+      "Auth plugin aplica sync forte anti-falso-bloqueio antes da decisão final.",
+      "Proteção anti-falso-bloqueio não está completa (bypass cache / ignore block date / final sync).",
+    );
+    check.key = "Sync forte anti-bloqueio";
+    results.push(check);
+  }
+
   // 5) Termos e Política no cadastro
   {
     const hasLegalCheckbox =

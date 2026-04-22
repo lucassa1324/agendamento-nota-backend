@@ -239,7 +239,10 @@ export const businessController = () => new Elysia({ prefix: "/business" })
       })
       .post("/sync", async ({ user, set }) => {
         try {
-          const [userCompany] = await db.select()
+          const [userCompany] = await db.select({
+            id: schema.companies.id,
+            ownerId: schema.companies.ownerId,
+          })
             .from(schema.companies)
             .where(eq(schema.companies.ownerId, user!.id))
             .limit(1);
@@ -256,8 +259,10 @@ export const businessController = () => new Elysia({ prefix: "/business" })
             userCompany.ownerId,
             user!.email,
             {
-              requireCurrentMonthPayment: true,
-              ignoreBlockDate: false
+              requireCurrentMonthPayment: false,
+              activationWindowDays: 10,
+              ignoreBlockDate: true,
+              bypassCache: true,
             }
           );
 
@@ -275,8 +280,11 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           };
         } catch (error: any) {
           console.error("[BUSINESS_SYNC_ERROR]:", error);
-          set.status = 500;
-          return { error: "Erro ao sincronizar: " + error.message };
+          return {
+            success: false,
+            message: "Não foi possível concluir a sincronização agora. Tente novamente em instantes.",
+            detail: error?.message || "Erro desconhecido"
+          };
         }
       })
       .patch("/billing/day", async ({ user, body, set }) => {

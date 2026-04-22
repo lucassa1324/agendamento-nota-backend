@@ -1,10 +1,76 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+const normalizeEnvValue = (value?: string) =>
+  value?.trim().replace(/^['"]|['"]$/g, "") || "";
+
+const normalizeAsaasApiUrl = (rawUrl: string) => {
+  const sanitized = normalizeEnvValue(rawUrl).replace(/\/+$/, "");
+  if (!sanitized) {
+    return "https://api-sandbox.asaas.com/v3";
+  }
+  if (/\/v3$/i.test(sanitized)) {
+    return sanitized;
+  }
+  if (/\/v\d+$/i.test(sanitized)) {
+    return sanitized;
+  }
+  return `${sanitized}/v3`;
+};
+
+const extractEnvValueFromContent = (content: string, key: string) => {
+  const regex = new RegExp(`^${key}=(.*)$`, "m");
+  const match = content.match(regex);
+  if (!match?.[1]) {
+    return "";
+  }
+  return normalizeEnvValue(match[1]);
+};
+
+const readEnvFallbackSync = (key: string) => {
+  const candidates = [
+    path.join(process.cwd(), ".env"),
+    path.join(process.cwd(), ".env.local"),
+    path.join(process.cwd(), "back_end", ".env"),
+    path.join(process.cwd(), "back_end", ".env.local"),
+    path.join(process.cwd(), "..", "back_end", ".env"),
+    path.join(process.cwd(), "..", "back_end", ".env.local"),
+  ];
+
+  for (const envPath of candidates) {
+    try {
+      const content = readFileSync(envPath, "utf8");
+      const value = extractEnvValueFromContent(content, key);
+      if (value) {
+        return value;
+      }
+    } catch { }
+  }
+  return "";
+};
+
 export class AsaasClient {
   private apiKey: string;
   private apiUrl: string;
 
   constructor() {
-    this.apiKey = process.env.ASAAS_API_KEY || "";
-    this.apiUrl = process.env.ASAAS_API_URL || "https://api-sandbox.asaas.com/v3";
+    const fallbackApiKey =
+      readEnvFallbackSync("ASAAS_API_KEY") ||
+      readEnvFallbackSync("ASAAS_ACCESS_TOKEN");
+    const fallbackApiUrl =
+      readEnvFallbackSync("ASAAS_API_URL") ||
+      readEnvFallbackSync("ASAAS_BASE_URL");
+
+    this.apiKey =
+      normalizeEnvValue(process.env.ASAAS_API_KEY) ||
+      normalizeEnvValue(process.env.ASAAS_ACCESS_TOKEN) ||
+      normalizeEnvValue(fallbackApiKey);
+    this.apiUrl = normalizeAsaasApiUrl(
+      normalizeEnvValue(process.env.ASAAS_API_URL) ||
+      normalizeEnvValue(process.env.ASAAS_BASE_URL) ||
+      normalizeEnvValue(fallbackApiUrl) ||
+      "https://api-sandbox.asaas.com/v3",
+    );
   }
 
   // Método placeholder para criar cliente
@@ -18,7 +84,15 @@ export class AsaasClient {
   }
 
   // Método placeholder para criar assinatura
-  async createSubscription(data: { customerId: string; value: number; nextDueDate: string; remoteIp?: string; creditCard?: any; creditCardHolderInfo?: any }) {
+  async createSubscription(data: {
+    customerId: string;
+    value: number;
+    nextDueDate: string;
+    remoteIp?: string;
+    billingType?: "CREDIT_CARD" | "PIX";
+    creditCard?: any;
+    creditCardHolderInfo?: any;
+  }) {
     if (!this.apiKey) {
       console.warn("[ASAAS_CLIENT] Sem API Key. Retornando mock.");
       return { id: "sub_mock_123", status: "PENDING" };
@@ -161,32 +235,92 @@ export class AsaasClient {
 
     try {
       console.log(`[ASAAS_CLIENT] Aplicando desconto na assinatura ${subscriptionId}...`);
-      // No Asaas, desconto é aplicado via atualização da assinatura ou criação de um desconto específico
-      // Aqui vamos usar o endpoint de atualização de assinatura para simplificar
-      const response = await fetch(`${this.apiUrl}/subscriptions/${subscriptionId}`, {
-        method: "POST", // POST em sub-recurso costuma ser atualização no Asaas
-        headers: {
-          "Content-Type": "application/json",
-          "access_token": this.apiKey
-        },
-        body: JSON.stringify({
-          discount: {
-            value: discount.percentage,
-            type: "PERCENTAGE",
-            durationInMonths: discount.cycles
-          }
-        })
-      });
+      const payload = {
+        discount: {
+          value: discount.percentage,
+          type: "PERCENTAGE",
+          durationInMonths: discount.cycles
+        }
+      };
 
-      const responseData = await response.json();
-      if (!response.ok) {
-        throw new Error((responseData as any).errors?.[0]?.description || "Erro ao aplicar desconto");
+      const tryMethods: Array<"PUT" | "POST"> = ["PUT", "POST"];
+      let lastErrorMessage = "Erro ao aplicar desconto";
+
+      for (const method of tryMethods) {
+        const response = await fetch(`${this.apiUrl}/subscriptions/${subscriptionId}`, {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+            "access_token": this.apiKey
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const responseData = await response.json().catch(() => ({}));
+        if (response.ok) {
+          return responseData;
+        }
+
+        console.error(
+          `[ASAAS_CLIENT] Falha ao aplicar desconto (${method}):`,
+          JSON.stringify(responseData),
+        );
+        lastErrorMessage =
+          (responseData as any)?.errors?.[0]?.description ||
+          `Erro ao aplicar desconto (${method})`;
       }
-      return responseData;
+
+      throw new Error(lastErrorMessage);
     } catch (error) {
       console.error("[ASAAS_CLIENT] Erro ao aplicar desconto:", error);
       throw error;
     }
+  }
+
+  async updateSubscriptionNextDueDate(subscriptionId: string, nextDueDate: string) {
+    if (!subscriptionId) {
+      console.warn("[ASAAS_CLIENT] SubscriptionId vazio. Ignorando atualização de vencimento.");
+      return { status: "SKIPPED" };
+    }
+
+    if (!this.apiKey) {
+      console.warn(`[ASAAS_CLIENT] Sem API Key. Atualização mock do nextDueDate para ${nextDueDate}.`);
+      return { id: subscriptionId, status: "MOCK_NEXT_DUE_UPDATED", nextDueDate };
+    }
+
+    const payload = { nextDueDate };
+    const tryMethods: Array<"PUT" | "POST"> = ["PUT", "POST"];
+    let lastErrorMessage = "Erro ao atualizar próximo vencimento da assinatura";
+
+    for (const method of tryMethods) {
+      try {
+        const response = await fetch(`${this.apiUrl}/subscriptions/${subscriptionId}`, {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+            "access_token": this.apiKey
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const responseData = await response.json().catch(() => ({}));
+        if (response.ok) {
+          return responseData;
+        }
+
+        console.error(
+          `[ASAAS_CLIENT] Falha ao atualizar nextDueDate (${method}):`,
+          JSON.stringify(responseData),
+        );
+        lastErrorMessage =
+          (responseData as any)?.errors?.[0]?.description ||
+          `Erro ao atualizar nextDueDate (${method})`;
+      } catch (error: any) {
+        lastErrorMessage = error?.message || lastErrorMessage;
+      }
+    }
+
+    throw new Error(lastErrorMessage);
   }
 }
 
