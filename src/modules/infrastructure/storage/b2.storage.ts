@@ -9,11 +9,23 @@ type B2Config = {
 
 let s3Client: S3Client | null = null;
 
+const normalizeEnvValue = (value?: string) => {
+  const cleaned = value?.trim().replace(/^['"]|['"]$/g, "") || "";
+  if (!cleaned) return "";
+
+  try {
+    // Handles accidentally URL-encoded env values like "%20aura-staging%20".
+    return decodeURIComponent(cleaned).trim();
+  } catch {
+    return cleaned;
+  }
+};
+
 const getB2Config = (): B2Config => {
-  const keyId = process.env.B2_KEY_ID;
-  const applicationKey = process.env.B2_APPLICATION_KEY;
-  const bucketName = process.env.B2_BUCKET_NAME;
-  const endpoint = process.env.B2_ENDPOINT;
+  const keyId = normalizeEnvValue(process.env.B2_KEY_ID);
+  const applicationKey = normalizeEnvValue(process.env.B2_APPLICATION_KEY);
+  const bucketName = normalizeEnvValue(process.env.B2_BUCKET_NAME);
+  const endpoint = normalizeEnvValue(process.env.B2_ENDPOINT);
 
   if (!keyId || !applicationKey || !bucketName || !endpoint) {
     throw new Error("B2_STORAGE_MISSING_ENV");
