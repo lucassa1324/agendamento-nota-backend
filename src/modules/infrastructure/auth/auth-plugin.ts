@@ -313,7 +313,13 @@ export async function syncAsaasPaymentForCompany(
     const syncPromise = (async () => {
         const ignoreBlockDate = options?.ignoreBlockDate ?? false;
         // Busca a empresa para verificar a data do último bloqueio (updatedAt)
-        const [currentCompany] = await db.select()
+        const [currentCompany] = await db.select({
+            id: schema.companies.id,
+            subscriptionStatus: schema.companies.subscriptionStatus,
+            active: schema.companies.active,
+            updatedAt: schema.companies.updatedAt,
+            billingAnchorDay: schema.companies.billingAnchorDay,
+        })
             .from(schema.companies)
             .where(eq(schema.companies.id, companyId))
             .limit(1);

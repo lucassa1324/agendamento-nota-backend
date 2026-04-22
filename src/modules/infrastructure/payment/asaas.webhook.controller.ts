@@ -259,6 +259,7 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
                 subscriptionStatus: 'active',
                 active: true,
                 accessType: isManualGraceActive ? 'manual' : 'automatic',
+                asaasSubscriptionId: subscriptionId || company.asaasSubscriptionId,
                 billingAnchorDay: resolvedAnchorDay,
                 billingGraceEndsAt: null,
                 trialEndsAt: isManualGraceActive ? company.trialEndsAt : nextDue,
@@ -346,6 +347,7 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
           .set({
             subscriptionStatus: "canceled",
             active: false,
+            asaasSubscriptionId: subscriptionId || company.asaasSubscriptionId,
             trialEndsAt: new Date(),
             billingGraceEndsAt: null,
             updatedAt: new Date(),

@@ -11,7 +11,14 @@ export const paymentController = () => new Elysia({ prefix: "/payment" })
         return { error: "Unauthorized" };
       }
 
-      const { customerId, value, nextDueDate, creditCard, creditCardHolderInfo } = body;
+      const {
+        customerId,
+        value,
+        nextDueDate,
+        billingType,
+        creditCard,
+        creditCardHolderInfo,
+      } = body;
       
       // Captura o IP do cliente dos headers
       // O front-end deve enviar o IP do cliente no header 'x-client-ip' ou contar com 'x-forwarded-for'
@@ -25,10 +32,30 @@ export const paymentController = () => new Elysia({ prefix: "/payment" })
         console.warn("[PAYMENT_CONTROLLER] IP remoto não detectado ou inválido. O Asaas pode rejeitar transações de cartão.");
       }
 
+      if (
+        (!billingType || billingType === "CREDIT_CARD") &&
+        (!creditCard || !creditCardHolderInfo)
+      ) {
+        set.status = 400;
+        return {
+          error:
+            "creditCard e creditCardHolderInfo são obrigatórios para cobrança no cartão.",
+        };
+      }
+
+      if (billingType === "PIX") {
+        set.status = 400;
+        return {
+          error:
+            "Forma de pagamento PIX desabilitada neste fluxo. Utilize apenas cartão de crédito.",
+        };
+      }
+
       const subscription = await asaas.createSubscription({
         customerId,
         value,
         nextDueDate,
+        billingType: "CREDIT_CARD",
         remoteIp,
         creditCard,
         creditCardHolderInfo
@@ -45,6 +72,7 @@ export const paymentController = () => new Elysia({ prefix: "/payment" })
       customerId: t.String(),
       value: t.Number(),
       nextDueDate: t.String(),
+      billingType: t.Optional(t.Union([t.Literal("CREDIT_CARD"), t.Literal("PIX")])),
       creditCard: t.Optional(t.Any()),
       creditCardHolderInfo: t.Optional(t.Any())
     })

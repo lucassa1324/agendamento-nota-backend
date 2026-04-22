@@ -197,6 +197,7 @@ export const auth = betterAuth({
                     slug: schema.companies.slug,
                     subscriptionStatus: schema.companies.subscriptionStatus,
                     trialEndsAt: schema.companies.trialEndsAt,
+                    asaasSubscriptionId: schema.companies.asaasSubscriptionId,
                   })
                   .from(schema.companies)
                   .where(eq(schema.companies.ownerId, returned.user.id))
@@ -216,6 +217,7 @@ export const auth = betterAuth({
                         business: {
                           id: business.id,
                           slug: business.slug,
+                          subscriptionId: business.asaasSubscriptionId,
                           subscriptionStatus: business.subscriptionStatus,
                           trialEndsAt: business.trialEndsAt,
                         }

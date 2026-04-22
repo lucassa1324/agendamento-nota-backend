@@ -523,6 +523,17 @@ const startServer = () => {
               })
               .post("/accept-offer", async ({ user, body }) => {
                 const { subscriptionId } = body as { subscriptionId?: string };
+                let resolvedSubscriptionId = subscriptionId;
+
+                if (!resolvedSubscriptionId) {
+                  const [company] = await db.select({
+                    asaasSubscriptionId: schema.companies.asaasSubscriptionId,
+                  })
+                    .from(schema.companies)
+                    .where(eq(schema.companies.ownerId, user!.id))
+                    .limit(1);
+                  resolvedSubscriptionId = company?.asaasSubscriptionId || undefined;
+                }
 
                 // 1. Registra que o usuário aceitou a oferta no banco
                 await db.update(schema.user)
@@ -536,11 +547,20 @@ const startServer = () => {
                   .where(eq(schema.user.id, user!.id));
 
                 // 2. Aplica o desconto no gateway de pagamento
-                if (subscriptionId) {
-                  await asaas.applyDiscount(subscriptionId, {
-                    percentage: 20,
-                    cycles: 3
-                  });
+                if (resolvedSubscriptionId) {
+                  try {
+                    await asaas.applyDiscount(resolvedSubscriptionId, {
+                      percentage: 20,
+                      cycles: 3
+                    });
+                  } catch (error: any) {
+                    console.error("[ACCEPT_OFFER_DISCOUNT_ERROR]", error);
+                    return {
+                      success: true,
+                      warning: "Oferta aceita localmente, mas houve falha ao aplicar desconto no Asaas.",
+                      detail: error?.message || "Erro desconhecido",
+                    };
+                  }
                 }
 
                 return {

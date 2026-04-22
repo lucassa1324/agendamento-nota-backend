@@ -18,7 +18,15 @@ export class AsaasClient {
   }
 
   // Método placeholder para criar assinatura
-  async createSubscription(data: { customerId: string; value: number; nextDueDate: string; remoteIp?: string; creditCard?: any; creditCardHolderInfo?: any }) {
+  async createSubscription(data: {
+    customerId: string;
+    value: number;
+    nextDueDate: string;
+    remoteIp?: string;
+    billingType?: "CREDIT_CARD" | "PIX";
+    creditCard?: any;
+    creditCardHolderInfo?: any;
+  }) {
     if (!this.apiKey) {
       console.warn("[ASAAS_CLIENT] Sem API Key. Retornando mock.");
       return { id: "sub_mock_123", status: "PENDING" };
@@ -161,28 +169,42 @@ export class AsaasClient {
 
     try {
       console.log(`[ASAAS_CLIENT] Aplicando desconto na assinatura ${subscriptionId}...`);
-      // No Asaas, desconto é aplicado via atualização da assinatura ou criação de um desconto específico
-      // Aqui vamos usar o endpoint de atualização de assinatura para simplificar
-      const response = await fetch(`${this.apiUrl}/subscriptions/${subscriptionId}`, {
-        method: "POST", // POST em sub-recurso costuma ser atualização no Asaas
-        headers: {
-          "Content-Type": "application/json",
-          "access_token": this.apiKey
-        },
-        body: JSON.stringify({
-          discount: {
-            value: discount.percentage,
-            type: "PERCENTAGE",
-            durationInMonths: discount.cycles
-          }
-        })
-      });
+      const payload = {
+        discount: {
+          value: discount.percentage,
+          type: "PERCENTAGE",
+          durationInMonths: discount.cycles
+        }
+      };
 
-      const responseData = await response.json();
-      if (!response.ok) {
-        throw new Error((responseData as any).errors?.[0]?.description || "Erro ao aplicar desconto");
+      const tryMethods: Array<"PUT" | "POST"> = ["PUT", "POST"];
+      let lastErrorMessage = "Erro ao aplicar desconto";
+
+      for (const method of tryMethods) {
+        const response = await fetch(`${this.apiUrl}/subscriptions/${subscriptionId}`, {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+            "access_token": this.apiKey
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const responseData = await response.json().catch(() => ({}));
+        if (response.ok) {
+          return responseData;
+        }
+
+        console.error(
+          `[ASAAS_CLIENT] Falha ao aplicar desconto (${method}):`,
+          JSON.stringify(responseData),
+        );
+        lastErrorMessage =
+          (responseData as any)?.errors?.[0]?.description ||
+          `Erro ao aplicar desconto (${method})`;
       }
-      return responseData;
+
+      throw new Error(lastErrorMessage);
     } catch (error) {
       console.error("[ASAAS_CLIENT] Erro ao aplicar desconto:", error);
       throw error;
