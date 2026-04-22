@@ -259,8 +259,10 @@ export const businessController = () => new Elysia({ prefix: "/business" })
             userCompany.ownerId,
             user!.email,
             {
-              requireCurrentMonthPayment: true,
-              ignoreBlockDate: false
+              requireCurrentMonthPayment: false,
+              activationWindowDays: 10,
+              ignoreBlockDate: true,
+              bypassCache: true,
             }
           );
 

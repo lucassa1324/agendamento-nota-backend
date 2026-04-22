@@ -1,9 +1,12 @@
 import { Elysia, t } from "elysia";
+import { readFile } from "node:fs/promises";
+import nodePath from "node:path";
 import { authPlugin, syncAsaasPaymentForCompany } from "../../../../infrastructure/auth/auth-plugin";
 import { auth } from "../../../../infrastructure/auth/auth";
 import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
 import { and, asc, count, desc, eq, sql } from "drizzle-orm";
+import { asaas } from "../../../../infrastructure/payment/asaas.client";
 
 const writeSystemLog = async ({
   userId,
@@ -49,6 +52,269 @@ const calculateGraceEndDate = (dueDate: Date) => {
   const graceEnd = new Date(dueDate);
   graceEnd.setDate(graceEnd.getDate() + BILLING_GRACE_DAYS);
   return graceEnd;
+};
+
+const normalizeEnvValue = (value?: string) =>
+  value?.trim().replace(/^['"]|['"]$/g, "") || "";
+
+const normalizeAsaasApiUrl = (rawUrl: string) => {
+  const sanitized = normalizeEnvValue(rawUrl).replace(/\/+$/, "");
+  if (!sanitized) {
+    return "https://api-sandbox.asaas.com/v3";
+  }
+  if (/\/v3$/i.test(sanitized)) {
+    return sanitized;
+  }
+  if (/\/v\d+$/i.test(sanitized)) {
+    return sanitized;
+  }
+  return `${sanitized}/v3`;
+};
+
+const buildAsaasUrl = (apiUrl: string, endpoint: string) => {
+  const base = normalizeAsaasApiUrl(apiUrl);
+  const suffix = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  return `${base}${suffix}`;
+};
+
+const extractEnvValueFromContent = (content: string, key: string) => {
+  const regex = new RegExp(`^${key}=(.*)$`, "m");
+  const match = content.match(regex);
+  if (!match?.[1]) {
+    return "";
+  }
+  return normalizeEnvValue(match[1]);
+};
+
+const readEnvFallback = async (key: string) => {
+  const candidates = [
+    nodePath.join(process.cwd(), ".env"),
+    nodePath.join(process.cwd(), ".env.local"),
+    nodePath.join(process.cwd(), "back_end", ".env"),
+    nodePath.join(process.cwd(), "back_end", ".env.local"),
+  ];
+
+  for (const envPath of candidates) {
+    try {
+      const content = await readFile(envPath, "utf8");
+      const value = extractEnvValueFromContent(content, key);
+      if (value) {
+        return value;
+      }
+    } catch { }
+  }
+
+  return "";
+};
+
+const resolveAsaasConfig = async () => {
+  const fallbackApiKey =
+    (await readEnvFallback("ASAAS_API_KEY")) ||
+    (await readEnvFallback("ASAAS_ACCESS_TOKEN"));
+  const fallbackApiUrl =
+    (await readEnvFallback("ASAAS_API_URL")) ||
+    (await readEnvFallback("ASAAS_BASE_URL"));
+
+  const apiKey =
+    normalizeEnvValue(process.env.ASAAS_API_KEY) ||
+    normalizeEnvValue(process.env.ASAAS_ACCESS_TOKEN) ||
+    normalizeEnvValue(fallbackApiKey);
+  const apiUrlRaw =
+    normalizeEnvValue(process.env.ASAAS_API_URL) ||
+    normalizeEnvValue(process.env.ASAAS_BASE_URL) ||
+    normalizeEnvValue(fallbackApiUrl) ||
+    "https://api-sandbox.asaas.com/v3";
+  const apiUrl = normalizeAsaasApiUrl(apiUrlRaw);
+
+  return { apiKey, apiUrl };
+};
+
+const fetchAsaasResource = async <T>(
+  endpoint: string,
+): Promise<T | null> => {
+  const { apiKey, apiUrl } = await resolveAsaasConfig();
+  if (!apiKey) {
+    return null;
+  }
+
+  try {
+    const requestUrl = buildAsaasUrl(apiUrl, endpoint);
+    const response = await fetch(requestUrl, {
+      method: "GET",
+      headers: {
+        access_token: apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+};
+
+const resolveSubscriptionIdFromAsaas = async ({
+  companyId,
+  ownerEmail,
+}: {
+  companyId: string;
+  ownerEmail?: string | null;
+}): Promise<{ subscriptionId: string | null; debug: string[] }> => {
+  const preferredStatuses = ["ACTIVE", "PENDING", "OVERDUE"];
+  const debug: string[] = [];
+
+  const pickBestSubscription = (items: Array<Record<string, any>>) => {
+    if (!items.length) return null;
+    const sorted = [...items].sort((a, b) => {
+      const aDate = new Date(a?.dateCreated || a?.nextDueDate || 0).getTime();
+      const bDate = new Date(b?.dateCreated || b?.nextDueDate || 0).getTime();
+      return bDate - aDate;
+    });
+
+    for (const status of preferredStatuses) {
+      const match = sorted.find(
+        (item) => String(item?.status || "").toUpperCase() === status,
+      );
+      if (match?.id) {
+        return String(match.id);
+      }
+    }
+
+    return sorted[0]?.id ? String(sorted[0].id) : null;
+  };
+
+  const pickSubscriptionFromPayments = (items: Array<Record<string, any>>) => {
+    if (!items.length) return null;
+    const sorted = [...items].sort((a, b) => {
+      const aDate = new Date(
+        a?.paymentDate || a?.confirmedDate || a?.dateCreated || a?.dueDate || 0,
+      ).getTime();
+      const bDate = new Date(
+        b?.paymentDate || b?.confirmedDate || b?.dateCreated || b?.dueDate || 0,
+      ).getTime();
+      return bDate - aDate;
+    });
+    const paymentWithSubscription = sorted.find((item) => !!item?.subscription);
+    return paymentWithSubscription?.subscription
+      ? String(paymentWithSubscription.subscription)
+      : null;
+  };
+
+  let customerId: string | null = null;
+
+  if (ownerEmail) {
+    debug.push(`QUERY customers by email=${ownerEmail}`);
+    const customersPayload = await fetchAsaasResource<{
+      data?: Array<Record<string, any>>;
+    }>(`/customers?email=${encodeURIComponent(ownerEmail)}&limit=1`);
+    customerId = customersPayload?.data?.[0]?.id
+      ? String(customersPayload.data[0].id)
+      : null;
+
+    if (customerId) {
+      debug.push(`FOUND customerId=${customerId} by email`);
+      debug.push(`QUERY subscriptions by customer=${customerId}`);
+      const byCustomer = await fetchAsaasResource<{
+        data?: Array<Record<string, any>>;
+      }>(`/subscriptions?customer=${encodeURIComponent(customerId)}&limit=20`);
+      const selected = pickBestSubscription(byCustomer?.data || []);
+      if (selected) {
+        debug.push(`FOUND subscriptionId=${selected} by customer`);
+        return { subscriptionId: selected, debug };
+      }
+
+      debug.push(`QUERY payments by customer=${customerId}`);
+      const customerPayments = await fetchAsaasResource<{
+        data?: Array<Record<string, any>>;
+      }>(`/payments?customer=${encodeURIComponent(customerId)}&limit=50`);
+      const selectedFromPayments = pickSubscriptionFromPayments(
+        customerPayments?.data || [],
+      );
+      if (selectedFromPayments) {
+        debug.push(`FOUND subscriptionId=${selectedFromPayments} by payments.customer`);
+        return { subscriptionId: selectedFromPayments, debug };
+      }
+    }
+  }
+
+  // Fallback: alguns clientes podem ter sido criados com externalReference sem e-mail.
+  if (!customerId) {
+    debug.push(`QUERY customers by externalReference=${companyId}`);
+    const customerByReference = await fetchAsaasResource<{
+      data?: Array<Record<string, any>>;
+    }>(`/customers?externalReference=${encodeURIComponent(companyId)}&limit=1`);
+    customerId = customerByReference?.data?.[0]?.id
+      ? String(customerByReference.data[0].id)
+      : null;
+  }
+
+  if (customerId) {
+    debug.push(`QUERY subscriptions by customer=${customerId} (fallback)`);
+    const byCustomer = await fetchAsaasResource<{
+      data?: Array<Record<string, any>>;
+    }>(`/subscriptions?customer=${encodeURIComponent(customerId)}&limit=20`);
+    const selected = pickBestSubscription(byCustomer?.data || []);
+    if (selected) {
+      debug.push(`FOUND subscriptionId=${selected} by customer (fallback)`);
+      return { subscriptionId: selected, debug };
+    }
+  }
+
+  debug.push(`QUERY subscriptions by externalReference=${companyId}`);
+  const byReference = await fetchAsaasResource<{
+    data?: Array<Record<string, any>>;
+  }>(`/subscriptions?externalReference=${encodeURIComponent(companyId)}&limit=20`);
+  const selectedByReference = pickBestSubscription(byReference?.data || []);
+  if (selectedByReference) {
+    debug.push(`FOUND subscriptionId=${selectedByReference} by subscriptions.externalReference`);
+    return { subscriptionId: selectedByReference, debug };
+  }
+
+  debug.push(`QUERY payments by externalReference=${companyId}`);
+  const paymentsByReference = await fetchAsaasResource<{
+    data?: Array<Record<string, any>>;
+  }>(`/payments?externalReference=${encodeURIComponent(companyId)}&limit=50`);
+  const finalByPayments = pickSubscriptionFromPayments(paymentsByReference?.data || []);
+  if (finalByPayments) {
+    debug.push(`FOUND subscriptionId=${finalByPayments} by payments.externalReference`);
+    return { subscriptionId: finalByPayments, debug };
+  }
+
+  debug.push("NOT_FOUND subscriptionId");
+  return { subscriptionId: null, debug };
+};
+
+const TEST_VALID_CPF = "11144477735";
+const BILLING_TYPE_SETTING_PREFIX = "company_billing_type";
+
+const getCompanyBillingTypeSettingKey = (companyId: string) =>
+  `${BILLING_TYPE_SETTING_PREFIX}:${companyId}`;
+
+const saveCompanyBillingType = async (companyId: string, billingType: string) => {
+  const key = getCompanyBillingTypeSettingKey(companyId);
+  const normalized = String(billingType || "").toUpperCase();
+  if (!normalized) return;
+
+  await db.delete(schema.systemSettings).where(eq(schema.systemSettings.key, key));
+  await db.insert(schema.systemSettings).values({
+    id: crypto.randomUUID(),
+    key,
+    value: normalized,
+    description: `Billing type da empresa ${companyId}`,
+    updatedAt: new Date(),
+  });
+};
+
+const loadCompanyBillingType = async (companyId: string) => {
+  const key = getCompanyBillingTypeSettingKey(companyId);
+  const [setting] = await db.select({ value: schema.systemSettings.value })
+    .from(schema.systemSettings)
+    .where(eq(schema.systemSettings.key, key))
+    .limit(1);
+  return setting?.value ? String(setting.value).toUpperCase() : null;
 };
 
 export const masterAdminController = () => new Elysia({ prefix: "/admin/master" })
@@ -679,8 +945,10 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
         currentCompany.ownerId,
         owner?.email,
         {
-          requireCurrentMonthPayment: true,
-          ignoreBlockDate: false
+          requireCurrentMonthPayment: false,
+          activationWindowDays: 10,
+          ignoreBlockDate: true,
+          bypassCache: true,
         }
       );
 
@@ -736,6 +1004,594 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
       console.error("[MASTER_ADMIN_SYNC_ERROR]:", error);
       set.status = 500;
       return { error: "Erro ao sincronizar: " + error.message };
+    }
+  })
+  .get("/companies/:id/billing-flow-debug", async ({ params, set }) => {
+    try {
+      const { id } = params;
+      const [company] = await db
+        .select({
+          id: schema.companies.id,
+          name: schema.companies.name,
+          slug: schema.companies.slug,
+          ownerId: schema.companies.ownerId,
+          ownerEmail: schema.user.email,
+          subscriptionStatus: schema.companies.subscriptionStatus,
+          accessType: schema.companies.accessType,
+          trialEndsAt: schema.companies.trialEndsAt,
+          billingGraceEndsAt: schema.companies.billingGraceEndsAt,
+          asaasSubscriptionId: schema.companies.asaasSubscriptionId,
+          ownerActive: schema.user.active,
+          lastRetentionDiscountAt: schema.user.lastRetentionDiscountAt,
+        })
+        .from(schema.companies)
+        .innerJoin(schema.user, eq(schema.companies.ownerId, schema.user.id))
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!company) {
+        set.status = 404;
+        return { error: "Empresa não encontrada." };
+      }
+
+      const subscriptionId = company.asaasSubscriptionId || null;
+      const subscription = subscriptionId
+        ? await fetchAsaasResource<Record<string, any>>(
+          `/subscriptions/${subscriptionId}`,
+        )
+        : null;
+
+      const paymentsPayload = subscriptionId
+        ? await fetchAsaasResource<{ data?: Array<Record<string, any>> }>(
+          `/subscriptions/${subscriptionId}/payments`,
+        )
+        : null;
+      const payments = paymentsPayload?.data || [];
+
+      const confirmedStatuses = new Set(["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"]);
+      const latestPayment = [...payments]
+        .sort((a, b) => {
+          const aDate = new Date(
+            a?.paymentDate || a?.clientPaymentDate || a?.confirmedDate || a?.dateCreated || 0,
+          ).getTime();
+          const bDate = new Date(
+            b?.paymentDate || b?.clientPaymentDate || b?.confirmedDate || b?.dateCreated || 0,
+          ).getTime();
+          return bDate - aDate;
+        })[0] || null;
+
+      const confirmedCount = payments.filter((payment) =>
+        confirmedStatuses.has(String(payment?.status || "")),
+      ).length;
+      const pendingCount = payments.filter(
+        (payment) => !confirmedStatuses.has(String(payment?.status || "")),
+      ).length;
+
+      const reasons: string[] = [];
+      const localBillingType = await loadCompanyBillingType(company.id);
+      const billingType = String(subscription?.billingType || localBillingType || "").toUpperCase();
+      const asaasStatus = String(subscription?.status || "").toUpperCase();
+
+      if (!subscriptionId) {
+        reasons.push("Empresa sem `asaasSubscriptionId` salvo no banco.");
+      }
+      if (subscriptionId && !subscription) {
+        reasons.push(
+          "Assinatura não encontrada no Asaas (verifique ambiente/API key ou assinatura cancelada).",
+        );
+      }
+      if (subscription && billingType !== "CREDIT_CARD") {
+        reasons.push("Assinatura não está em `CREDIT_CARD`; cobrança automática de cartão não será aplicada.");
+      }
+      if (subscription && asaasStatus !== "ACTIVE") {
+        reasons.push(`Status da assinatura no Asaas está em \`${asaasStatus || "UNKNOWN"}\`.`);
+      }
+
+      const canAutoCharge = reasons.length === 0;
+      const recommendedNextStep = canAutoCharge
+        ? "Fluxo apto para cobrança automática. Para validar liberação de acesso, use `Simular Vencido` e depois `Sync (Asaas)`."
+        : "Ajuste os pontos pendentes acima antes de testar cobrança automática.";
+
+      return {
+        success: true,
+        company: {
+          id: company.id,
+          name: company.name,
+          slug: company.slug,
+          ownerEmail: company.ownerEmail,
+          ownerActive: company.ownerActive,
+          subscriptionStatus: company.subscriptionStatus,
+          accessType: company.accessType,
+          trialEndsAt: company.trialEndsAt,
+          billingGraceEndsAt: company.billingGraceEndsAt,
+          asaasSubscriptionId: subscriptionId,
+          lastRetentionDiscountAt: company.lastRetentionDiscountAt,
+        },
+        asaas: subscription
+          ? {
+            id: subscription.id || subscriptionId,
+            status: subscription.status || null,
+            billingType: subscription.billingType || null,
+            value: subscription.value || null,
+            nextDueDate: subscription.nextDueDate || null,
+            cycle: subscription.cycle || null,
+            discount: subscription.discount || null,
+            dateCreated: subscription.dateCreated || null,
+          }
+          : null,
+        localBillingType,
+        payments: {
+          total: payments.length,
+          confirmedCount,
+          pendingCount,
+          latest: latestPayment
+            ? {
+              id: latestPayment.id || null,
+              status: latestPayment.status || null,
+              dueDate: latestPayment.dueDate || null,
+              paymentDate:
+                latestPayment.paymentDate ||
+                latestPayment.clientPaymentDate ||
+                latestPayment.confirmedDate ||
+                null,
+              value: latestPayment.value || null,
+            }
+            : null,
+        },
+        diagnostic: {
+          canAutoCharge,
+          reasons,
+          recommendedNextStep,
+        },
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_BILLING_FLOW_DEBUG_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao gerar diagnóstico de cobrança: " + error.message };
+    }
+  })
+  .post("/companies/:id/test-retention-offer", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+
+      const [company] = await db
+        .select({
+          id: schema.companies.id,
+          name: schema.companies.name,
+          ownerId: schema.companies.ownerId,
+          asaasSubscriptionId: schema.companies.asaasSubscriptionId,
+        })
+        .from(schema.companies)
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!company) {
+        set.status = 404;
+        return { error: "Empresa não encontrada." };
+      }
+
+      await db.update(schema.user)
+        .set({
+          lastRetentionDiscountAt: new Date(),
+          accountStatus: "ACTIVE",
+          cancellationRequestedAt: null,
+          retentionEndsAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.user.id, company.ownerId));
+
+      let warning: string | null = null;
+      if (company.asaasSubscriptionId) {
+        try {
+          await asaas.applyDiscount(company.asaasSubscriptionId, {
+            percentage: 20,
+            cycles: 3,
+          });
+        } catch (error: any) {
+          warning = `Desconto marcado localmente, mas falhou no Asaas: ${error?.message || "erro desconhecido"}`;
+        }
+      } else {
+        warning = "Empresa sem `asaasSubscriptionId`: desconto aplicado apenas localmente.";
+      }
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "TEST_RETENTION_OFFER",
+        details: warning
+          ? `Oferta de retenção testada com alerta para ${company.name}: ${warning}`
+          : `Oferta de retenção (20% por 3 meses) aplicada para ${company.name}.`,
+        level: warning ? "WARN" : "INFO",
+        companyId: id,
+      });
+
+      return {
+        success: true,
+        message: warning
+          ? "Oferta aplicada com ressalvas. Veja `warning`."
+          : "Oferta de retenção aplicada com sucesso (20% por 3 ciclos).",
+        warning,
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_TEST_RETENTION_OFFER_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao testar oferta de retenção: " + error.message };
+    }
+  })
+  .post("/companies/:id/create-test-subscription", async ({ params, body, set, user }) => {
+    try {
+      const { id } = params;
+      const billingType = String((body as any)?.billingType || "PIX").toUpperCase();
+      const requestedValueFromBody = Number((body as any)?.value);
+      const nextDueDateInput = String((body as any)?.nextDueDate || "");
+
+      if (billingType !== "PIX" && billingType !== "CREDIT_CARD") {
+        set.status = 422;
+        return { error: "billingType inválido. Use PIX ou CREDIT_CARD." };
+      }
+
+      let requestedValue = requestedValueFromBody;
+      if (!Number.isFinite(requestedValueFromBody) || requestedValueFromBody <= 0) {
+        const [monthlyPriceSetting] = await db
+          .select({ value: schema.systemSettings.value })
+          .from(schema.systemSettings)
+          .where(eq(schema.systemSettings.key, "monthly_price"))
+          .limit(1);
+        const valueFromSetting = Number(monthlyPriceSetting?.value || "49.90");
+        requestedValue = Number.isFinite(valueFromSetting) && valueFromSetting > 0
+          ? valueFromSetting
+          : 49.9;
+      }
+
+      if (!Number.isFinite(requestedValue) || requestedValue <= 0) {
+        set.status = 422;
+        return { error: "Valor inválido para assinatura de teste." };
+      }
+
+      const [company] = await db
+        .select({
+          id: schema.companies.id,
+          name: schema.companies.name,
+          ownerId: schema.companies.ownerId,
+          ownerEmail: schema.user.email,
+          ownerName: schema.user.name,
+          ownerCpfCnpj: schema.user.cpfCnpj,
+        })
+        .from(schema.companies)
+        .innerJoin(schema.user, eq(schema.companies.ownerId, schema.user.id))
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!company) {
+        set.status = 404;
+        return { error: "Empresa não encontrada." };
+      }
+
+      const { apiKey, apiUrl } = await resolveAsaasConfig();
+      if (!apiKey) {
+        set.status = 500;
+        return {
+          error:
+            "Configuração ausente: defina ASAAS_API_KEY (ou ASAAS_ACCESS_TOKEN) no .env/.env.local do back_end e reinicie o servidor.",
+        };
+      }
+
+      const ownerEmail = company.ownerEmail || "";
+      if (!ownerEmail) {
+        set.status = 422;
+        return { error: "Usuário dono sem e-mail para criar cliente no Asaas." };
+      }
+
+      const cpfCnpjRaw = String(company.ownerCpfCnpj || "").replace(/\D/g, "");
+      const cpfCnpj =
+        cpfCnpjRaw.length === 11 || cpfCnpjRaw.length === 14
+          ? cpfCnpjRaw
+          : TEST_VALID_CPF;
+
+      const searchCustomerUrl = buildAsaasUrl(
+        apiUrl,
+        `/customers?email=${encodeURIComponent(ownerEmail)}&limit=1`,
+      );
+      console.log("[MASTER_ADMIN_CREATE_TEST_SUBSCRIPTION] Payload Enviado -> GET", {
+        url: searchCustomerUrl,
+      });
+      const customerSearch = await fetch(searchCustomerUrl, {
+        method: "GET",
+        headers: { access_token: apiKey }
+      });
+      const customerSearchData = await customerSearch.json().catch(() => ({}));
+      console.log("[MASTER_ADMIN_CREATE_TEST_SUBSCRIPTION] Resposta do Asaas -> GET /customers", {
+        status: customerSearch.status,
+        ok: customerSearch.ok,
+        data: customerSearchData,
+      });
+      if (customerSearch.status === 404) {
+        set.status = 400;
+        return {
+          error:
+            "Asaas retornou 404 ao buscar cliente. Verifique ASAAS_API_URL com /v3 (ex: https://api-sandbox.asaas.com/v3).",
+          requestUrl: searchCustomerUrl,
+        };
+      }
+      let customerId = customerSearchData?.data?.[0]?.id
+        ? String(customerSearchData.data[0].id)
+        : null;
+
+      if (!customerId) {
+        const createCustomerPayload: Record<string, any> = {
+          name: company.ownerName || company.name || "Cliente Teste",
+          email: ownerEmail,
+          externalReference: company.id,
+        };
+        if (cpfCnpj.length === 11 || cpfCnpj.length === 14) {
+          createCustomerPayload.cpfCnpj = cpfCnpj;
+        }
+
+        const createCustomerUrl = buildAsaasUrl(apiUrl, "/customers");
+        console.log("[MASTER_ADMIN_CREATE_TEST_SUBSCRIPTION] Payload Enviado -> POST /customers", {
+          url: createCustomerUrl,
+          payload: createCustomerPayload,
+        });
+        const createCustomer = await fetch(createCustomerUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            access_token: apiKey,
+          },
+          body: JSON.stringify(createCustomerPayload),
+        });
+        const createCustomerData = await createCustomer.json().catch(() => ({}));
+        console.log("[MASTER_ADMIN_CREATE_TEST_SUBSCRIPTION] Resposta do Asaas -> POST /customers", {
+          status: createCustomer.status,
+          ok: createCustomer.ok,
+          data: createCustomerData,
+        });
+        if (createCustomer.status === 404) {
+          set.status = 400;
+          return {
+            error:
+              "Asaas retornou 404 ao criar cliente. Verifique ASAAS_API_URL com /v3 (ex: https://api-sandbox.asaas.com/v3).",
+            requestUrl: createCustomerUrl,
+          };
+        }
+        if (!createCustomer.ok || !createCustomerData?.id) {
+          set.status = 400;
+          return {
+            error: "Falha ao criar cliente no Asaas.",
+            detail: createCustomerData,
+          };
+        }
+        customerId = String(createCustomerData.id);
+      }
+
+      const now = new Date();
+      const defaultNextDue = new Date(now);
+      defaultNextDue.setDate(defaultNextDue.getDate() + 1);
+      const nextDueDate = nextDueDateInput || defaultNextDue.toISOString().split("T")[0];
+
+      const subscriptionPayload: Record<string, any> = {
+        customer: customerId,
+        billingType,
+        value: requestedValue,
+        nextDueDate,
+        cycle: "MONTHLY",
+        description: `Assinatura teste - ${company.name}`,
+        externalReference: company.id,
+      };
+
+      if (billingType === "CREDIT_CARD") {
+        const cardFromBody = (body as any)?.creditCard || {};
+        const holderFromBody = (body as any)?.creditCardHolderInfo || {};
+        subscriptionPayload.remoteIp = "127.0.0.1";
+        subscriptionPayload.creditCard = {
+          holderName:
+            cardFromBody.holderName ||
+            holderFromBody.name ||
+            company.ownerName ||
+            company.name ||
+            "Teste Asaas",
+          number: cardFromBody.number || "4012001038443335",
+          expiryMonth: cardFromBody.expiryMonth || "12",
+          expiryYear: cardFromBody.expiryYear || "2030",
+          ccv: cardFromBody.ccv || "123",
+        };
+        subscriptionPayload.creditCardHolderInfo = {
+          name: holderFromBody.name || company.ownerName || company.name || "Teste Asaas",
+          email: holderFromBody.email || ownerEmail,
+          cpfCnpj: holderFromBody.cpfCnpj || cpfCnpj || TEST_VALID_CPF,
+          postalCode: holderFromBody.postalCode || "01310930",
+          addressNumber: holderFromBody.addressNumber || "100",
+          phone: holderFromBody.phone || "11999999999",
+        };
+      }
+
+      const createSubscriptionUrl = buildAsaasUrl(apiUrl, "/subscriptions");
+      console.log("[MASTER_ADMIN_CREATE_TEST_SUBSCRIPTION] Payload Enviado -> POST /subscriptions", {
+        url: createSubscriptionUrl,
+        payload: subscriptionPayload,
+      });
+      const createSubscription = await fetch(createSubscriptionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          access_token: apiKey,
+        },
+        body: JSON.stringify(subscriptionPayload),
+      });
+      const createSubscriptionData = await createSubscription.json().catch(() => ({}));
+      console.log("[MASTER_ADMIN_CREATE_TEST_SUBSCRIPTION] Resposta do Asaas -> POST /subscriptions", {
+        status: createSubscription.status,
+        ok: createSubscription.ok,
+        data: createSubscriptionData,
+      });
+      if (createSubscription.status === 404) {
+        set.status = 400;
+        return {
+          error:
+            "Asaas retornou 404 ao criar assinatura. Verifique ASAAS_API_URL com /v3 (ex: https://api-sandbox.asaas.com/v3).",
+          requestUrl: createSubscriptionUrl,
+        };
+      }
+      if (!createSubscription.ok || !createSubscriptionData?.id) {
+        set.status = 400;
+        return {
+          error: "Falha ao criar assinatura de teste no Asaas.",
+          detail: createSubscriptionData,
+          sentPayload: subscriptionPayload,
+        };
+      }
+
+      const createdSubscriptionId = String(createSubscriptionData.id);
+
+      await db.update(schema.companies)
+        .set({
+          asaasSubscriptionId: createdSubscriptionId,
+          accessType: "automatic",
+          subscriptionStatus: "active",
+          active: true,
+          trialEndsAt: new Date(nextDueDate),
+          billingGraceEndsAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.companies.id, company.id));
+      await saveCompanyBillingType(company.id, billingType);
+
+      await db.update(schema.user)
+        .set({
+          active: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.user.id, company.ownerId));
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "CREATE_TEST_SUBSCRIPTION",
+        details: `Assinatura teste criada (${billingType}) para ${company.name}. subscriptionId=${createdSubscriptionId}`,
+        level: "WARN",
+        companyId: id,
+      });
+      console.log(`[BILLING_CHECK] Assinatura ID: ${createdSubscriptionId} | Tipo: ${billingType === "CREDIT_CARD" ? "CARTÃO" : billingType}`);
+
+      return {
+        success: true,
+        message: "Assinatura de teste criada e vinculada com sucesso.",
+        subscriptionId: createdSubscriptionId,
+        billingType,
+        nextDueDate,
+        value: requestedValue,
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_CREATE_TEST_SUBSCRIPTION_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao criar assinatura de teste: " + error.message };
+    }
+  }, {
+    body: t.Optional(t.Object({
+      billingType: t.Optional(t.Union([t.Literal("PIX"), t.Literal("CREDIT_CARD")])),
+      value: t.Optional(t.Number()),
+      nextDueDate: t.Optional(t.String()),
+      creditCard: t.Optional(t.Object({
+        holderName: t.Optional(t.String()),
+        number: t.Optional(t.String()),
+        expiryMonth: t.Optional(t.String()),
+        expiryYear: t.Optional(t.String()),
+        ccv: t.Optional(t.String()),
+      })),
+      creditCardHolderInfo: t.Optional(t.Object({
+        name: t.Optional(t.String()),
+        email: t.Optional(t.String()),
+        cpfCnpj: t.Optional(t.String()),
+        postalCode: t.Optional(t.String()),
+        addressNumber: t.Optional(t.String()),
+        phone: t.Optional(t.String()),
+      })),
+    }))
+  })
+  .post("/companies/:id/test-auto-debit", async ({ params, set, user }) => {
+    try {
+      const { id } = params;
+
+      const [company] = await db
+        .select({
+          id: schema.companies.id,
+          name: schema.companies.name,
+          ownerId: schema.companies.ownerId,
+          ownerEmail: schema.user.email,
+          asaasSubscriptionId: schema.companies.asaasSubscriptionId,
+        })
+        .from(schema.companies)
+        .innerJoin(schema.user, eq(schema.companies.ownerId, schema.user.id))
+        .where(eq(schema.companies.id, id))
+        .limit(1);
+
+      if (!company) {
+        set.status = 404;
+        return { error: "Empresa não encontrada." };
+      }
+
+      const resolvedSubscriptionId = company.asaasSubscriptionId || null;
+      if (!resolvedSubscriptionId) {
+        set.status = 400;
+        return {
+          error: "Assinatura não encontrada no banco local (asaasSubscriptionId vazio).",
+        };
+      }
+
+      const subscription = await fetchAsaasResource<Record<string, any>>(
+        `/subscriptions/${resolvedSubscriptionId}`,
+      );
+      const billingType = String(subscription?.billingType || await loadCompanyBillingType(id) || "").toUpperCase();
+      console.log(`[BILLING_CHECK] Assinatura ID: ${resolvedSubscriptionId} | Tipo: ${billingType === "CREDIT_CARD" ? "CARTÃO" : billingType || "DESCONHECIDO"}`);
+      if (billingType !== "CREDIT_CARD") {
+        set.status = 422;
+        return {
+          error: "A assinatura vinculada não é CARTÃO. Para testar débito automático, crie/vincule assinatura CREDIT_CARD.",
+          billingType,
+        };
+      }
+
+      const today = new Date();
+      const todayYmd = today.toISOString().split("T")[0];
+
+      console.log("[MASTER_ADMIN_TEST_AUTO_DEBIT] Payload Enviado -> updateSubscriptionNextDueDate", {
+        subscriptionId: resolvedSubscriptionId,
+        nextDueDate: todayYmd,
+      });
+      await asaas.updateSubscriptionNextDueDate(resolvedSubscriptionId, todayYmd);
+      console.log("[MASTER_ADMIN_TEST_AUTO_DEBIT] Resposta do Asaas -> updateSubscriptionNextDueDate OK");
+      const afterSimulation = await fetchAsaasResource<Record<string, any>>(
+        `/subscriptions/${resolvedSubscriptionId}`,
+      );
+      console.log(`[BILLING_CHECK] Status no Asaas após simulação: ${String(afterSimulation?.status || "UNKNOWN")}`);
+
+      // Coloca em estado vencido local para o teste de recuperação via sync após eventual cobrança.
+      await db.update(schema.companies)
+        .set({
+          accessType: "automatic",
+          subscriptionStatus: "past_due",
+          active: false,
+          trialEndsAt: today,
+          updatedAt: today,
+        })
+        .where(eq(schema.companies.id, id));
+
+      await writeSystemLog({
+        userId: (user as any)?.id,
+        action: "TEST_AUTO_DEBIT",
+        details: `Simulação de débito automático para ${company.name}. nextDueDate ajustado para ${todayYmd}.`,
+        level: "WARN",
+        companyId: id
+      });
+
+      return {
+        success: true,
+        message:
+          "Próximo vencimento da assinatura ajustado para hoje no Asaas e empresa marcada como vencida localmente (sem desativar usuário). Aguarde processamento do Asaas e clique em Sync Asaas para validar reativação.",
+        nextDueDate: todayYmd,
+      };
+    } catch (error: any) {
+      console.error("[MASTER_ADMIN_TEST_AUTO_DEBIT_ERROR]:", error);
+      set.status = 500;
+      return { error: "Erro ao simular débito automático: " + error.message };
     }
   })
   .post("/companies/:id/billing-day/reset-lock", async ({ params, set, user }) => {
@@ -2168,6 +3024,7 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
           subscriptionStatus: schema.companies.subscriptionStatus,
           trialEndsAt: schema.companies.trialEndsAt,
           accessType: schema.companies.accessType,
+          asaasSubscriptionId: schema.companies.asaasSubscriptionId,
           createdAt: schema.companies.createdAt,
           ownerId: schema.companies.ownerId,
           ownerEmail: schema.user.email,

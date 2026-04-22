@@ -325,6 +325,12 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
               updatedAt: new Date()
             })
             .where(eq(companies.id, externalReference));
+          await db.update(user)
+            .set({
+              active: isStillInGrace,
+              updatedAt: new Date(),
+            })
+            .where(eq(user.id, company.ownerId));
           console.log(`[ASAAS_WEBHOOK] Pagamento pendente/estornado. Empresa ${externalReference} marcada como ${isStillInGrace ? "grace_period" : "past_due"} até ${graceEndsAt.toISOString()}.`);
         }
       } else if (isSubscriptionCancellationEvent) {

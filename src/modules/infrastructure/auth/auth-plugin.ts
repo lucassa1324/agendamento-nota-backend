@@ -60,6 +60,49 @@ const SYNC_CACHE_TTL = 30000; // 30 segundos de cache para o resultado da sincro
 const paidStatuses = ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"];
 const ACTIVATION_WINDOW_DAYS = 60;
 const BILLING_GRACE_DAYS = 7;
+const RENEWAL_SYNC_WINDOW_DAYS = 3;
+type BillingAuditDecision = "ACTIVE" | "GRACE" | "BLOCKED";
+
+const isTruthy = (value?: string) => {
+    if (!value) return false;
+    const normalized = String(value).trim().toLowerCase();
+    return ["1", "true", "yes", "on"].includes(normalized);
+};
+
+const logBillingAudit = (
+    enabled: boolean,
+    payload: {
+        companyId?: string;
+        slug?: string;
+        userId?: string;
+        userEmail?: string;
+        beforeStatus?: string | null;
+        afterStatus?: string | null;
+        beforeActive?: boolean | null;
+        afterActive?: boolean | null;
+        decision: BillingAuditDecision;
+        reason: string;
+    },
+) => {
+    if (!enabled) return;
+    console.log(
+        `[BILLING_AUDIT] company=${payload.companyId || "n/a"} slug=${payload.slug || "n/a"} user=${payload.userId || "n/a"} email=${payload.userEmail || "n/a"} before=${payload.beforeStatus || "n/a"}/${payload.beforeActive === null || payload.beforeActive === undefined ? "n/a" : String(payload.beforeActive)} after=${payload.afterStatus || "n/a"}/${payload.afterActive === null || payload.afterActive === undefined ? "n/a" : String(payload.afterActive)} decision=${payload.decision} reason=${payload.reason}`,
+    );
+};
+
+const normalizeAsaasApiUrl = (rawUrl: string) => {
+    const sanitized = normalizeEnvValue(rawUrl).replace(/\/+$/, "");
+    if (!sanitized) {
+        return "https://api-sandbox.asaas.com/v3";
+    }
+    if (/\/v3$/i.test(sanitized)) {
+        return sanitized;
+    }
+    if (/\/v\d+$/i.test(sanitized)) {
+        return sanitized;
+    }
+    return `${sanitized}/v3`;
+};
 
 const daysInMonth = (year: number, monthIndex: number) =>
     new Date(year, monthIndex + 1, 0).getDate();
@@ -108,6 +151,7 @@ type AsaasBillingSnapshot = {
     hasAnyConfirmedPayment: boolean;
     hasCurrentMonthPayment: boolean;
     hasActiveSubscription: boolean;
+    activeSubscriptionId: string | null;
     subscriptionBaseDate: Date | null;
     sourceUrl: string;
 };
@@ -126,9 +170,9 @@ async function resolveAsaasBillingSnapshot(companyId: string, ownerEmail?: strin
         normalizeEnvValue(fallbackApiKey),
     ].filter(Boolean) as string[];
     const urlCandidates = [
-        normalizeEnvValue(process.env.ASAAS_API_URL),
-        normalizeEnvValue(process.env.ASAAS_BASE_URL),
-        normalizeEnvValue(fallbackApiUrl),
+        normalizeAsaasApiUrl(normalizeEnvValue(process.env.ASAAS_API_URL)),
+        normalizeAsaasApiUrl(normalizeEnvValue(process.env.ASAAS_BASE_URL)),
+        normalizeAsaasApiUrl(normalizeEnvValue(fallbackApiUrl)),
         "https://api-sandbox.asaas.com/v3",
     ].filter(Boolean) as string[];
 
@@ -162,6 +206,7 @@ async function resolveAsaasBillingSnapshot(companyId: string, ownerEmail?: strin
             const foundPayments: Array<Record<string, any>> = [];
             let subscriptionBaseDate: Date | null = null;
             let hasActiveSubscription = false;
+            let activeSubscriptionId: string | null = null;
 
             for (const paidStatus of paidStatuses) {
                 const byExternalReference = await fetchPayments(
@@ -226,6 +271,7 @@ async function resolveAsaasBillingSnapshot(companyId: string, ownerEmail?: strin
                     };
                     const activeSubscription = subscriptionsPayload.data?.[0];
                     if (activeSubscription) {
+                        activeSubscriptionId = activeSubscription.id ? String(activeSubscription.id) : null;
                         const baseDateRaw =
                             activeSubscription.dateCreated ||
                             activeSubscription.nextDueDate ||
@@ -260,6 +306,7 @@ async function resolveAsaasBillingSnapshot(companyId: string, ownerEmail?: strin
                 hasAnyConfirmedPayment,
                 hasCurrentMonthPayment,
                 hasActiveSubscription,
+                activeSubscriptionId,
                 subscriptionBaseDate,
                 sourceUrl: asaasApiUrl,
             };
@@ -299,13 +346,15 @@ export async function syncAsaasPaymentForCompany(
         requireCurrentMonthPayment?: boolean;
         activationWindowDays?: number;
         ignoreBlockDate?: boolean;
+        bypassCache?: boolean;
     },
 ) {
     // 1. Verificar se já existe uma sincronização em andamento ou recentemente concluída
     const cached = syncCache.get(companyId);
     const nowTs = Date.now();
+    const bypassCache = options?.bypassCache ?? false;
 
-    if (cached && (nowTs - cached.timestamp < SYNC_CACHE_TTL)) {
+    if (!bypassCache && cached && (nowTs - cached.timestamp < SYNC_CACHE_TTL)) {
         console.log(`[SYNC_CACHE] Usando sincronização recente para ${companyId} (idade: ${nowTs - cached.timestamp}ms)`);
         return cached.promise;
     }
@@ -319,6 +368,7 @@ export async function syncAsaasPaymentForCompany(
             active: schema.companies.active,
             updatedAt: schema.companies.updatedAt,
             billingAnchorDay: schema.companies.billingAnchorDay,
+            asaasSubscriptionId: schema.companies.asaasSubscriptionId,
         })
             .from(schema.companies)
             .where(eq(schema.companies.id, companyId))
@@ -400,6 +450,9 @@ export async function syncAsaasPaymentForCompany(
                 subscriptionStatus: "active",
                 active: true,
                 accessType: "automatic",
+                asaasSubscriptionId:
+                    currentCompany?.asaasSubscriptionId ||
+                    billingSnapshot.activeSubscriptionId,
                 billingAnchorDay: resolvedAnchorDay,
                 billingGraceEndsAt: null,
                 trialEndsAt: nextDue,
@@ -442,6 +495,10 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             isPublicAssetRoute ||
             path === "/api/business/settings/pricing" ||
             path === "/api/business/sync";
+        const billingAuditEnabled = isTruthy(
+            normalizeEnvValue(process.env.BILLING_AUDIT_MODE) ||
+            (await readEnvFallback("BILLING_AUDIT_MODE")),
+        );
 
         // Assets públicos (como logos/favicons) não dependem de sessão e
         // não devem passar pelas regras de bloqueio de cobrança/acesso.
@@ -553,6 +610,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                 active: schema.companies.active,
                                 subscriptionStatus: schema.companies.subscriptionStatus,
                                 trialEndsAt: schema.companies.trialEndsAt,
+                                asaasSubscriptionId: schema.companies.asaasSubscriptionId,
                                 billingAnchorDay: schema.companies.billingAnchorDay,
                                 billingGraceEndsAt: schema.companies.billingGraceEndsAt,
                                 billingDayLastChangedAt: schema.companies.billingDayLastChangedAt,
@@ -584,6 +642,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                 active: schema.companies.active,
                                 subscriptionStatus: schema.companies.subscriptionStatus,
                                 trialEndsAt: schema.companies.trialEndsAt,
+                                asaasSubscriptionId: schema.companies.asaasSubscriptionId,
                             })
                             .from(schema.companies)
                             .where(eq(schema.companies.ownerId, user.id))
@@ -650,8 +709,10 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                     userCompany.ownerId,
                                     user.email,
                                     {
-                                        requireCurrentMonthPayment: true,
-                                        ignoreBlockDate: false
+                                        requireCurrentMonthPayment: false,
+                                        activationWindowDays: 10,
+                                        ignoreBlockDate: true,
+                                        bypassCache: true,
                                     },
                                 );
 
@@ -663,8 +724,10 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                         userCompany.ownerId,
                                         user.email,
                                         {
-                                            requireCurrentMonthPayment: true,
-                                            ignoreBlockDate: false
+                                            requireCurrentMonthPayment: false,
+                                            activationWindowDays: 10,
+                                            ignoreBlockDate: true,
+                                            bypassCache: true,
                                         },
                                     );
                                 }
@@ -675,9 +738,43 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                     userCompany.trialEndsAt = syncResult.nextDue;
                                     console.log(`[AUTH_SYNC] Reativação imediata concluída para ${userCompany.slug} durante validação de bloqueio.`);
                                 } else {
-                                    console.warn(`[AUTH_BLOCK]: Estabelecimento bloqueado por cobrança pendente: ${userCompany.slug}`);
-                                    set.status = 402;
-                                    throw new Error("BILLING_REQUIRED");
+                                    // Evita bloqueio imediato após vencimento: entra em carência para aguardar
+                                    // compensação do débito automático no cartão.
+                                    const now = new Date();
+                                    const dueDate = userCompany.trialEndsAt
+                                        ? new Date(userCompany.trialEndsAt)
+                                        : now;
+                                    const effectiveGraceEnd = userCompany.billingGraceEndsAt
+                                        ? new Date(userCompany.billingGraceEndsAt)
+                                        : calculateGraceEndDate(dueDate);
+
+                                    if (now <= effectiveGraceEnd) {
+                                        await db.update(schema.companies)
+                                            .set({
+                                                subscriptionStatus: "grace_period",
+                                                active: true,
+                                                billingGraceEndsAt: effectiveGraceEnd,
+                                                updatedAt: now,
+                                            })
+                                            .where(eq(schema.companies.id, userCompany.id));
+                                        await db.update(schema.user)
+                                            .set({
+                                                active: true,
+                                                updatedAt: now,
+                                            })
+                                            .where(eq(schema.user.id, userCompany.ownerId));
+
+                                        userCompany.active = true;
+                                        userCompany.subscriptionStatus = "grace_period";
+                                        userCompany.billingGraceEndsAt = effectiveGraceEnd;
+                                        console.warn(
+                                            `[AUTH_GRACE] ${userCompany.slug} em carência durante espera de compensação automática até ${effectiveGraceEnd.toISOString()}.`,
+                                        );
+                                    } else {
+                                        console.warn(`[AUTH_BLOCK]: Estabelecimento bloqueado por cobrança pendente: ${userCompany.slug}`);
+                                        set.status = 402;
+                                        throw new Error("BILLING_REQUIRED");
+                                    }
                                 }
                             } else {
                                 console.warn(`[AUTH_BLOCK]: Conta de usuário desativada: ${user.email}`);
@@ -703,6 +800,9 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             let status = userCompany.subscriptionStatus;
                             let trialEnds = userCompany.trialEndsAt ? new Date(userCompany.trialEndsAt) : null;
                             let graceEnds = userCompany.billingGraceEndsAt ? new Date(userCompany.billingGraceEndsAt) : null;
+                            const auditBeforeStatus = userCompany.subscriptionStatus;
+                            const auditBeforeActive = userCompany.active;
+                            let auditReason = "status_check";
                             const isTrialStatus = status === 'trial' || status === 'trialing';
                             let isManualActive =
                                 userCompany.accessType === "manual" ||
@@ -712,14 +812,46 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             // Se estiver bloqueado ou com pagamento pendente, tenta sincronizar uma última vez
                             const isAutomaticAccess = userCompany.accessType === "automatic" && !isTrialStatus && !isManualActive;
                             if (isAutomaticAccess) {
+                                // Janela de renovação: 3 dias antes do vencimento já tenta sincronizar
+                                // para liberar imediatamente caso o Asaas já tenha gerado/confirmado a nova fatura.
+                                if (status === "active" && trialEnds) {
+                                    const msUntilDue = trialEnds.getTime() - now.getTime();
+                                    const daysUntilDue = msUntilDue / (1000 * 60 * 60 * 24);
+                                    if (daysUntilDue <= RENEWAL_SYNC_WINDOW_DAYS) {
+                                        const renewalSyncResult = await syncAsaasPaymentForCompany(
+                                            userCompany.id,
+                                            userCompany.ownerId,
+                                            user.email,
+                                            {
+                                                requireCurrentMonthPayment: false,
+                                                ignoreBlockDate: true,
+                                                bypassCache: true,
+                                            },
+                                        );
+                                        if (renewalSyncResult?.activated) {
+                                            userCompany.active = true;
+                                            userCompany.subscriptionStatus = "active";
+                                            userCompany.trialEndsAt = renewalSyncResult.nextDue;
+                                            userCompany.billingGraceEndsAt = null;
+                                            status = "active";
+                                            trialEnds = renewalSyncResult.nextDue;
+                                            graceEnds = null;
+                                            auditReason = "renewal_sync_confirmed";
+                                            console.log(`[AUTH_RENEWAL] Renovação antecipada confirmada no Asaas para ${userCompany.slug}.`);
+                                        }
+                                    }
+                                }
+
                                 if (status !== "active") {
                                     const syncResult = await syncAsaasPaymentForCompany(
                                         userCompany.id,
                                         userCompany.ownerId,
                                         user.email,
                                         {
-                                            requireCurrentMonthPayment: true,
-                                            ignoreBlockDate: false
+                                            requireCurrentMonthPayment: false,
+                                            activationWindowDays: 10,
+                                            ignoreBlockDate: true,
+                                            bypassCache: true,
                                         },
                                     );
 
@@ -731,6 +863,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                         status = "active";
                                         trialEnds = syncResult.nextDue;
                                         graceEnds = null;
+                                        auditReason = "sync_confirmed";
                                         console.log(`[AUTH_SYNC] Pagamento confirmado no Asaas para ${userCompany.slug}. Acesso reativado automaticamente.`);
                                     } else if (status === "grace_period") {
                                         const effectiveGraceEnd = graceEnds || (trialEnds ? calculateGraceEndDate(trialEnds) : null);
@@ -748,6 +881,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                             userCompany.billingGraceEndsAt = effectiveGraceEnd;
                                             status = "past_due";
                                             graceEnds = effectiveGraceEnd;
+                                            auditReason = "grace_expired_after_sync";
                                         }
                                     }
                                 }
@@ -763,10 +897,17 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                             updatedAt: new Date()
                                         })
                                         .where(eq(schema.companies.id, userCompany.id));
+                                    await db.update(schema.user)
+                                        .set({
+                                            active: true,
+                                            updatedAt: new Date(),
+                                        })
+                                        .where(eq(schema.user.id, userCompany.ownerId));
                                     status = "grace_period";
                                     graceEnds = graceEnd;
                                     userCompany.subscriptionStatus = "grace_period";
                                     userCompany.billingGraceEndsAt = graceEnd;
+                                    auditReason = "entered_grace_due_to_expiration";
                                     console.warn(`[AUTH_GRACE] ${userCompany.slug} entrou em carência até ${graceEnd.toISOString()}.`);
                                 }
 
@@ -782,6 +923,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                     status = "past_due";
                                     userCompany.active = false;
                                     userCompany.subscriptionStatus = "past_due";
+                                    auditReason = "grace_expired_blocked";
                                     console.warn(`[AUTH_SYNC] Carência expirada para ${userCompany.slug}. Rebaixado para past_due.`);
                                 }
                             }
@@ -797,10 +939,17 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                         updatedAt: new Date()
                                     })
                                     .where(eq(schema.companies.id, userCompany.id));
+                                await db.update(schema.user)
+                                    .set({
+                                        active: true,
+                                        updatedAt: new Date(),
+                                    })
+                                    .where(eq(schema.user.id, userCompany.ownerId));
                                 status = "grace_period";
                                 userCompany.subscriptionStatus = "grace_period";
                                 userCompany.billingGraceEndsAt = graceEnd;
                                 graceEnds = graceEnd;
+                                auditReason = "fallback_to_grace";
                             }
 
                             if (status === "grace_period" && graceEnds && now > graceEnds) {
@@ -813,6 +962,37 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                     .where(eq(schema.companies.id, userCompany.id));
                                 status = "past_due";
                                 userCompany.active = false;
+                                auditReason = "fallback_grace_expired";
+                            }
+
+                            // Última tentativa forte antes de bloquear para evitar falso bloqueio
+                            // quando o pagamento já foi confirmado no Asaas.
+                            if (
+                                isAutomaticAccess &&
+                                (status === "past_due" || status === "grace_period")
+                            ) {
+                                const finalSync = await syncAsaasPaymentForCompany(
+                                    userCompany.id,
+                                    userCompany.ownerId,
+                                    user.email,
+                                    {
+                                        requireCurrentMonthPayment: false,
+                                        activationWindowDays: 10,
+                                        ignoreBlockDate: true,
+                                        bypassCache: true,
+                                    },
+                                );
+                                if (finalSync?.activated) {
+                                    userCompany.active = true;
+                                    userCompany.subscriptionStatus = "active";
+                                    userCompany.trialEndsAt = finalSync.nextDue;
+                                    userCompany.billingGraceEndsAt = null;
+                                    status = "active";
+                                    trialEnds = finalSync.nextDue;
+                                    graceEnds = null;
+                                    auditReason = "final_sync_confirmed";
+                                    console.log(`[AUTH_SYNC] Última tentativa confirmou pagamento e evitou bloqueio para ${userCompany.slug}.`);
+                                }
                             }
 
                             // Validação final de acesso baseada no status resolvido
@@ -820,10 +1000,35 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             const isBlocked = status === 'past_due' || status === 'unpaid' || status === 'canceled' || status === 'inactive';
 
                             if (isBlocked || (isTrialStatus && isExpired)) {
+                                logBillingAudit(billingAuditEnabled, {
+                                    companyId: userCompany.id,
+                                    slug: userCompany.slug,
+                                    userId: user.id,
+                                    userEmail: user.email,
+                                    beforeStatus: auditBeforeStatus,
+                                    afterStatus: status,
+                                    beforeActive: auditBeforeActive,
+                                    afterActive: userCompany.active,
+                                    decision: "BLOCKED",
+                                    reason: `${auditReason}|isBlocked=${String(isBlocked)}|isExpired=${String(isExpired)}`,
+                                });
                                 console.warn(`[AUTH_BLOCK]: Acesso negado para ${userCompany.slug} (Status: ${status}, Expired: ${isExpired})`);
                                 set.status = 402;
                                 throw new Error("BILLING_REQUIRED");
                             }
+
+                            logBillingAudit(billingAuditEnabled, {
+                                companyId: userCompany.id,
+                                slug: userCompany.slug,
+                                userId: user.id,
+                                userEmail: user.email,
+                                beforeStatus: auditBeforeStatus,
+                                afterStatus: status,
+                                beforeActive: auditBeforeActive,
+                                afterActive: userCompany.active,
+                                decision: status === "grace_period" ? "GRACE" : "ACTIVE",
+                                reason: auditReason,
+                            });
                         }
                     }
                 } catch (dbError: any) {
