@@ -349,25 +349,39 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
           return { received: true };
         }
 
+        const now = new Date();
+        const currentCycleEndsAt = company.trialEndsAt ? new Date(company.trialEndsAt) : now;
+        const keepAccessUntilCycleEnd = currentCycleEndsAt.getTime() > now.getTime();
+
         await db.update(companies)
           .set({
-            subscriptionStatus: "canceled",
-            active: false,
+            subscriptionStatus: keepAccessUntilCycleEnd ? "active" : "canceled",
+            active: keepAccessUntilCycleEnd,
             asaasSubscriptionId: subscriptionId || company.asaasSubscriptionId,
-            trialEndsAt: new Date(),
+            trialEndsAt: keepAccessUntilCycleEnd ? currentCycleEndsAt : now,
             billingGraceEndsAt: null,
-            updatedAt: new Date(),
+            updatedAt: now,
           })
           .where(eq(companies.id, externalReference));
 
         await db.update(user)
           .set({
-            active: false,
-            updatedAt: new Date(),
+            accountStatus: "PENDING_CANCELLATION",
+            cancellationRequestedAt: now,
+            active: keepAccessUntilCycleEnd,
+            updatedAt: now,
           })
           .where(eq(user.id, company.ownerId));
 
-        console.log(`[ASAAS_WEBHOOK] Assinatura cancelada no Asaas. Empresa ${company.name} (${externalReference}) bloqueada localmente.`);
+        if (keepAccessUntilCycleEnd) {
+          console.log(
+            `[ASAAS_WEBHOOK] Assinatura cancelada no Asaas para ${company.name} (${externalReference}), mas acesso mantido até ${currentCycleEndsAt.toISOString()}.`,
+          );
+        } else {
+          console.log(
+            `[ASAAS_WEBHOOK] Assinatura cancelada no Asaas. Empresa ${company.name} (${externalReference}) bloqueada localmente.`,
+          );
+        }
       }
 
       return { received: true };

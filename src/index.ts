@@ -632,7 +632,7 @@ const startServer = () => {
                 await db.update(schema.user)
                   .set({
                     accountStatus: "PENDING_CANCELLATION",
-                    active: false,
+                    active: true,
                     cancellationRequestedAt: now,
                     retentionEndsAt
                   })
@@ -642,6 +642,8 @@ const startServer = () => {
                   success: true,
                   status: "PENDING_CANCELLATION",
                   retentionEndsAt,
+                  message:
+                    "Cancelamento agendado. Seu acesso permanece ativo até o fim do ciclo já pago.",
                   refundPolicy: {
                     eligibleFullRefund,
                     daysSinceAccountCreation: diffInDays,

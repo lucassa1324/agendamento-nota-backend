@@ -800,6 +800,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             let status = userCompany.subscriptionStatus;
                             let trialEnds = userCompany.trialEndsAt ? new Date(userCompany.trialEndsAt) : null;
                             let graceEnds = userCompany.billingGraceEndsAt ? new Date(userCompany.billingGraceEndsAt) : null;
+                            const isPendingCancellation = user.accountStatus === "PENDING_CANCELLATION";
                             const auditBeforeStatus = userCompany.subscriptionStatus;
                             const auditBeforeActive = userCompany.active;
                             let auditReason = "status_check";
@@ -808,6 +809,52 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                 userCompany.accessType === "manual" ||
                                 status === 'manual' ||
                                 status === 'manual_active';
+
+                            if (isPendingCancellation) {
+                                if (trialEnds && now <= trialEnds) {
+                                    // Cancelado com período já pago: mantém acesso até o fim do ciclo.
+                                    if (status !== "active" || userCompany.active === false) {
+                                        await db.update(schema.companies)
+                                            .set({
+                                                subscriptionStatus: "active",
+                                                active: true,
+                                                billingGraceEndsAt: null,
+                                                updatedAt: now,
+                                            })
+                                            .where(eq(schema.companies.id, userCompany.id));
+                                        await db.update(schema.user)
+                                            .set({
+                                                active: true,
+                                                updatedAt: now,
+                                            })
+                                            .where(eq(schema.user.id, userCompany.ownerId));
+                                        status = "active";
+                                        userCompany.active = true;
+                                        userCompany.subscriptionStatus = "active";
+                                    }
+                                    auditReason = "pending_cancellation_within_paid_cycle";
+                                } else {
+                                    // Fim do ciclo alcançado: encerra acesso sem carência.
+                                    await db.update(schema.companies)
+                                        .set({
+                                            subscriptionStatus: "canceled",
+                                            active: false,
+                                            billingGraceEndsAt: null,
+                                            updatedAt: now,
+                                        })
+                                        .where(eq(schema.companies.id, userCompany.id));
+                                    await db.update(schema.user)
+                                        .set({
+                                            active: false,
+                                            updatedAt: now,
+                                        })
+                                        .where(eq(schema.user.id, userCompany.ownerId));
+                                    status = "canceled";
+                                    userCompany.active = false;
+                                    userCompany.subscriptionStatus = "canceled";
+                                    auditReason = "pending_cancellation_cycle_ended";
+                                }
+                            }
 
                             // Se estiver bloqueado ou com pagamento pendente, tenta sincronizar uma última vez
                             const isAutomaticAccess = userCompany.accessType === "automatic" && !isTrialStatus && !isManualActive;
