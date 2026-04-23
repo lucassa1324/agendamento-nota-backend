@@ -7,6 +7,7 @@ import { NotificationService } from "../../../notifications/application/notifica
 import { db } from "../../../infrastructure/drizzle/database";
 import { appointments, serviceResources, inventory, inventoryLogs, appointmentItems } from "../../../../db/schema";
 import { eq, sql, inArray } from "drizzle-orm";
+import { assertUserHasCompanyAccess } from "../utils/company-access.util";
 
 export class UpdateAppointmentStatusUseCase {
   constructor(
@@ -73,11 +74,14 @@ export class UpdateAppointmentStatusUseCase {
       throw new Error("Appointment not found");
     }
 
-    // Verifica se o usuário é o dono da empresa do agendamento
+    await assertUserHasCompanyAccess(
+      appointment.companyId,
+      userId,
+      "Unauthorized to update this appointment status",
+    );
     const business = await this.businessRepository.findById(appointment.companyId);
-
-    if (!business || business.ownerId !== userId) {
-      throw new Error("Unauthorized to update this appointment status");
+    if (!business) {
+      throw new Error("Business not found");
     }
 
     const updatedAppointment = await db.transaction(async (tx) => {

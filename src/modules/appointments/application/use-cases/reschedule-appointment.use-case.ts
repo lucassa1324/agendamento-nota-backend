@@ -7,6 +7,7 @@ import {
   assertNoSchedulingConflict,
   parseDurationToMinutes,
 } from "../utils/scheduling-conflict.util";
+import { assertUserHasCompanyAccess } from "../utils/company-access.util";
 
 export class RescheduleAppointmentUseCase {
   constructor(
@@ -20,10 +21,11 @@ export class RescheduleAppointmentUseCase {
       throw new Error("Appointment not found");
     }
 
-    const business = await this.businessRepository.findById(appointment.companyId);
-    if (!business || business.ownerId !== userId) {
-      throw new Error("Unauthorized to reschedule this appointment");
-    }
+    await assertUserHasCompanyAccess(
+      appointment.companyId,
+      userId,
+      "Unauthorized to reschedule this appointment",
+    );
 
     if (appointment.status === "CANCELLED") {
       throw new Error("Não é possível reagendar um agendamento cancelado.");

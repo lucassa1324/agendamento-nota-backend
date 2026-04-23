@@ -13,6 +13,7 @@ import {
   assertNoSchedulingConflict,
   parseDurationToMinutes,
 } from "../utils/scheduling-conflict.util";
+import { assertUserHasCompanyAccess } from "../utils/company-access.util";
 
 export class CreateAppointmentUseCase {
   constructor(
@@ -30,9 +31,13 @@ export class CreateAppointmentUseCase {
       throw new Error("Business not found");
     }
 
-    // Se houver um userId, validamos se é o dono (agendamento manual via admin)
-    if (userId && business.ownerId !== userId) {
-      throw new Error("Unauthorized: Only business owners can create manual appointments");
+    // Se houver usuário logado, precisa ter acesso à empresa (owner ou staff ativo)
+    if (userId) {
+      await assertUserHasCompanyAccess(
+        data.companyId,
+        userId,
+        "Unauthorized: User has no access to this company",
+      );
     }
 
     // Regras antiabuso aplicadas somente no fluxo público (sem usuário logado)

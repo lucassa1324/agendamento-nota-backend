@@ -9,6 +9,7 @@ import {
   assertNoSchedulingConflict,
   parseDurationToMinutes,
 } from "../utils/scheduling-conflict.util";
+import { assertUserHasCompanyAccess } from "../utils/company-access.util";
 
 type UpdateAppointmentCommand = {
   id: string;
@@ -43,10 +44,11 @@ export class UpdateAppointmentUseCase {
       throw new Error("Appointment not found");
     }
 
-    const business = await this.businessRepository.findById(appointment.companyId);
-    if (!business || business.ownerId !== userId) {
-      throw new Error("Unauthorized to update this appointment");
-    }
+    await assertUserHasCompanyAccess(
+      appointment.companyId,
+      userId,
+      "Unauthorized to update this appointment",
+    );
 
     const serviceIds = data.serviceId
       .split(",")
