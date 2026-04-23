@@ -17,6 +17,11 @@ const resolveFrontendBaseUrl = () =>
   process.env.NEXT_PUBLIC_APP_URL ||
   "http://localhost:3000";
 
+const generateTemporaryPassword = () => {
+  const randomSuffix = Math.random().toString(36).slice(-6).toUpperCase();
+  return `Aura@${randomSuffix}9`;
+};
+
 type StaffInvitePayload = {
   token: string;
   staffId: string;
@@ -94,8 +99,17 @@ const sendInviteEmail = async (params: {
   email: string;
   name: string;
   inviteUrl: string;
+  temporaryPassword?: string | null;
 }) => {
   const mailService = new MailService();
+  const credentialBlock = params.temporaryPassword
+    ? `
+        <p><strong>Senha temporária de acesso:</strong> ${params.temporaryPassword}</p>
+        <p>Use essa senha para entrar e, após o primeiro acesso, altere para uma senha pessoal.</p>
+      `
+    : `
+        <p>Use a senha já cadastrada para este e-mail para concluir o acesso.</p>
+      `;
   await mailService.sendMail({
     to: params.email,
     subject: "Você foi convidado para colaborar no Aura Gestão",
@@ -104,6 +118,7 @@ const sendInviteEmail = async (params: {
         <h2>Convite para o time</h2>
         <p>Olá, ${params.name}!</p>
         <p>Você recebeu um convite para entrar no time do Aura Gestão.</p>
+        ${credentialBlock}
         <p><a href="${params.inviteUrl}" target="_blank" rel="noreferrer">Clique aqui para aceitar o convite</a></p>
         <p>Este link expira em ${INVITE_EXPIRATION_HOURS} horas.</p>
       </div>
@@ -147,6 +162,7 @@ const ensureUserAndCredentialForStaff = async (params: {
   email: string;
   name: string;
   passwordHash?: string;
+  updateExistingPassword?: boolean;
 }) => {
   const normalizedEmail = normalizeEmail(params.email);
   const [existingUser] = await db
@@ -166,6 +182,9 @@ const ensureUserAndCredentialForStaff = async (params: {
     });
   }
 
+  let createdCredentialAccount = false;
+  let updatedCredentialAccount = false;
+
   if (params.passwordHash) {
     const existingCredentialAccounts = await db
       .select({ id: schema.account.id })
@@ -180,15 +199,20 @@ const ensureUserAndCredentialForStaff = async (params: {
     if (existingCredentialAccounts.length === 0) {
       await db.insert(schema.account).values({
         id: crypto.randomUUID(),
-        accountId: userId,
+        // Para provider "credential", o Better Auth usa accountId vinculado ao e-mail.
+        // Salvar userId aqui quebra o lookup de login por e-mail.
+        accountId: normalizedEmail,
         providerId: "credential",
         userId,
         password: params.passwordHash,
       });
-    } else {
+      createdCredentialAccount = true;
+    } else if (params.updateExistingPassword) {
       await db
         .update(schema.account)
         .set({
+          // Auto-correção de contas antigas criadas com accountId incorreto.
+          accountId: normalizedEmail,
           password: params.passwordHash,
           updatedAt: new Date(),
         })
@@ -198,10 +222,16 @@ const ensureUserAndCredentialForStaff = async (params: {
             eq(schema.account.providerId, "credential"),
           ),
         );
+      updatedCredentialAccount = true;
     }
   }
 
-  return { userId, createdUser: !existingUser };
+  return {
+    userId,
+    createdUser: !existingUser,
+    createdCredentialAccount,
+    updatedCredentialAccount,
+  };
 };
 
 export const staffController = () =>
@@ -401,10 +431,18 @@ export const staffController = () =>
           );
         }
 
+        const temporaryPassword = generateTemporaryPassword();
+        const temporaryPasswordHash = await Bun.password.hash(temporaryPassword, {
+          algorithm: "argon2id",
+        });
+
         const ensuredUser = await ensureUserAndCredentialForStaff({
           email: normalizedEmail,
           name: body.name,
+          passwordHash: temporaryPasswordHash,
+          updateExistingPassword: true,
         });
+        const temporaryPasswordForInvite = temporaryPassword;
         await db
           .update(schema.staff)
           .set({
@@ -420,15 +458,26 @@ export const staffController = () =>
           invitedBy: user!.id,
         });
         let emailSent = false;
+        let emailError: string | null = null;
 
         try {
           await sendInviteEmail({
             email: normalizedEmail,
             name: body.name.trim(),
             inviteUrl: invite.inviteUrl,
+            temporaryPassword: temporaryPasswordForInvite,
           });
           emailSent = true;
-        } catch (error) {
+        } catch (error: unknown) {
+          emailError =
+            error instanceof Error
+              ? error.message
+              : typeof error === "object" &&
+                  error !== null &&
+                  "message" in error &&
+                  typeof (error as { message?: unknown }).message === "string"
+                ? (error as { message: string }).message
+                : "Falha desconhecida ao enviar convite por e-mail.";
           console.error("[STAFF_INVITE_EMAIL_ERROR]", error);
         }
 
@@ -439,6 +488,8 @@ export const staffController = () =>
           inviteUrl: invite.inviteUrl,
           expiresAt: invite.expiresAt.toISOString(),
           emailSent,
+          emailError,
+          temporaryPassword: temporaryPasswordForInvite,
         };
       },
       {
@@ -485,6 +536,18 @@ export const staffController = () =>
           return { error: "Colaborador não encontrado para este e-mail." };
         }
 
+        const temporaryPassword = generateTemporaryPassword();
+        const temporaryPasswordHash = await Bun.password.hash(temporaryPassword, {
+          algorithm: "argon2id",
+        });
+        const ensuredUser = await ensureUserAndCredentialForStaff({
+          email: normalizedEmail,
+          name: member.name,
+          passwordHash: temporaryPasswordHash,
+          updateExistingPassword: true,
+        });
+        const temporaryPasswordForInvite = temporaryPassword;
+
         const invite = await createInviteRecord({
           staffId: member.id,
           companyId: body.companyId,
@@ -493,14 +556,25 @@ export const staffController = () =>
         });
 
         let emailSent = false;
+        let emailError: string | null = null;
         try {
           await sendInviteEmail({
             email: normalizedEmail,
             name: member.name,
             inviteUrl: invite.inviteUrl,
+            temporaryPassword: temporaryPasswordForInvite,
           });
           emailSent = true;
-        } catch (error) {
+        } catch (error: unknown) {
+          emailError =
+            error instanceof Error
+              ? error.message
+              : typeof error === "object" &&
+                  error !== null &&
+                  "message" in error &&
+                  typeof (error as { message?: unknown }).message === "string"
+                ? (error as { message: string }).message
+                : "Falha desconhecida ao reenviar convite por e-mail.";
           console.error("[STAFF_RESEND_INVITE_EMAIL_ERROR]", error);
         }
 
@@ -511,6 +585,8 @@ export const staffController = () =>
           inviteUrl: invite.inviteUrl,
           expiresAt: invite.expiresAt.toISOString(),
           emailSent,
+          emailError,
+          temporaryPassword: temporaryPasswordForInvite,
         };
       },
       {
@@ -753,6 +829,7 @@ export const staffController = () =>
           email: member.email,
           name: member.name,
           passwordHash: hashedPassword,
+          updateExistingPassword: true,
         });
 
         await db
@@ -766,7 +843,8 @@ export const staffController = () =>
         return {
           success: true,
           message: "Senha de acesso redefinida com sucesso.",
-          createdCredentialAccount: true,
+          createdCredentialAccount: ensuredUser.createdCredentialAccount,
+          updatedCredentialAccount: ensuredUser.updatedCredentialAccount,
           createdUser: ensuredUser.createdUser,
         };
       },
@@ -890,8 +968,80 @@ export const staffController = () =>
           return { error: "Staff not found" };
         }
 
-        await db.delete(schema.staffServices).where(eq(schema.staffServices.staffId, id));
-        await db.delete(schema.staff).where(eq(schema.staff.id, id));
+        const [member] = await db
+          .select({
+            id: schema.staff.id,
+            email: schema.staff.email,
+            userId: schema.staff.userId,
+          })
+          .from(schema.staff)
+          .where(eq(schema.staff.id, id))
+          .limit(1);
+
+        const normalizedEmail = normalizeEmail(member?.email || "");
+        const inviteIdentifier = normalizedEmail
+          ? buildInviteIdentifier(query.companyId, normalizedEmail)
+          : null;
+        const now = new Date();
+
+        await db.transaction(async (tx) => {
+          await tx.delete(schema.staffServices).where(eq(schema.staffServices.staffId, id));
+
+          // Limpa vínculos operacionais da empresa sem deixar referências órfãs.
+          await tx
+            .update(schema.appointments)
+            .set({
+              staffId: null,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(schema.appointments.companyId, query.companyId),
+                eq(schema.appointments.staffId, id),
+              ),
+            );
+
+          if (member?.userId) {
+            await tx
+              .update(schema.appointments)
+              .set({
+                createdBy: null,
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(schema.appointments.companyId, query.companyId),
+                  eq(schema.appointments.createdBy, member.userId),
+                ),
+              );
+
+            await tx
+              .delete(schema.systemLogs)
+              .where(
+                and(
+                  eq(schema.systemLogs.companyId, query.companyId),
+                  eq(schema.systemLogs.userId, member.userId),
+                ),
+              );
+
+            await tx
+              .delete(schema.bugReports)
+              .where(
+                and(
+                  eq(schema.bugReports.companyId, query.companyId),
+                  eq(schema.bugReports.reporterUserId, member.userId),
+                ),
+              );
+          }
+
+          if (inviteIdentifier) {
+            await tx
+              .delete(schema.verification)
+              .where(eq(schema.verification.identifier, inviteIdentifier));
+          }
+
+          await tx.delete(schema.staff).where(eq(schema.staff.id, id));
+        });
 
         return { success: true };
       },
