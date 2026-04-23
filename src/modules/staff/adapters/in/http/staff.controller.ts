@@ -127,7 +127,8 @@ const sendInviteEmail = async (params: {
 };
 
 async function canManageStaff(companyId: string, userId: string, role?: string) {
-  if (role === "SUPER_ADMIN" || role === "ADMIN") {
+  const normalizedRole = role?.toUpperCase();
+  if (normalizedRole === "SUPER_ADMIN" || normalizedRole === "ADMIN") {
     return true;
   }
 
@@ -144,6 +145,7 @@ async function canManageStaff(companyId: string, userId: string, role?: string) 
   const [staffMember] = await db
     .select({
       isAdmin: schema.staff.isAdmin,
+      isSecretary: schema.staff.isSecretary,
       isActive: schema.staff.isActive,
     })
     .from(schema.staff)
@@ -155,7 +157,9 @@ async function canManageStaff(companyId: string, userId: string, role?: string) 
     )
     .limit(1);
 
-  return Boolean(staffMember?.isActive && staffMember?.isAdmin);
+  return Boolean(
+    staffMember?.isActive && (staffMember.isAdmin || staffMember.isSecretary),
+  );
 }
 
 const ensureUserAndCredentialForStaff = async (params: {
