@@ -14,8 +14,11 @@ import {
   parseDurationToMinutes,
 } from "../utils/scheduling-conflict.util";
 import { assertUserHasCompanyAccess } from "../utils/company-access.util";
+import { AssignmentEngineService } from "../services/assignment-engine.service";
 
 export class CreateAppointmentUseCase {
+  private assignmentEngine = new AssignmentEngineService();
+
   constructor(
     private appointmentRepository: IAppointmentRepository,
     private serviceRepository: IServiceRepository,
@@ -326,7 +329,30 @@ export class CreateAppointmentUseCase {
       endOfDay
     );
 
-    const targetStaffId = data.staffId ?? null;
+    const requestedStaffId = data.staffId ?? null;
+    let targetStaffId = requestedStaffId;
+    let assignedBy: "system" | "staff" = requestedStaffId ? "staff" : "system";
+    let validationStatus: "suggested" | "confirmed" = requestedStaffId
+      ? "confirmed"
+      : "suggested";
+
+    if (!targetStaffId) {
+      const suggestion = await this.assignmentEngine.suggestProfessional({
+        companyId: data.companyId,
+        serviceIds,
+        scheduledAt,
+        durationMinutes: totalDurationMin,
+      });
+      if (suggestion.professionalId) {
+        targetStaffId = suggestion.professionalId;
+      }
+    }
+
+    data.staffId = targetStaffId ?? null;
+    data.assignedBy = assignedBy;
+    data.validationStatus = validationStatus;
+    data.version = 1;
+
     const sameStaffAppointments = targetStaffId
       ? existingAppointments.filter((app) => app.staffId === targetStaffId)
       : [];

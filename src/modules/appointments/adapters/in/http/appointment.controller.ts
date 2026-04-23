@@ -1,5 +1,8 @@
 import { Elysia, t } from "elysia";
+import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import * as schema from "../../../../../db/schema";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
+import { db } from "../../../../infrastructure/drizzle/database";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 import { ListAppointmentsUseCase } from "../../../application/use-cases/list-appointments.use-case";
 import { UpdateAppointmentStatusUseCase } from "../../../application/use-cases/update-appointment-status.use-case";
@@ -7,6 +10,69 @@ import { DeleteAppointmentUseCase } from "../../../application/use-cases/delete-
 import { RescheduleAppointmentUseCase } from "../../../application/use-cases/reschedule-appointment.use-case";
 import { UpdateAppointmentUseCase } from "../../../application/use-cases/update-appointment.use-case";
 import { GetOperatingHoursUseCase } from "../../../../business/application/use-cases/get-operating-hours.use-case";
+import { assertNoSchedulingConflict, parseDurationToMinutes } from "../../../application/utils/scheduling-conflict.util";
+
+const activeAppointmentStatuses = ["PENDING", "CONFIRMED", "ONGOING", "POSTPONED"] as const;
+
+const getLocalDayWindow = (date: Date) => {
+  const formatter = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  const parts = formatter.formatToParts(date);
+  const getPart = (type: string) =>
+    parts.find((p) => p.type === type)?.value || "00";
+  const year = getPart("year");
+  const month = getPart("month");
+  const day = getPart("day");
+  const start = new Date(`${year}-${month}-${day}T00:00:00.000-03:00`);
+  const end = new Date(`${year}-${month}-${day}T23:59:59.999-03:00`);
+  return { start, end };
+};
+
+const getStaffMembership = async (companyId: string, userId: string) => {
+  const [membership] = await db
+    .select({
+      id: schema.staff.id,
+      isActive: schema.staff.isActive,
+      isProfessional: schema.staff.isProfessional,
+      isSecretary: schema.staff.isSecretary,
+      isAdmin: schema.staff.isAdmin,
+    })
+    .from(schema.staff)
+    .where(
+      and(
+        eq(schema.staff.companyId, companyId),
+        eq(schema.staff.userId, userId),
+      ),
+    )
+    .limit(1);
+  return membership ?? null;
+};
+
+const canManageCompanyAppointments = async (
+  companyId: string,
+  userId: string,
+  role?: string,
+) => {
+  const normalizedRole = role?.toUpperCase();
+  if (normalizedRole === "SUPER_ADMIN" || normalizedRole === "ADMIN") {
+    return true;
+  }
+
+  const [company] = await db
+    .select({ ownerId: schema.companies.ownerId })
+    .from(schema.companies)
+    .where(eq(schema.companies.id, companyId))
+    .limit(1);
+
+  if (company?.ownerId === userId) return true;
+
+  const membership = await getStaffMembership(companyId, userId);
+  return Boolean(membership?.isActive && (membership.isAdmin || membership.isSecretary));
+};
 
 export function appointmentController() {
   return new Elysia({ prefix: "/appointments" })
@@ -319,6 +385,298 @@ export function appointmentController() {
             startDate: t.Optional(t.String()),
             endDate: t.Optional(t.String())
           })
+        })
+        .get("/admin/company/:companyId/unassigned", async ({ params: { companyId }, user, set }) => {
+          const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
+          if (!isAllowed) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
+
+          const rows = await db
+            .select()
+            .from(schema.appointments)
+            .where(
+              and(
+                eq(schema.appointments.companyId, companyId),
+                sql`${schema.appointments.staffId} is null`,
+                inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+              ),
+            )
+            .orderBy(schema.appointments.scheduledAt);
+
+          return rows;
+        }, {
+          params: t.Object({ companyId: t.String() }),
+        })
+        .get("/my/company/:companyId/daily", async ({ params: { companyId }, query, user, set }) => {
+          const membership = await getStaffMembership(companyId, user!.id);
+          if (!membership?.isActive) {
+            set.status = 403;
+            return { error: "Sua conta não está vinculada a um colaborador ativo nessa empresa." };
+          }
+
+          const baseDate = query.date ? new Date(query.date) : new Date();
+          if (Number.isNaN(baseDate.getTime())) {
+            set.status = 400;
+            return { error: "Data inválida." };
+          }
+
+          const { start, end } = getLocalDayWindow(baseDate);
+          const rows = await db
+            .select()
+            .from(schema.appointments)
+            .where(
+              and(
+                eq(schema.appointments.companyId, companyId),
+                eq(schema.appointments.staffId, membership.id),
+                gte(schema.appointments.scheduledAt, start),
+                lte(schema.appointments.scheduledAt, end),
+                inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+              ),
+            )
+            .orderBy(schema.appointments.scheduledAt);
+
+          return rows;
+        }, {
+          params: t.Object({ companyId: t.String() }),
+          query: t.Object({ date: t.Optional(t.String()) }),
+        })
+        .get("/my/company/:companyId/opportunities", async ({ params: { companyId }, user, set }) => {
+          const membership = await getStaffMembership(companyId, user!.id);
+          if (!membership?.isActive || !membership.isProfessional) {
+            set.status = 403;
+            return { error: "Somente profissionais ativos podem acessar oportunidades." };
+          }
+
+          const skillRows = await db
+            .select({ serviceId: schema.staffServices.serviceId })
+            .from(schema.staffServices)
+            .where(eq(schema.staffServices.staffId, membership.id));
+          const serviceIds = skillRows.map((skill) => skill.serviceId);
+
+          if (serviceIds.length === 0) return [];
+
+          const opportunities = await db
+            .select()
+            .from(schema.appointments)
+            .where(
+              and(
+                eq(schema.appointments.companyId, companyId),
+                sql`${schema.appointments.staffId} is null`,
+                inArray(schema.appointments.serviceId, serviceIds),
+                inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+              ),
+            )
+            .orderBy(schema.appointments.scheduledAt);
+
+          return opportunities;
+        }, {
+          params: t.Object({ companyId: t.String() }),
+        })
+        .patch("/:id/assignment", async ({ params: { id }, body, user, set }) => {
+          const appointment = await db
+            .select()
+            .from(schema.appointments)
+            .where(eq(schema.appointments.id, id))
+            .limit(1)
+            .then((rows) => rows[0]);
+
+          if (!appointment) {
+            set.status = 404;
+            return { error: "Agendamento não encontrado." };
+          }
+
+          const isAllowed = await canManageCompanyAppointments(
+            appointment.companyId,
+            user!.id,
+            user?.role,
+          );
+          if (!isAllowed) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
+
+          const nextScheduledAt = body.scheduledAt
+            ? new Date(body.scheduledAt)
+            : new Date(appointment.scheduledAt);
+          if (Number.isNaN(nextScheduledAt.getTime())) {
+            set.status = 400;
+            return { error: "Data de agendamento inválida." };
+          }
+
+          const nextStaffId =
+            body.professionalId === undefined
+              ? appointment.staffId
+              : body.professionalId;
+
+          if (nextStaffId) {
+            const { start, end } = getLocalDayWindow(nextScheduledAt);
+            const existingAppointments = await db
+              .select()
+              .from(schema.appointments)
+              .where(
+                and(
+                  eq(schema.appointments.companyId, appointment.companyId),
+                  eq(schema.appointments.staffId, nextStaffId),
+                  gte(schema.appointments.scheduledAt, start),
+                  lte(schema.appointments.scheduledAt, end),
+                ),
+              );
+
+            const blocks = await db
+              .select({
+                startTime: schema.scheduleBlocks.startTime,
+                endTime: schema.scheduleBlocks.endTime,
+                isOverrideable: schema.scheduleBlocks.isOverrideable,
+              })
+              .from(schema.scheduleBlocks)
+              .where(eq(schema.scheduleBlocks.staffId, nextStaffId));
+
+            assertNoSchedulingConflict({
+              scheduledAt: nextScheduledAt,
+              durationMinutes: parseDurationToMinutes(
+                appointment.serviceDurationSnapshot,
+              ),
+              existingAppointments: existingAppointments as any,
+              scheduleBlocks: blocks.map((block) => ({
+                startTime: new Date(block.startTime),
+                endTime: new Date(block.endTime),
+                isOverrideable: block.isOverrideable,
+              })),
+              currentAppointmentId: appointment.id,
+              force: true,
+            });
+          }
+
+          const updated = await db
+            .update(schema.appointments)
+            .set({
+              staffId: nextStaffId ?? null,
+              scheduledAt: nextScheduledAt,
+              assignedBy: "staff",
+              validationStatus: "confirmed",
+              version: sql`${schema.appointments.version} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(schema.appointments.id, appointment.id),
+                eq(schema.appointments.version, body.expectedVersion),
+              ),
+            )
+            .returning();
+
+          if (!updated[0]) {
+            set.status = 409;
+            return {
+              error: "Version conflict",
+              message:
+                "Este agendamento foi alterado por outro usuário. Atualize a tela e tente novamente.",
+            };
+          }
+
+          return updated[0];
+        }, {
+          body: t.Object({
+            professionalId: t.Optional(t.Nullable(t.String())),
+            scheduledAt: t.Optional(t.String()),
+            expectedVersion: t.Number(),
+          }),
+        })
+        .post("/:id/claim", async ({ params: { id }, body, user, set }) => {
+          const membership = await getStaffMembership(body.companyId, user!.id);
+          if (!membership?.isActive || !membership.isProfessional) {
+            set.status = 403;
+            return { error: "Somente profissionais ativos podem assumir serviços." };
+          }
+
+          const appointment = await db
+            .select()
+            .from(schema.appointments)
+            .where(
+              and(
+                eq(schema.appointments.id, id),
+                eq(schema.appointments.companyId, body.companyId),
+              ),
+            )
+            .limit(1)
+            .then((rows) => rows[0]);
+
+          if (!appointment) {
+            set.status = 404;
+            return { error: "Agendamento não encontrado." };
+          }
+
+          if (appointment.staffId) {
+            set.status = 409;
+            return { error: "Este serviço já foi assumido por outro profissional." };
+          }
+
+          const skillRows = await db
+            .select({ serviceId: schema.staffServices.serviceId })
+            .from(schema.staffServices)
+            .where(eq(schema.staffServices.staffId, membership.id));
+          const skills = new Set(skillRows.map((skill) => skill.serviceId));
+
+          if (!skills.has(appointment.serviceId)) {
+            set.status = 403;
+            return { error: "Você não possui skill para este serviço." };
+          }
+
+          const start = new Date(appointment.scheduledAt);
+          const { start: dayStart, end: dayEnd } = getLocalDayWindow(start);
+          const existingAppointments = await db
+            .select()
+            .from(schema.appointments)
+            .where(
+              and(
+                eq(schema.appointments.companyId, appointment.companyId),
+                eq(schema.appointments.staffId, membership.id),
+                gte(schema.appointments.scheduledAt, dayStart),
+                lte(schema.appointments.scheduledAt, dayEnd),
+              ),
+            );
+
+          assertNoSchedulingConflict({
+            scheduledAt: start,
+            durationMinutes: parseDurationToMinutes(appointment.serviceDurationSnapshot),
+            existingAppointments: existingAppointments as any,
+            currentAppointmentId: appointment.id,
+          });
+
+          const updated = await db
+            .update(schema.appointments)
+            .set({
+              staffId: membership.id,
+              assignedBy: "staff",
+              validationStatus: "confirmed",
+              version: sql`${schema.appointments.version} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(schema.appointments.id, appointment.id),
+                eq(schema.appointments.version, body.expectedVersion),
+              ),
+            )
+            .returning();
+
+          if (!updated[0]) {
+            set.status = 409;
+            return {
+              error: "Version conflict",
+              message:
+                "Esse serviço foi alterado antes da confirmação. Atualize a lista e tente novamente.",
+            };
+          }
+
+          return updated[0];
+        }, {
+          body: t.Object({
+            companyId: t.String(),
+            expectedVersion: t.Number(),
+          }),
         })
         .patch("/:id/schedule", async ({ params: { id }, body, appointmentRepository, businessRepository, user, set }) => {
           try {

@@ -453,6 +453,13 @@ export const appointments = pgTable("appointments", {
   status: text("status", { enum: ["PENDING", "CONFIRMED", "ONGOING", "COMPLETED", "CANCELLED", "POSTPONED"] })
     .default("PENDING")
     .notNull(),
+  assignedBy: text("assigned_by", { enum: ["system", "staff"] })
+    .default("staff")
+    .notNull(),
+  validationStatus: text("validation_status", { enum: ["suggested", "confirmed"] })
+    .default("confirmed")
+    .notNull(),
+  version: integer("version").default(1).notNull(),
   auditLog: jsonb("audit_log").default([]).notNull(),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

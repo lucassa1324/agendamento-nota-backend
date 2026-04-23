@@ -1,4 +1,6 @@
 export type AppointmentStatus = "PENDING" | "CONFIRMED" | "ONGOING" | "COMPLETED" | "CANCELLED" | "POSTPONED";
+export type AppointmentAssignedBy = "system" | "staff";
+export type AppointmentValidationStatus = "suggested" | "confirmed";
 
 export interface AppointmentItem {
   id: string;
@@ -26,6 +28,9 @@ export interface Appointment {
   serviceDurationSnapshot: string;
   scheduledAt: Date;
   status: AppointmentStatus;
+  assignedBy: AppointmentAssignedBy;
+  validationStatus: AppointmentValidationStatus;
+  version: number;
   auditLog: Array<{
     action: string;
     user: string;
@@ -50,6 +55,9 @@ export interface CreateAppointmentInput {
   servicePriceSnapshot: string;
   serviceDurationSnapshot: string;
   scheduledAt: Date;
+  assignedBy?: AppointmentAssignedBy;
+  validationStatus?: AppointmentValidationStatus;
+  version?: number;
   auditLog?: Array<{
     action: string;
     user: string;
@@ -71,6 +79,9 @@ export interface UpdateAppointmentInput {
   servicePriceSnapshot: string;
   serviceDurationSnapshot: string;
   scheduledAt: Date;
+  assignedBy?: AppointmentAssignedBy;
+  validationStatus?: AppointmentValidationStatus;
+  version?: number;
   auditLog?: Array<{
     action: string;
     user: string;

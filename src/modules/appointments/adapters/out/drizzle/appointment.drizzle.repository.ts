@@ -8,6 +8,9 @@ type AppointmentSchemaCapabilities = {
   hasStaffId: boolean;
   hasCreatedBy: boolean;
   hasAuditLog: boolean;
+  hasAssignedBy: boolean;
+  hasValidationStatus: boolean;
+  hasVersion: boolean;
 };
 
 export class DrizzleAppointmentRepository implements IAppointmentRepository {
@@ -29,6 +32,9 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
         hasStaffId: columns.has("staff_id"),
         hasCreatedBy: columns.has("created_by"),
         hasAuditLog: columns.has("audit_log"),
+        hasAssignedBy: columns.has("assigned_by"),
+        hasValidationStatus: columns.has("validation_status"),
+        hasVersion: columns.has("version"),
       };
     })();
 
@@ -57,6 +63,9 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
     if (capabilities.hasStaffId) fields.staffId = appointments.staffId;
     if (capabilities.hasCreatedBy) fields.createdBy = appointments.createdBy;
     if (capabilities.hasAuditLog) fields.auditLog = appointments.auditLog;
+    if (capabilities.hasAssignedBy) fields.assignedBy = appointments.assignedBy;
+    if (capabilities.hasValidationStatus) fields.validationStatus = appointments.validationStatus;
+    if (capabilities.hasVersion) fields.version = appointments.version;
 
     return fields;
   }
@@ -66,6 +75,9 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
       ...(row as unknown as Omit<Appointment, "staffId" | "createdBy" | "auditLog">),
       staffId: (row.staffId as string | null | undefined) ?? null,
       createdBy: (row.createdBy as string | null | undefined) ?? null,
+      assignedBy: (row.assignedBy as "system" | "staff" | undefined) ?? "staff",
+      validationStatus: (row.validationStatus as "suggested" | "confirmed" | undefined) ?? "confirmed",
+      version: (row.version as number | undefined) ?? 1,
       auditLog: (row.auditLog as Array<{ action: string; user: string; date: string }> | undefined) ?? [],
     };
   }
@@ -175,6 +187,15 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
     if (capabilities.hasAuditLog) {
       insertValues.auditLog = appointmentData.auditLog ?? [];
     }
+    if (capabilities.hasAssignedBy) {
+      insertValues.assignedBy = appointmentData.assignedBy ?? "staff";
+    }
+    if (capabilities.hasValidationStatus) {
+      insertValues.validationStatus = appointmentData.validationStatus ?? "confirmed";
+    }
+    if (capabilities.hasVersion) {
+      insertValues.version = appointmentData.version ?? 1;
+    }
 
     const [newAppointment] = await db
       .insert(appointments)
@@ -225,6 +246,18 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
       }
       if (capabilities.hasAuditLog && appointmentData.auditLog !== undefined) {
         updateSet.auditLog = appointmentData.auditLog;
+      }
+      if (capabilities.hasAssignedBy && appointmentData.assignedBy !== undefined) {
+        updateSet.assignedBy = appointmentData.assignedBy;
+      }
+      if (
+        capabilities.hasValidationStatus &&
+        appointmentData.validationStatus !== undefined
+      ) {
+        updateSet.validationStatus = appointmentData.validationStatus;
+      }
+      if (capabilities.hasVersion && appointmentData.version !== undefined) {
+        updateSet.version = appointmentData.version;
       }
 
       const [updated] = await tx
