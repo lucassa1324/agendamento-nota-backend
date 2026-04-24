@@ -334,9 +334,18 @@ export const staffController = () =>
           return { error: "Forbidden" };
         }
 
-        const members = await db
+        const [company] = await db
+          .select({
+            ownerId: schema.companies.ownerId,
+          })
+          .from(schema.companies)
+          .where(eq(schema.companies.id, companyId))
+          .limit(1);
+
+        let members = await db
           .select({
             id: schema.staff.id,
+            userId: schema.staff.userId,
             name: schema.staff.name,
             email: schema.staff.email,
             isActive: schema.staff.isActive,
@@ -348,6 +357,55 @@ export const staffController = () =>
           })
           .from(schema.staff)
           .where(eq(schema.staff.companyId, companyId));
+
+        if (company?.ownerId) {
+          const ownerAlreadyInStaff = members.some(
+            (member) => member.userId === company.ownerId,
+          );
+
+          if (!ownerAlreadyInStaff) {
+            const [ownerUser] = await db
+              .select({
+                id: schema.user.id,
+                name: schema.user.name,
+                email: schema.user.email,
+              })
+              .from(schema.user)
+              .where(eq(schema.user.id, company.ownerId))
+              .limit(1);
+
+            if (ownerUser?.email) {
+              await db.insert(schema.staff).values({
+                id: crypto.randomUUID(),
+                companyId,
+                userId: ownerUser.id,
+                name: ownerUser.name || "Conta Principal",
+                email: normalizeEmail(ownerUser.email),
+                isAdmin: true,
+                isSecretary: true,
+                isProfessional: true,
+                isActive: true,
+                commissionRate: 0,
+              });
+
+              members = await db
+                .select({
+                  id: schema.staff.id,
+                  userId: schema.staff.userId,
+                  name: schema.staff.name,
+                  email: schema.staff.email,
+                  isActive: schema.staff.isActive,
+                  isAdmin: schema.staff.isAdmin,
+                  isSecretary: schema.staff.isSecretary,
+                  isProfessional: schema.staff.isProfessional,
+                  calendarColor: schema.staff.calendarColor,
+                  commissionRate: schema.staff.commissionRate,
+                })
+                .from(schema.staff)
+                .where(eq(schema.staff.companyId, companyId));
+            }
+          }
+        }
 
         if (members.length === 0) {
           return [];
@@ -368,7 +426,7 @@ export const staffController = () =>
           servicesByStaff.set(link.staffId, current);
         }
 
-        return members.map((member) => ({
+        return members.map(({ userId: _userId, ...member }) => ({
           ...member,
           serviceIds: servicesByStaff.get(member.id) || [],
         }));

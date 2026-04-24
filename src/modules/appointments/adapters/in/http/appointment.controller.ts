@@ -21,8 +21,14 @@ const isMissingCompetencyTableError = (error: unknown) => {
 };
 
 const loadStaffSkills = async (staffId: string) => {
+  const loadLegacySkills = async () =>
+    await db
+      .select({ serviceId: schema.staffServices.serviceId })
+      .from(schema.staffServices)
+      .where(eq(schema.staffServices.staffId, staffId));
+
   try {
-    return await db
+    const competencyRows = await db
       .select({ serviceId: schema.staffServicesCompetency.serviceId })
       .from(schema.staffServicesCompetency)
       .where(
@@ -31,12 +37,14 @@ const loadStaffSkills = async (staffId: string) => {
           eq(schema.staffServicesCompetency.isActive, true),
         ),
       );
+    // Compatibilidade com configuração legada de serviços por funcionária
+    if (competencyRows.length === 0) {
+      return await loadLegacySkills();
+    }
+    return competencyRows;
   } catch (error) {
     if (!isMissingCompetencyTableError(error)) throw error;
-    return await db
-      .select({ serviceId: schema.staffServices.serviceId })
-      .from(schema.staffServices)
-      .where(eq(schema.staffServices.staffId, staffId));
+    return await loadLegacySkills();
   }
 };
 
@@ -59,13 +67,17 @@ const getLocalDayWindow = (date: Date) => {
 };
 
 const getStaffMembership = async (companyId: string, userId: string) => {
-  const [membership] = await db
+  const baseSelect = {
+    id: schema.staff.id,
+    isActive: schema.staff.isActive,
+    isProfessional: schema.staff.isProfessional,
+    isSecretary: schema.staff.isSecretary,
+    isAdmin: schema.staff.isAdmin,
+  };
+
+  const [membershipByUserId] = await db
     .select({
-      id: schema.staff.id,
-      isActive: schema.staff.isActive,
-      isProfessional: schema.staff.isProfessional,
-      isSecretary: schema.staff.isSecretary,
-      isAdmin: schema.staff.isAdmin,
+      ...baseSelect,
     })
     .from(schema.staff)
     .where(
@@ -75,7 +87,40 @@ const getStaffMembership = async (companyId: string, userId: string) => {
       ),
     )
     .limit(1);
-  return membership ?? null;
+
+  if (membershipByUserId) return membershipByUserId;
+
+  // Fallback para base legada: vínculo por e-mail sem user_id preenchido
+  const [authUser] = await db
+    .select({ email: schema.user.email })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+    .limit(1);
+
+  if (!authUser?.email) return null;
+
+  const [membershipByEmail] = await db
+    .select({
+      ...baseSelect,
+    })
+    .from(schema.staff)
+    .where(
+      and(
+        eq(schema.staff.companyId, companyId),
+        sql`lower(${schema.staff.email}) = lower(${authUser.email})`,
+      ),
+    )
+    .limit(1);
+
+  if (!membershipByEmail) return null;
+
+  // Auto-correção do vínculo para evitar inconsistências futuras
+  await db
+    .update(schema.staff)
+    .set({ userId, updatedAt: new Date() })
+    .where(eq(schema.staff.id, membershipByEmail.id));
+
+  return membershipByEmail;
 };
 
 const canManageCompanyAppointments = async (
@@ -536,7 +581,19 @@ export function appointmentController() {
           const nextStaffId =
             body.professionalId === undefined
               ? appointment.staffId
-              : body.professionalId;
+              : body.professionalId || null;
+
+          if (
+            typeof body.expectedVersion === "number" &&
+            appointment.version !== body.expectedVersion
+          ) {
+            set.status = 409;
+            return {
+              error: "Version conflict",
+              message:
+                "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
+            };
+          }
 
           if (nextStaffId) {
             const { start, end } = getLocalDayWindow(nextScheduledAt);
@@ -577,6 +634,14 @@ export function appointmentController() {
             });
           }
 
+          const updateWhere =
+            typeof body.expectedVersion === "number"
+              ? and(
+                eq(schema.appointments.id, appointment.id),
+                eq(schema.appointments.version, body.expectedVersion),
+              )
+              : eq(schema.appointments.id, appointment.id);
+
           const updated = await db
             .update(schema.appointments)
             .set({
@@ -587,8 +652,17 @@ export function appointmentController() {
               version: sql`${schema.appointments.version} + 1`,
               updatedAt: new Date(),
             })
-            .where(eq(schema.appointments.id, appointment.id))
+            .where(updateWhere)
             .returning();
+
+          if (!updated[0]) {
+            set.status = 409;
+            return {
+              error: "Version conflict",
+              message:
+                "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
+            };
+          }
 
           return updated[0];
         }, {

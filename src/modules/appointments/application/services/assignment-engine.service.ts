@@ -18,6 +18,7 @@ type CandidateScore = {
   totalScore: number;
   scoreGapMinutes: number;
   workloadMinutes: number;
+  appointmentCount: number;
   hasAffinity: boolean;
 };
 
@@ -74,6 +75,27 @@ export class AssignmentEngineService {
       };
     }
 
+    const loadLegacyStaffRows = async () =>
+      await conn
+        .select({
+          staffId: schema.staff.id,
+          serviceId: schema.staffServices.serviceId,
+          priorityScore: schema.staff.commissionRate,
+        })
+        .from(schema.staff)
+        .innerJoin(
+          schema.staffServices,
+          eq(schema.staffServices.staffId, schema.staff.id),
+        )
+        .where(
+          and(
+            eq(schema.staff.companyId, input.companyId),
+            eq(schema.staff.isActive, true),
+            eq(schema.staff.isProfessional, true),
+            inArray(schema.staffServices.serviceId, input.serviceIds),
+          ),
+        );
+
     let candidateRows: Array<{
       staffId: string;
       serviceId: string;
@@ -100,27 +122,14 @@ export class AssignmentEngineService {
             inArray(schema.staffServicesCompetency.serviceId, input.serviceIds),
           ),
         );
+      // Compatibilidade: se a tabela nova existir, mas ainda sem dados,
+      // usa as configurações legadas de serviços por funcionária.
+      if (candidateRows.length === 0) {
+        candidateRows = await loadLegacyStaffRows();
+      }
     } catch (error) {
       if (!isMissingCompetencyTableError(error)) throw error;
-      candidateRows = await conn
-        .select({
-          staffId: schema.staff.id,
-          serviceId: schema.staffServices.serviceId,
-          priorityScore: schema.staff.commissionRate,
-        })
-        .from(schema.staff)
-        .innerJoin(
-          schema.staffServices,
-          eq(schema.staffServices.staffId, schema.staff.id),
-        )
-        .where(
-          and(
-            eq(schema.staff.companyId, input.companyId),
-            eq(schema.staff.isActive, true),
-            eq(schema.staff.isProfessional, true),
-            inArray(schema.staffServices.serviceId, input.serviceIds),
-          ),
-        );
+      candidateRows = await loadLegacyStaffRows();
     }
 
     if (candidateRows.length === 0) {
@@ -270,6 +279,7 @@ export class AssignmentEngineService {
         totalScore: 0,
         scoreGapMinutes: gapMinutes,
         workloadMinutes,
+        appointmentCount: busy.length,
         hasAffinity,
       });
     }
@@ -307,14 +317,17 @@ export class AssignmentEngineService {
     }
 
     scores.sort((a, b) => {
+      if (a.appointmentCount !== b.appointmentCount) {
+        return a.appointmentCount - b.appointmentCount;
+      }
+      if (a.workloadMinutes !== b.workloadMinutes) {
+        return a.workloadMinutes - b.workloadMinutes;
+      }
       if (a.totalScore !== b.totalScore) {
         return a.totalScore - b.totalScore;
       }
       if (a.priorityScore !== b.priorityScore) {
         return b.priorityScore - a.priorityScore;
-      }
-      if (a.workloadMinutes !== b.workloadMinutes) {
-        return a.workloadMinutes - b.workloadMinutes;
       }
       return a.staffId.localeCompare(b.staffId);
     });
