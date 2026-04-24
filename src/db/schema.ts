@@ -408,6 +408,7 @@ export const staff = pgTable("staff", {
   isAdmin: boolean("is_admin").default(false).notNull(),
   isSecretary: boolean("is_secretary").default(false).notNull(),
   isProfessional: boolean("is_professional").default(false).notNull(),
+  calendarColor: varchar("calendar_color", { length: 7 }),
   commissionRate: integer("commission_rate").default(0).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),

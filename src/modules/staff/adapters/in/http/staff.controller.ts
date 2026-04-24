@@ -22,6 +22,14 @@ const generateTemporaryPassword = () => {
   return `Aura@${randomSuffix}9`;
 };
 
+const HEX_COLOR_REGEX = /^#[0-9A-F]{6}$/;
+
+const normalizeCalendarColor = (value?: string | null) => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toUpperCase();
+  return HEX_COLOR_REGEX.test(normalized) ? normalized : null;
+};
+
 type StaffInvitePayload = {
   token: string;
   staffId: string;
@@ -335,6 +343,7 @@ export const staffController = () =>
             isAdmin: schema.staff.isAdmin,
             isSecretary: schema.staff.isSecretary,
             isProfessional: schema.staff.isProfessional,
+            calendarColor: schema.staff.calendarColor,
             commissionRate: schema.staff.commissionRate,
           })
           .from(schema.staff)
@@ -405,6 +414,7 @@ export const staffController = () =>
               isAdmin: body.isAdmin ?? false,
               isSecretary: body.isSecretary ?? false,
               isProfessional: body.isProfessional ?? true,
+              calendarColor: normalizeCalendarColor(body.calendarColor),
               commissionRate: body.commissionRate ?? 0,
               isActive: body.isActive ?? true,
               updatedAt: now,
@@ -419,6 +429,7 @@ export const staffController = () =>
             isAdmin: body.isAdmin ?? false,
             isSecretary: body.isSecretary ?? false,
             isProfessional: body.isProfessional ?? true,
+            calendarColor: normalizeCalendarColor(body.calendarColor),
             commissionRate: body.commissionRate ?? 0,
             isActive: body.isActive ?? true,
           });
@@ -505,6 +516,7 @@ export const staffController = () =>
           isAdmin: t.Optional(t.Boolean()),
           isSecretary: t.Optional(t.Boolean()),
           isProfessional: t.Optional(t.Boolean()),
+          calendarColor: t.Optional(t.String({ minLength: 7, maxLength: 7 })),
           commissionRate: t.Optional(t.Number({ minimum: 0, maximum: 100 })),
           serviceIds: t.Optional(t.Array(t.String())),
         }),
@@ -900,6 +912,7 @@ export const staffController = () =>
             isAdmin: body.isAdmin,
             isSecretary: body.isSecretary,
             isProfessional: body.isProfessional,
+            calendarColor: normalizeCalendarColor(body.calendarColor),
             commissionRate: body.commissionRate,
           });
         } else {
@@ -912,6 +925,7 @@ export const staffController = () =>
               isAdmin: body.isAdmin,
               isSecretary: body.isSecretary,
               isProfessional: body.isProfessional,
+              calendarColor: normalizeCalendarColor(body.calendarColor),
               commissionRate: body.commissionRate,
               updatedAt: new Date(),
             })
@@ -942,6 +956,7 @@ export const staffController = () =>
           isAdmin: t.Boolean(),
           isSecretary: t.Boolean(),
           isProfessional: t.Boolean(),
+          calendarColor: t.Optional(t.String({ minLength: 7, maxLength: 7 })),
           commissionRate: t.Number({ minimum: 0, maximum: 100 }),
           serviceIds: t.Array(t.String()),
         }),

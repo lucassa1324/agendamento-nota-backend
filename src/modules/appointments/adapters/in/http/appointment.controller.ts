@@ -559,29 +559,15 @@ export function appointmentController() {
               version: sql`${schema.appointments.version} + 1`,
               updatedAt: new Date(),
             })
-            .where(
-              and(
-                eq(schema.appointments.id, appointment.id),
-                eq(schema.appointments.version, body.expectedVersion),
-              ),
-            )
+            .where(eq(schema.appointments.id, appointment.id))
             .returning();
-
-          if (!updated[0]) {
-            set.status = 409;
-            return {
-              error: "Version conflict",
-              message:
-                "Este agendamento foi alterado por outro usuário. Atualize a tela e tente novamente.",
-            };
-          }
 
           return updated[0];
         }, {
           body: t.Object({
             professionalId: t.Optional(t.Nullable(t.String())),
             scheduledAt: t.Optional(t.String()),
-            expectedVersion: t.Number(),
+            expectedVersion: t.Optional(t.Number()),
           }),
         })
         .post("/:id/claim", async ({ params: { id }, body, user, set }) => {
