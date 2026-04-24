@@ -620,11 +620,12 @@ export function appointmentController() {
               const persisted = persistedById.get(appointment.id);
               return {
                 ...appointment,
-                staffId: appointment.staffId ?? persisted?.staffId ?? null,
-                assignedBy: appointment.assignedBy ?? persisted?.assignedBy ?? "staff",
+                // O banco é a fonte da verdade para modo de atribuição.
+                staffId: persisted?.staffId ?? appointment.staffId ?? null,
+                assignedBy: persisted?.assignedBy ?? appointment.assignedBy ?? "staff",
                 validationStatus:
-                  appointment.validationStatus ?? persisted?.validationStatus ?? "confirmed",
-                version: appointment.version ?? persisted?.version ?? 1,
+                  persisted?.validationStatus ?? appointment.validationStatus ?? "confirmed",
+                version: persisted?.version ?? appointment.version ?? 1,
               };
             });
 
@@ -969,6 +970,80 @@ export function appointmentController() {
           body: t.Object({
             professionalId: t.Optional(t.Nullable(t.String())),
             scheduledAt: t.Optional(t.String()),
+            expectedVersion: t.Optional(t.Number()),
+          }),
+        })
+        .patch("/:id/assignment-mode", async ({ params: { id }, body, user, set }) => {
+          const appointment = await db
+            .select()
+            .from(schema.appointments)
+            .where(eq(schema.appointments.id, id))
+            .limit(1)
+            .then((rows) => rows[0]);
+
+          if (!appointment) {
+            set.status = 404;
+            return { error: "Agendamento não encontrado." };
+          }
+
+          const isAllowed = await canManageCompanyAppointments(
+            appointment.companyId,
+            user!.id,
+            user?.role,
+          );
+          if (!isAllowed) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
+
+          if (
+            typeof body.expectedVersion === "number" &&
+            appointment.version !== body.expectedVersion
+          ) {
+            set.status = 409;
+            return {
+              error: "Version conflict",
+              message:
+                "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
+            };
+          }
+
+          const nextAssignedBy = body.mode === "automatic" ? "system" : "staff";
+          const nextValidationStatus =
+            body.mode === "automatic" ? "suggested" : "confirmed";
+
+          const updateWhere =
+            typeof body.expectedVersion === "number"
+              ? and(
+                eq(schema.appointments.id, appointment.id),
+                eq(schema.appointments.version, body.expectedVersion),
+              )
+              : eq(schema.appointments.id, appointment.id);
+
+          const updated = await db
+            .update(schema.appointments)
+            .set({
+              assignedBy: nextAssignedBy,
+              validationStatus: nextValidationStatus,
+              version: sql`${schema.appointments.version} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(updateWhere)
+            .returning();
+
+          if (!updated[0]) {
+            set.status = 409;
+            return {
+              error: "Version conflict",
+              message:
+                "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
+            };
+          }
+
+          return updated[0];
+        }, {
+          body: t.Object({
+            mode: t.Union([t.Literal("manual"), t.Literal("automatic")]),
             expectedVersion: t.Optional(t.Number()),
           }),
         })
