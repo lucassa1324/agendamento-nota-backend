@@ -1,9 +1,11 @@
 import { Elysia, t } from "elysia";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { MailService } from "../../../../notifications/application/mail.service";
+import { AssignmentEngineService } from "../../../../appointments/application/services/assignment-engine.service";
+import { parseDurationToMinutes } from "../../../../appointments/application/utils/scheduling-conflict.util";
 
 const INVITE_EXPIRATION_HOURS = 48;
 
@@ -169,6 +171,79 @@ async function canManageStaff(companyId: string, userId: string, role?: string) 
     staffMember?.isActive && (staffMember.isAdmin || staffMember.isSecretary),
   );
 }
+
+const activeAppointmentStatuses = [
+  "PENDING",
+  "CONFIRMED",
+  "ONGOING",
+  "POSTPONED",
+] as const;
+
+const rebalanceUpcomingSuggestedAppointments = async (
+  companyId: string,
+  serviceIds: string[],
+) => {
+  const uniqueServiceIds = Array.from(new Set(serviceIds.filter(Boolean)));
+  if (uniqueServiceIds.length === 0) return;
+
+  const now = new Date();
+  const assignmentEngine = new AssignmentEngineService();
+
+  const rows = await db
+    .select({
+      id: schema.appointments.id,
+      companyId: schema.appointments.companyId,
+      customerId: schema.appointments.customerId,
+      serviceId: schema.appointments.serviceId,
+      serviceDurationSnapshot: schema.appointments.serviceDurationSnapshot,
+      scheduledAt: schema.appointments.scheduledAt,
+      staffId: schema.appointments.staffId,
+      assignedBy: schema.appointments.assignedBy,
+      validationStatus: schema.appointments.validationStatus,
+    })
+    .from(schema.appointments)
+    .where(
+      and(
+        eq(schema.appointments.companyId, companyId),
+        gte(schema.appointments.scheduledAt, now),
+        inArray(schema.appointments.serviceId, uniqueServiceIds),
+        inArray(
+          schema.appointments.status,
+          activeAppointmentStatuses as unknown as string[],
+        ),
+        or(
+          eq(schema.appointments.validationStatus, "suggested"),
+          eq(schema.appointments.assignedBy, "system"),
+        ),
+      ),
+    )
+    .orderBy(schema.appointments.scheduledAt);
+
+  for (const appointment of rows) {
+    const suggestion = await assignmentEngine.suggestProfessional({
+      companyId: appointment.companyId,
+      serviceIds: [appointment.serviceId],
+      scheduledAt: new Date(appointment.scheduledAt),
+      durationMinutes: parseDurationToMinutes(appointment.serviceDurationSnapshot),
+      customerId: appointment.customerId,
+    });
+
+    const nextStaffId = suggestion.professionalId ?? null;
+    const currentStaffId = appointment.staffId ?? null;
+    if (nextStaffId === currentStaffId) continue;
+
+    await db
+      .update(schema.appointments)
+      .set({
+        staffId: nextStaffId,
+        assignedBy: "system",
+        validationStatus: "suggested",
+        version: sql`${schema.appointments.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.appointments.id, appointment.id));
+  }
+};
 
 const ensureUserAndCredentialForStaff = async (params: {
   email: string;
@@ -426,7 +501,7 @@ export const staffController = () =>
           servicesByStaff.set(link.staffId, current);
         }
 
-        return members.map(({ userId: _userId, ...member }) => ({
+        return members.map((member) => ({
           ...member,
           serviceIds: servicesByStaff.get(member.id) || [],
         }));
@@ -494,6 +569,12 @@ export const staffController = () =>
         }
 
         const serviceIds = body.serviceIds ?? [];
+        const previousServiceLinks = await db
+          .select({
+            serviceId: schema.staffServices.serviceId,
+          })
+          .from(schema.staffServices)
+          .where(eq(schema.staffServices.staffId, memberId));
         await db.delete(schema.staffServices).where(eq(schema.staffServices.staffId, memberId));
         if (serviceIds.length > 0) {
           await db.insert(schema.staffServices).values(
@@ -503,6 +584,13 @@ export const staffController = () =>
             })),
           );
         }
+        const touchedServiceIds = Array.from(
+          new Set([
+            ...previousServiceLinks.map((item) => item.serviceId),
+            ...serviceIds,
+          ]),
+        );
+        await rebalanceUpcomingSuggestedAppointments(body.companyId, touchedServiceIds);
 
         const temporaryPassword = generateTemporaryPassword();
         const temporaryPasswordHash = await Bun.password.hash(temporaryPassword, {
@@ -546,9 +634,9 @@ export const staffController = () =>
             error instanceof Error
               ? error.message
               : typeof error === "object" &&
-                  error !== null &&
-                  "message" in error &&
-                  typeof (error as { message?: unknown }).message === "string"
+                error !== null &&
+                "message" in error &&
+                typeof (error as { message?: unknown }).message === "string"
                 ? (error as { message: string }).message
                 : "Falha desconhecida ao enviar convite por e-mail.";
           console.error("[STAFF_INVITE_EMAIL_ERROR]", error);
@@ -644,9 +732,9 @@ export const staffController = () =>
             error instanceof Error
               ? error.message
               : typeof error === "object" &&
-                  error !== null &&
-                  "message" in error &&
-                  typeof (error as { message?: unknown }).message === "string"
+                error !== null &&
+                "message" in error &&
+                typeof (error as { message?: unknown }).message === "string"
                 ? (error as { message: string }).message
                 : "Falha desconhecida ao reenviar convite por e-mail.";
           console.error("[STAFF_RESEND_INVITE_EMAIL_ERROR]", error);
@@ -990,6 +1078,13 @@ export const staffController = () =>
             .where(eq(schema.staff.id, staffId));
         }
 
+        const previousServiceLinks = await db
+          .select({
+            serviceId: schema.staffServices.serviceId,
+          })
+          .from(schema.staffServices)
+          .where(eq(schema.staffServices.staffId, staffId));
+
         await db.delete(schema.staffServices).where(eq(schema.staffServices.staffId, staffId));
         if (body.serviceIds.length > 0) {
           await db.insert(schema.staffServices).values(
@@ -999,6 +1094,14 @@ export const staffController = () =>
             })),
           );
         }
+
+        const touchedServiceIds = Array.from(
+          new Set([
+            ...previousServiceLinks.map((item) => item.serviceId),
+            ...body.serviceIds,
+          ]),
+        );
+        await rebalanceUpcomingSuggestedAppointments(body.companyId, touchedServiceIds);
 
         return { success: true, id: staffId, created: isTemporaryId && !existing };
       },

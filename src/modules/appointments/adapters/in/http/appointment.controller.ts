@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
 import * as schema from "../../../../../db/schema";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
 import { db } from "../../../../infrastructure/drizzle/database";
@@ -11,6 +11,7 @@ import { RescheduleAppointmentUseCase } from "../../../application/use-cases/res
 import { UpdateAppointmentUseCase } from "../../../application/use-cases/update-appointment.use-case";
 import { GetOperatingHoursUseCase } from "../../../../business/application/use-cases/get-operating-hours.use-case";
 import { assertNoSchedulingConflict, parseDurationToMinutes } from "../../../application/utils/scheduling-conflict.util";
+import { AssignmentEngineService } from "../../../application/services/assignment-engine.service";
 
 const activeAppointmentStatuses = ["PENDING", "CONFIRMED", "ONGOING", "POSTPONED"] as const;
 
@@ -64,6 +65,144 @@ const getLocalDayWindow = (date: Date) => {
   const start = new Date(`${year}-${month}-${day}T00:00:00.000-03:00`);
   const end = new Date(`${year}-${month}-${day}T23:59:59.999-03:00`);
   return { start, end };
+};
+
+const assignmentEngine = new AssignmentEngineService();
+
+const autoAssignPendingAppointments = async (params: {
+  companyId: string;
+  startDate?: Date;
+  endDate?: Date;
+}) => {
+  const filters = [
+    eq(schema.appointments.companyId, params.companyId),
+    sql`${schema.appointments.staffId} is null`,
+    inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+  ];
+
+  if (params.startDate) {
+    filters.push(gte(schema.appointments.scheduledAt, params.startDate));
+  }
+  if (params.endDate) {
+    filters.push(lte(schema.appointments.scheduledAt, params.endDate));
+  }
+
+  const pendingRows = await db
+    .select({
+      id: schema.appointments.id,
+      companyId: schema.appointments.companyId,
+      customerId: schema.appointments.customerId,
+      serviceId: schema.appointments.serviceId,
+      serviceDurationSnapshot: schema.appointments.serviceDurationSnapshot,
+      scheduledAt: schema.appointments.scheduledAt,
+    })
+    .from(schema.appointments)
+    .where(and(...filters))
+    .orderBy(schema.appointments.scheduledAt);
+
+  for (const appointment of pendingRows) {
+    const suggestion = await assignmentEngine.suggestProfessional({
+      companyId: appointment.companyId,
+      serviceIds: [appointment.serviceId],
+      scheduledAt: new Date(appointment.scheduledAt),
+      durationMinutes: parseDurationToMinutes(appointment.serviceDurationSnapshot),
+      customerId: appointment.customerId,
+    });
+
+    if (!suggestion.professionalId) continue;
+
+    await db
+      .update(schema.appointments)
+      .set({
+        staffId: suggestion.professionalId,
+        assignedBy: "system",
+        validationStatus: "suggested",
+        version: sql`${schema.appointments.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.appointments.id, appointment.id));
+  }
+};
+
+const redistributeSuggestedAppointments = async (params: {
+  companyId: string;
+  startDate?: Date;
+  endDate?: Date;
+}) => {
+  const now = new Date();
+  const filters = [
+    eq(schema.appointments.companyId, params.companyId),
+    gte(schema.appointments.scheduledAt, params.startDate ?? now),
+    inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+    or(
+      sql`${schema.appointments.staffId} is null`,
+      eq(schema.appointments.assignedBy, "system"),
+      eq(schema.appointments.validationStatus, "suggested"),
+    ),
+  ];
+
+  if (params.endDate) {
+    filters.push(lte(schema.appointments.scheduledAt, params.endDate));
+  }
+
+  const candidateRows = await db
+    .select({
+      id: schema.appointments.id,
+      companyId: schema.appointments.companyId,
+      customerId: schema.appointments.customerId,
+      serviceId: schema.appointments.serviceId,
+      serviceDurationSnapshot: schema.appointments.serviceDurationSnapshot,
+      scheduledAt: schema.appointments.scheduledAt,
+      staffId: schema.appointments.staffId,
+    })
+    .from(schema.appointments)
+    .where(and(...filters))
+    .orderBy(schema.appointments.scheduledAt);
+
+  let reassignedCount = 0;
+  let unchangedCount = 0;
+  let skippedCount = 0;
+
+  for (const appointment of candidateRows) {
+    const suggestion = await assignmentEngine.suggestProfessional({
+      companyId: appointment.companyId,
+      serviceIds: [appointment.serviceId],
+      scheduledAt: new Date(appointment.scheduledAt),
+      durationMinutes: parseDurationToMinutes(appointment.serviceDurationSnapshot),
+      customerId: appointment.customerId,
+    });
+
+    if (!suggestion.professionalId) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const currentStaffId = appointment.staffId ?? null;
+    if (currentStaffId === suggestion.professionalId) {
+      unchangedCount += 1;
+      continue;
+    }
+
+    await db
+      .update(schema.appointments)
+      .set({
+        staffId: suggestion.professionalId,
+        assignedBy: "system",
+        validationStatus: "suggested",
+        version: sql`${schema.appointments.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.appointments.id, appointment.id));
+
+    reassignedCount += 1;
+  }
+
+  return {
+    scanned: candidateRows.length,
+    reassigned: reassignedCount,
+    unchanged: unchangedCount,
+    skipped: skippedCount,
+  };
 };
 
 const getStaffMembership = async (companyId: string, userId: string) => {
@@ -444,12 +583,131 @@ export function appointmentController() {
 
             console.log(`>>> [FILTRO_DATA] Start: ${startDateStr}, End: ${endDateStr}`);
 
+            // Garantia de persistência: pendências elegíveis são autoatribuídas
+            // antes de responder o calendário/lista.
+            await autoAssignPendingAppointments({
+              companyId,
+              startDate,
+              endDate,
+            });
+
             const listAppointmentsUseCase = new ListAppointmentsUseCase(appointmentRepository, businessRepository);
             const results = await listAppointmentsUseCase.execute(companyId, user!.id, startDate, endDate);
 
             console.log(`>>> [ADMIN_RESULTS] Encontrados ${results.length} agendamentos`);
 
-            return results || [];
+            if (!results || results.length === 0) return [];
+
+            // Fallback robusto: em bases legadas/instâncias antigas o repositório
+            // pode não projetar staffId. Aqui garantimos o staffId persistido por ID.
+            const appointmentIds = results.map((appointment) => appointment.id);
+            const persistedRows = await db
+              .select({
+                id: schema.appointments.id,
+                staffId: schema.appointments.staffId,
+                assignedBy: schema.appointments.assignedBy,
+                validationStatus: schema.appointments.validationStatus,
+                version: schema.appointments.version,
+              })
+              .from(schema.appointments)
+              .where(inArray(schema.appointments.id, appointmentIds));
+
+            const persistedById = new Map(
+              persistedRows.map((row) => [row.id, row]),
+            );
+
+            const normalizedResults = results.map((appointment) => {
+              const persisted = persistedById.get(appointment.id);
+              return {
+                ...appointment,
+                staffId: appointment.staffId ?? persisted?.staffId ?? null,
+                assignedBy: appointment.assignedBy ?? persisted?.assignedBy ?? "staff",
+                validationStatus:
+                  appointment.validationStatus ?? persisted?.validationStatus ?? "confirmed",
+                version: appointment.version ?? persisted?.version ?? 1,
+              };
+            });
+
+            const assignedIds = Array.from(
+              new Set(
+                normalizedResults
+                  .map((appointment) =>
+                    typeof appointment.staffId === "string"
+                      ? appointment.staffId.trim()
+                      : "",
+                  )
+                  .filter((id) => id.length > 0),
+              ),
+            );
+
+            if (assignedIds.length === 0) return normalizedResults;
+
+            const staffRows = await db
+              .select({
+                id: schema.staff.id,
+                userId: schema.staff.userId,
+                name: schema.staff.name,
+                calendarColor: schema.staff.calendarColor,
+              })
+              .from(schema.staff)
+              .where(
+                and(
+                  eq(schema.staff.companyId, companyId),
+                  or(
+                    inArray(schema.staff.id, assignedIds),
+                    inArray(schema.staff.userId, assignedIds),
+                  ),
+                ),
+              );
+
+            const colorByStaffRef = new Map<string, string>();
+            const nameByStaffRef = new Map<string, string>();
+            const staffIdByRef = new Map<string, string>();
+            for (const member of staffRows) {
+              if (member.id) {
+                colorByStaffRef.set(member.id, member.calendarColor ?? "");
+                nameByStaffRef.set(member.id, member.name);
+                staffIdByRef.set(member.id, member.id);
+              }
+              if (member.userId) {
+                colorByStaffRef.set(member.userId, member.calendarColor ?? "");
+                nameByStaffRef.set(member.userId, member.name);
+                staffIdByRef.set(member.userId, member.id);
+              }
+            }
+
+            return normalizedResults.map((appointment) => {
+              const appointmentStaffId =
+                typeof appointment.staffId === "string"
+                  ? appointment.staffId.trim()
+                  : "";
+              const resolvedColor =
+                appointmentStaffId.length > 0
+                  ? colorByStaffRef.get(appointmentStaffId) ?? null
+                  : null;
+              const resolvedName =
+                appointmentStaffId.length > 0
+                  ? nameByStaffRef.get(appointmentStaffId) ?? null
+                  : null;
+              const resolvedStaffId =
+                appointmentStaffId.length > 0
+                  ? staffIdByRef.get(appointmentStaffId) ?? null
+                  : null;
+
+              return {
+                ...appointment,
+                calendarColor: resolvedColor,
+                assignedStaffName: resolvedName,
+                assignedStaff:
+                  resolvedStaffId && resolvedName
+                    ? {
+                      id: resolvedStaffId,
+                      name: resolvedName,
+                      calendarColor: resolvedColor,
+                    }
+                    : null,
+              };
+            });
           } catch (error: any) {
             console.error(`>>> [ADMIN_ERROR]`, error.message);
             set.status = error.message.includes("Unauthorized access") ? 403 : 500;
@@ -462,12 +720,54 @@ export function appointmentController() {
             endDate: t.Optional(t.String())
           })
         })
+        .post("/admin/company/:companyId/redistribute", async ({ params: { companyId }, body, user, set }) => {
+          const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
+          if (!isAllowed) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
+
+          const startDate = body.startDate ? new Date(body.startDate) : undefined;
+          const endDate = body.endDate ? new Date(body.endDate) : undefined;
+
+          if (startDate && Number.isNaN(startDate.getTime())) {
+            set.status = 400;
+            return { error: "Data inicial inválida." };
+          }
+          if (endDate && Number.isNaN(endDate.getTime())) {
+            set.status = 400;
+            return { error: "Data final inválida." };
+          }
+          if (startDate && endDate && startDate.getTime() > endDate.getTime()) {
+            set.status = 400;
+            return { error: "Intervalo inválido: data inicial maior que data final." };
+          }
+
+          const summary = await redistributeSuggestedAppointments({
+            companyId,
+            startDate,
+            endDate,
+          });
+
+          return {
+            success: true,
+            summary,
+          };
+        }, {
+          params: t.Object({ companyId: t.String() }),
+          body: t.Object({
+            startDate: t.Optional(t.String()),
+            endDate: t.Optional(t.String()),
+          }),
+        })
         .get("/admin/company/:companyId/unassigned", async ({ params: { companyId }, user, set }) => {
           const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
           if (!isAllowed) {
             set.status = 403;
             return { error: "Forbidden" };
           }
+
+          await autoAssignPendingAppointments({ companyId });
 
           const rows = await db
             .select()
