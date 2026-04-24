@@ -4,7 +4,7 @@ export interface IAppointmentRepository {
   findById(id: string): Promise<Appointment | null>;
   findAllByCompanyId(companyId: string, startDate?: Date, endDate?: Date): Promise<Appointment[]>;
   findAllByCustomerId(customerId: string): Promise<Appointment[]>;
-  create(data: CreateAppointmentInput): Promise<Appointment>;
+  create(data: CreateAppointmentInput, tx?: any): Promise<Appointment>;
   update(id: string, data: UpdateAppointmentInput): Promise<Appointment | null>;
   updateSchedule(
     id: string,

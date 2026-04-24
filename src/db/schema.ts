@@ -432,6 +432,35 @@ export const staffServices = pgTable(
   (table) => [uniqueIndex("staff_services_staff_service_unique").on(table.staffId, table.serviceId)],
 );
 
+export const staffServicesCompetency = pgTable(
+  "staff_services_competency",
+  {
+    id: text("id").primaryKey(),
+    staffId: text("staff_id")
+      .notNull()
+      .references(() => staff.id, { onDelete: "cascade" }),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => services.id, { onDelete: "cascade" }),
+    isActive: boolean("is_active").default(true).notNull(),
+    priorityScore: integer("priority_score").default(5).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("staff_services_competency_staff_service_unique").on(
+      table.staffId,
+      table.serviceId,
+    ),
+    index("staff_services_competency_staff_idx").on(table.staffId),
+    index("staff_services_competency_service_idx").on(table.serviceId),
+    index("staff_services_competency_active_idx").on(table.isActive),
+  ],
+);
+
 export const appointments = pgTable("appointments", {
   id: text("id").primaryKey(),
   companyId: text("company_id")
@@ -762,6 +791,7 @@ export const staffRelations = relations(staff, ({ one, many }) => ({
     references: [user.id],
   }),
   services: many(staffServices),
+  competencies: many(staffServicesCompetency),
   appointments: many(appointments),
   scheduleBlocks: many(scheduleBlocks),
 }));
@@ -776,6 +806,20 @@ export const staffServicesRelations = relations(staffServices, ({ one }) => ({
     references: [services.id],
   }),
 }));
+
+export const staffServicesCompetencyRelations = relations(
+  staffServicesCompetency,
+  ({ one }) => ({
+    staff: one(staff, {
+      fields: [staffServicesCompetency.staffId],
+      references: [staff.id],
+    }),
+    service: one(services, {
+      fields: [staffServicesCompetency.serviceId],
+      references: [services.id],
+    }),
+  }),
+);
 
 export const serviceResourcesRelations = relations(serviceResources, ({ one }) => ({
   service: one(services, {

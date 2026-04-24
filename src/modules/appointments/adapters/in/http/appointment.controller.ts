@@ -14,6 +14,32 @@ import { assertNoSchedulingConflict, parseDurationToMinutes } from "../../../app
 
 const activeAppointmentStatuses = ["PENDING", "CONFIRMED", "ONGOING", "POSTPONED"] as const;
 
+const isMissingCompetencyTableError = (error: unknown) => {
+  const code = (error as any)?.code;
+  const message = String((error as any)?.message ?? "");
+  return code === "42P01" || message.includes("staff_services_competency");
+};
+
+const loadStaffSkills = async (staffId: string) => {
+  try {
+    return await db
+      .select({ serviceId: schema.staffServicesCompetency.serviceId })
+      .from(schema.staffServicesCompetency)
+      .where(
+        and(
+          eq(schema.staffServicesCompetency.staffId, staffId),
+          eq(schema.staffServicesCompetency.isActive, true),
+        ),
+      );
+  } catch (error) {
+    if (!isMissingCompetencyTableError(error)) throw error;
+    return await db
+      .select({ serviceId: schema.staffServices.serviceId })
+      .from(schema.staffServices)
+      .where(eq(schema.staffServices.staffId, staffId));
+  }
+};
+
 const getLocalDayWindow = (date: Date) => {
   const formatter = new Intl.DateTimeFormat("pt-BR", {
     timeZone: "America/Sao_Paulo",
@@ -272,6 +298,9 @@ export function appointmentController() {
               companyId, // Garante que usa o ID resolvido
               customerId: body.customerId || user?.id,
               scheduledAt,
+              autoAssign: body.auto_assign,
+              forceStaffId: body.force_staff_id,
+              staffId: body.force_staff_id ?? body.staffId,
             }, user?.id); // Passa user?.id (pode ser undefined se público)
 
             return result;
@@ -335,6 +364,8 @@ export function appointmentController() {
             servicePriceSnapshot: t.String(),
             serviceDurationSnapshot: t.String(),
             staffId: t.Optional(t.Nullable(t.String())),
+            force_staff_id: t.Optional(t.Nullable(t.String())),
+            auto_assign: t.Optional(t.Boolean()),
             force: t.Optional(t.Boolean()),
             notes: t.Optional(t.String()),
             ignoreBusinessHoursValidation: t.Optional(t.Boolean()),
@@ -449,10 +480,7 @@ export function appointmentController() {
             return { error: "Somente profissionais ativos podem acessar oportunidades." };
           }
 
-          const skillRows = await db
-            .select({ serviceId: schema.staffServices.serviceId })
-            .from(schema.staffServices)
-            .where(eq(schema.staffServices.staffId, membership.id));
+          const skillRows = await loadStaffSkills(membership.id);
           const serviceIds = skillRows.map((skill) => skill.serviceId);
 
           if (serviceIds.length === 0) return [];
@@ -599,10 +627,7 @@ export function appointmentController() {
             return { error: "Este serviço já foi assumido por outro profissional." };
           }
 
-          const skillRows = await db
-            .select({ serviceId: schema.staffServices.serviceId })
-            .from(schema.staffServices)
-            .where(eq(schema.staffServices.staffId, membership.id));
+          const skillRows = await loadStaffSkills(membership.id);
           const skills = new Set(skillRows.map((skill) => skill.serviceId));
 
           if (!skills.has(appointment.serviceId)) {

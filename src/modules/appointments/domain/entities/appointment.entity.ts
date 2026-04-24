@@ -46,6 +46,8 @@ export interface CreateAppointmentInput {
   companyId: string;
   serviceId: string;
   staffId?: string | null;
+  forceStaffId?: string | null;
+  autoAssign?: boolean;
   createdBy?: string | null;
   customerId?: string;
   customerName: string;

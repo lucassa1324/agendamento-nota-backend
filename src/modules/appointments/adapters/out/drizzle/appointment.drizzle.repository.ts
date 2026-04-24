@@ -156,11 +156,12 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
     }));
   }
 
-  async create(data: CreateAppointmentInput): Promise<Appointment> {
+  async create(data: CreateAppointmentInput, tx?: any): Promise<Appointment> {
     const capabilities = await this.getSchemaCapabilities();
     const selectFields = this.getSelectableFields(capabilities);
     const { items, ...appointmentData } = data;
     const appointmentId = crypto.randomUUID();
+    const executor = tx ?? db;
 
     const insertValues: Record<string, unknown> = {
       id: appointmentId,
@@ -197,7 +198,7 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
       insertValues.version = appointmentData.version ?? 1;
     }
 
-    const [newAppointment] = await db
+    const [newAppointment] = await executor
       .insert(appointments)
       .values(insertValues as any)
       .returning(selectFields as any);
@@ -211,7 +212,7 @@ export class DrizzleAppointmentRepository implements IAppointmentRepository {
         ...item,
       }));
 
-      const insertedItems = await db
+      const insertedItems = await executor
         .insert(appointmentItems)
         .values(itemsToInsert)
         .returning();

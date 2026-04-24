@@ -8,18 +8,29 @@ type SuggestAssignmentInput = {
   serviceIds: string[];
   scheduledAt: Date;
   durationMinutes: number;
+  customerId?: string | null;
+  tx?: any;
 };
 
 type CandidateScore = {
   staffId: string;
+  priorityScore: number;
+  totalScore: number;
   scoreGapMinutes: number;
-  appointmentsCount: number;
+  workloadMinutes: number;
+  hasAffinity: boolean;
 };
 
 type AssignmentSuggestion = {
   professionalId: string | null;
   reason: "gap_fill" | "no_candidate" | "no_available_slot";
   candidatesEvaluated: number;
+};
+
+const isMissingCompetencyTableError = (error: unknown) => {
+  const code = (error as any)?.code;
+  const message = String((error as any)?.message ?? "");
+  return code === "42P01" || message.includes("staff_services_competency");
 };
 
 export class AssignmentEngineService {
@@ -53,6 +64,8 @@ export class AssignmentEngineService {
   async suggestProfessional(
     input: SuggestAssignmentInput,
   ): Promise<AssignmentSuggestion> {
+    const conn = input.tx ?? db;
+
     if (input.serviceIds.length === 0) {
       return {
         professionalId: null,
@@ -61,24 +74,54 @@ export class AssignmentEngineService {
       };
     }
 
-    const candidateRows = await db
-      .select({
-        staffId: schema.staff.id,
-        serviceId: schema.staffServices.serviceId,
-      })
-      .from(schema.staff)
-      .innerJoin(
-        schema.staffServices,
-        eq(schema.staffServices.staffId, schema.staff.id),
-      )
-      .where(
-        and(
-          eq(schema.staff.companyId, input.companyId),
-          eq(schema.staff.isActive, true),
-          eq(schema.staff.isProfessional, true),
-          inArray(schema.staffServices.serviceId, input.serviceIds),
-        ),
-      );
+    let candidateRows: Array<{
+      staffId: string;
+      serviceId: string;
+      priorityScore: number;
+    }> = [];
+    try {
+      candidateRows = await conn
+        .select({
+          staffId: schema.staff.id,
+          serviceId: schema.staffServicesCompetency.serviceId,
+          priorityScore: schema.staffServicesCompetency.priorityScore,
+        })
+        .from(schema.staff)
+        .innerJoin(
+          schema.staffServicesCompetency,
+          eq(schema.staffServicesCompetency.staffId, schema.staff.id),
+        )
+        .where(
+          and(
+            eq(schema.staff.companyId, input.companyId),
+            eq(schema.staff.isActive, true),
+            eq(schema.staff.isProfessional, true),
+            eq(schema.staffServicesCompetency.isActive, true),
+            inArray(schema.staffServicesCompetency.serviceId, input.serviceIds),
+          ),
+        );
+    } catch (error) {
+      if (!isMissingCompetencyTableError(error)) throw error;
+      candidateRows = await conn
+        .select({
+          staffId: schema.staff.id,
+          serviceId: schema.staffServices.serviceId,
+          priorityScore: schema.staff.commissionRate,
+        })
+        .from(schema.staff)
+        .innerJoin(
+          schema.staffServices,
+          eq(schema.staffServices.staffId, schema.staff.id),
+        )
+        .where(
+          and(
+            eq(schema.staff.companyId, input.companyId),
+            eq(schema.staff.isActive, true),
+            eq(schema.staff.isProfessional, true),
+            inArray(schema.staffServices.serviceId, input.serviceIds),
+          ),
+        );
+    }
 
     if (candidateRows.length === 0) {
       return {
@@ -89,17 +132,27 @@ export class AssignmentEngineService {
     }
 
     const serviceSet = new Set(input.serviceIds);
-    const candidateSkillMap = new Map<string, Set<string>>();
+    const candidateSkillMap = new Map<
+      string,
+      { skills: Set<string>; priorityScore: number }
+    >();
     for (const row of candidateRows) {
-      const current = candidateSkillMap.get(row.staffId) || new Set<string>();
-      current.add(row.serviceId);
+      const current = candidateSkillMap.get(row.staffId) || {
+        skills: new Set<string>(),
+        priorityScore: 0,
+      };
+      current.skills.add(row.serviceId);
+      current.priorityScore = Math.max(
+        current.priorityScore,
+        Number(row.priorityScore ?? 0),
+      );
       candidateSkillMap.set(row.staffId, current);
     }
 
     const fullyQualifiedCandidates = Array.from(candidateSkillMap.entries())
-      .filter(([, skills]) => {
+      .filter(([, candidate]) => {
         for (const requiredServiceId of serviceSet) {
-          if (!skills.has(requiredServiceId)) return false;
+          if (!candidate.skills.has(requiredServiceId)) return false;
         }
         return true;
       })
@@ -119,7 +172,7 @@ export class AssignmentEngineService {
       targetStart.getTime() + input.durationMinutes * 60_000,
     );
 
-    const appointments = await db
+    const appointments = await conn
       .select({
         staffId: schema.appointments.staffId,
         scheduledAt: schema.appointments.scheduledAt,
@@ -136,6 +189,31 @@ export class AssignmentEngineService {
         ),
       );
 
+    const affinityByStaff = new Map<string, boolean>();
+    if (input.customerId) {
+      const sixMonthsAgo = new Date(input.scheduledAt);
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+      const affinityRows = await conn
+        .select({
+          staffId: schema.appointments.staffId,
+        })
+        .from(schema.appointments)
+        .where(
+          and(
+            eq(schema.appointments.companyId, input.companyId),
+            eq(schema.appointments.customerId, input.customerId),
+            inArray(schema.appointments.staffId, fullyQualifiedCandidates),
+            gte(schema.appointments.scheduledAt, sixMonthsAgo),
+            lte(schema.appointments.scheduledAt, input.scheduledAt),
+          ),
+        );
+
+      for (const row of affinityRows) {
+        if (row.staffId) affinityByStaff.set(row.staffId, true);
+      }
+    }
+
     const busyByStaff = new Map<
       string,
       Array<{ start: Date; end: Date }>
@@ -146,7 +224,7 @@ export class AssignmentEngineService {
       const start = new Date(appt.scheduledAt);
       const end = new Date(
         start.getTime() +
-          parseDurationToMinutes(appt.serviceDurationSnapshot) * 60_000,
+        parseDurationToMinutes(appt.serviceDurationSnapshot) * 60_000,
       );
       const current = busyByStaff.get(appt.staffId) || [];
       current.push({ start, end });
@@ -168,17 +246,31 @@ export class AssignmentEngineService {
       const nearestPreviousEnd = previousSlots[0]?.end;
       const gapMinutes = nearestPreviousEnd
         ? Math.max(
-            0,
-            Math.floor(
-              (targetStart.getTime() - nearestPreviousEnd.getTime()) / 60_000,
-            ),
-          )
+          0,
+          Math.floor(
+            (targetStart.getTime() - nearestPreviousEnd.getTime()) / 60_000,
+          ),
+        )
         : Number.MAX_SAFE_INTEGER;
+
+      const workloadMinutes = busy.reduce((acc, slot) => {
+        const durationMin = Math.max(
+          0,
+          Math.floor((slot.end.getTime() - slot.start.getTime()) / 60_000),
+        );
+        return acc + durationMin;
+      }, 0);
+      const candidatePriority =
+        candidateSkillMap.get(staffId)?.priorityScore ?? 0;
+      const hasAffinity = affinityByStaff.get(staffId) ?? false;
 
       scores.push({
         staffId,
+        priorityScore: candidatePriority,
+        totalScore: 0,
         scoreGapMinutes: gapMinutes,
-        appointmentsCount: busy.length,
+        workloadMinutes,
+        hasAffinity,
       });
     }
 
@@ -190,11 +282,41 @@ export class AssignmentEngineService {
       };
     }
 
+    const finiteGaps = scores
+      .map((candidate) => candidate.scoreGapMinutes)
+      .filter((gap) => Number.isFinite(gap));
+    const maxGap = finiteGaps.length > 0 ? Math.max(...finiteGaps) : 0;
+    const maxWorkload = Math.max(
+      ...scores.map((candidate) => candidate.workloadMinutes),
+      0,
+    );
+
+    for (const candidate of scores) {
+      const normalizedGap =
+        candidate.scoreGapMinutes === Number.MAX_SAFE_INTEGER
+          ? 1
+          : maxGap > 0
+            ? candidate.scoreGapMinutes / maxGap
+            : 0;
+      const normalizedLoad =
+        maxWorkload > 0 ? candidate.workloadMinutes / maxWorkload : 0;
+      const affinityPenalty = candidate.hasAffinity ? 0 : 1;
+
+      candidate.totalScore =
+        normalizedGap * 0.6 + normalizedLoad * 0.3 + affinityPenalty * 0.1;
+    }
+
     scores.sort((a, b) => {
-      if (a.scoreGapMinutes !== b.scoreGapMinutes) {
-        return a.scoreGapMinutes - b.scoreGapMinutes;
+      if (a.totalScore !== b.totalScore) {
+        return a.totalScore - b.totalScore;
       }
-      return a.appointmentsCount - b.appointmentsCount;
+      if (a.priorityScore !== b.priorityScore) {
+        return b.priorityScore - a.priorityScore;
+      }
+      if (a.workloadMinutes !== b.workloadMinutes) {
+        return a.workloadMinutes - b.workloadMinutes;
+      }
+      return a.staffId.localeCompare(b.staffId);
     });
 
     return {
