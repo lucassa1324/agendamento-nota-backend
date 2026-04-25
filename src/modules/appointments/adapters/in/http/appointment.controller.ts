@@ -1,5 +1,8 @@
 import { Elysia, t } from "elysia";
+import { and, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
+import * as schema from "../../../../../db/schema";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
+import { db } from "../../../../infrastructure/drizzle/database";
 import { repositoriesPlugin } from "../../../../infrastructure/di/repositories.plugin";
 import { ListAppointmentsUseCase } from "../../../application/use-cases/list-appointments.use-case";
 import { UpdateAppointmentStatusUseCase } from "../../../application/use-cases/update-appointment-status.use-case";
@@ -7,6 +10,279 @@ import { DeleteAppointmentUseCase } from "../../../application/use-cases/delete-
 import { RescheduleAppointmentUseCase } from "../../../application/use-cases/reschedule-appointment.use-case";
 import { UpdateAppointmentUseCase } from "../../../application/use-cases/update-appointment.use-case";
 import { GetOperatingHoursUseCase } from "../../../../business/application/use-cases/get-operating-hours.use-case";
+import { assertNoSchedulingConflict, parseDurationToMinutes } from "../../../application/utils/scheduling-conflict.util";
+import { AssignmentEngineService } from "../../../application/services/assignment-engine.service";
+
+const activeAppointmentStatuses = ["PENDING", "CONFIRMED", "ONGOING", "POSTPONED"] as const;
+
+const isMissingCompetencyTableError = (error: unknown) => {
+  const code = (error as any)?.code;
+  const message = String((error as any)?.message ?? "");
+  return code === "42P01" || message.includes("staff_services_competency");
+};
+
+const loadStaffSkills = async (staffId: string) => {
+  const loadLegacySkills = async () =>
+    await db
+      .select({ serviceId: schema.staffServices.serviceId })
+      .from(schema.staffServices)
+      .where(eq(schema.staffServices.staffId, staffId));
+
+  try {
+    const competencyRows = await db
+      .select({ serviceId: schema.staffServicesCompetency.serviceId })
+      .from(schema.staffServicesCompetency)
+      .where(
+        and(
+          eq(schema.staffServicesCompetency.staffId, staffId),
+          eq(schema.staffServicesCompetency.isActive, true),
+        ),
+      );
+    // Compatibilidade com configuração legada de serviços por funcionária
+    if (competencyRows.length === 0) {
+      return await loadLegacySkills();
+    }
+    return competencyRows;
+  } catch (error) {
+    if (!isMissingCompetencyTableError(error)) throw error;
+    return await loadLegacySkills();
+  }
+};
+
+const getLocalDayWindow = (date: Date) => {
+  const formatter = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  const parts = formatter.formatToParts(date);
+  const getPart = (type: string) =>
+    parts.find((p) => p.type === type)?.value || "00";
+  const year = getPart("year");
+  const month = getPart("month");
+  const day = getPart("day");
+  const start = new Date(`${year}-${month}-${day}T00:00:00.000-03:00`);
+  const end = new Date(`${year}-${month}-${day}T23:59:59.999-03:00`);
+  return { start, end };
+};
+
+const assignmentEngine = new AssignmentEngineService();
+
+const autoAssignPendingAppointments = async (params: {
+  companyId: string;
+  startDate?: Date;
+  endDate?: Date;
+}) => {
+  const filters = [
+    eq(schema.appointments.companyId, params.companyId),
+    sql`${schema.appointments.staffId} is null`,
+    inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+  ];
+
+  if (params.startDate) {
+    filters.push(gte(schema.appointments.scheduledAt, params.startDate));
+  }
+  if (params.endDate) {
+    filters.push(lte(schema.appointments.scheduledAt, params.endDate));
+  }
+
+  const pendingRows = await db
+    .select({
+      id: schema.appointments.id,
+      companyId: schema.appointments.companyId,
+      customerId: schema.appointments.customerId,
+      serviceId: schema.appointments.serviceId,
+      serviceDurationSnapshot: schema.appointments.serviceDurationSnapshot,
+      scheduledAt: schema.appointments.scheduledAt,
+    })
+    .from(schema.appointments)
+    .where(and(...filters))
+    .orderBy(schema.appointments.scheduledAt);
+
+  for (const appointment of pendingRows) {
+    const suggestion = await assignmentEngine.suggestProfessional({
+      companyId: appointment.companyId,
+      serviceIds: [appointment.serviceId],
+      scheduledAt: new Date(appointment.scheduledAt),
+      durationMinutes: parseDurationToMinutes(appointment.serviceDurationSnapshot),
+      customerId: appointment.customerId,
+    });
+
+    if (!suggestion.professionalId) continue;
+
+    await db
+      .update(schema.appointments)
+      .set({
+        staffId: suggestion.professionalId,
+        assignedBy: "system",
+        validationStatus: "suggested",
+        version: sql`${schema.appointments.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.appointments.id, appointment.id));
+  }
+};
+
+const redistributeSuggestedAppointments = async (params: {
+  companyId: string;
+  startDate?: Date;
+  endDate?: Date;
+}) => {
+  const now = new Date();
+  const filters = [
+    eq(schema.appointments.companyId, params.companyId),
+    gte(schema.appointments.scheduledAt, params.startDate ?? now),
+    inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+    or(
+      sql`${schema.appointments.staffId} is null`,
+      eq(schema.appointments.assignedBy, "system"),
+      eq(schema.appointments.validationStatus, "suggested"),
+    ),
+  ];
+
+  if (params.endDate) {
+    filters.push(lte(schema.appointments.scheduledAt, params.endDate));
+  }
+
+  const candidateRows = await db
+    .select({
+      id: schema.appointments.id,
+      companyId: schema.appointments.companyId,
+      customerId: schema.appointments.customerId,
+      serviceId: schema.appointments.serviceId,
+      serviceDurationSnapshot: schema.appointments.serviceDurationSnapshot,
+      scheduledAt: schema.appointments.scheduledAt,
+      staffId: schema.appointments.staffId,
+    })
+    .from(schema.appointments)
+    .where(and(...filters))
+    .orderBy(schema.appointments.scheduledAt);
+
+  let reassignedCount = 0;
+  let unchangedCount = 0;
+  let skippedCount = 0;
+
+  for (const appointment of candidateRows) {
+    const suggestion = await assignmentEngine.suggestProfessional({
+      companyId: appointment.companyId,
+      serviceIds: [appointment.serviceId],
+      scheduledAt: new Date(appointment.scheduledAt),
+      durationMinutes: parseDurationToMinutes(appointment.serviceDurationSnapshot),
+      customerId: appointment.customerId,
+    });
+
+    if (!suggestion.professionalId) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const currentStaffId = appointment.staffId ?? null;
+    if (currentStaffId === suggestion.professionalId) {
+      unchangedCount += 1;
+      continue;
+    }
+
+    await db
+      .update(schema.appointments)
+      .set({
+        staffId: suggestion.professionalId,
+        assignedBy: "system",
+        validationStatus: "suggested",
+        version: sql`${schema.appointments.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.appointments.id, appointment.id));
+
+    reassignedCount += 1;
+  }
+
+  return {
+    scanned: candidateRows.length,
+    reassigned: reassignedCount,
+    unchanged: unchangedCount,
+    skipped: skippedCount,
+  };
+};
+
+const getStaffMembership = async (companyId: string, userId: string) => {
+  const baseSelect = {
+    id: schema.staff.id,
+    isActive: schema.staff.isActive,
+    isProfessional: schema.staff.isProfessional,
+    isSecretary: schema.staff.isSecretary,
+    isAdmin: schema.staff.isAdmin,
+  };
+
+  const [membershipByUserId] = await db
+    .select({
+      ...baseSelect,
+    })
+    .from(schema.staff)
+    .where(
+      and(
+        eq(schema.staff.companyId, companyId),
+        eq(schema.staff.userId, userId),
+      ),
+    )
+    .limit(1);
+
+  if (membershipByUserId) return membershipByUserId;
+
+  // Fallback para base legada: vínculo por e-mail sem user_id preenchido
+  const [authUser] = await db
+    .select({ email: schema.user.email })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+    .limit(1);
+
+  if (!authUser?.email) return null;
+
+  const [membershipByEmail] = await db
+    .select({
+      ...baseSelect,
+    })
+    .from(schema.staff)
+    .where(
+      and(
+        eq(schema.staff.companyId, companyId),
+        sql`lower(${schema.staff.email}) = lower(${authUser.email})`,
+      ),
+    )
+    .limit(1);
+
+  if (!membershipByEmail) return null;
+
+  // Auto-correção do vínculo para evitar inconsistências futuras
+  await db
+    .update(schema.staff)
+    .set({ userId, updatedAt: new Date() })
+    .where(eq(schema.staff.id, membershipByEmail.id));
+
+  return membershipByEmail;
+};
+
+const canManageCompanyAppointments = async (
+  companyId: string,
+  userId: string,
+  role?: string,
+) => {
+  const normalizedRole = role?.toUpperCase();
+  if (normalizedRole === "SUPER_ADMIN" || normalizedRole === "ADMIN") {
+    return true;
+  }
+
+  const [company] = await db
+    .select({ ownerId: schema.companies.ownerId })
+    .from(schema.companies)
+    .where(eq(schema.companies.id, companyId))
+    .limit(1);
+
+  if (company?.ownerId === userId) return true;
+
+  const membership = await getStaffMembership(companyId, userId);
+  return Boolean(membership?.isActive && (membership.isAdmin || membership.isSecretary));
+};
 
 export function appointmentController() {
   return new Elysia({ prefix: "/appointments" })
@@ -206,6 +482,9 @@ export function appointmentController() {
               companyId, // Garante que usa o ID resolvido
               customerId: body.customerId || user?.id,
               scheduledAt,
+              autoAssign: body.auto_assign,
+              forceStaffId: body.force_staff_id,
+              staffId: body.force_staff_id ?? body.staffId,
             }, user?.id); // Passa user?.id (pode ser undefined se público)
 
             return result;
@@ -268,6 +547,10 @@ export function appointmentController() {
             serviceNameSnapshot: t.String(),
             servicePriceSnapshot: t.String(),
             serviceDurationSnapshot: t.String(),
+            staffId: t.Optional(t.Nullable(t.String())),
+            force_staff_id: t.Optional(t.Nullable(t.String())),
+            auto_assign: t.Optional(t.Boolean()),
+            force: t.Optional(t.Boolean()),
             notes: t.Optional(t.String()),
             ignoreBusinessHoursValidation: t.Optional(t.Boolean()),
             items: t.Optional(t.Array(t.Object({
@@ -300,12 +583,132 @@ export function appointmentController() {
 
             console.log(`>>> [FILTRO_DATA] Start: ${startDateStr}, End: ${endDateStr}`);
 
+            // Garantia de persistência: pendências elegíveis são autoatribuídas
+            // antes de responder o calendário/lista.
+            await autoAssignPendingAppointments({
+              companyId,
+              startDate,
+              endDate,
+            });
+
             const listAppointmentsUseCase = new ListAppointmentsUseCase(appointmentRepository, businessRepository);
             const results = await listAppointmentsUseCase.execute(companyId, user!.id, startDate, endDate);
 
             console.log(`>>> [ADMIN_RESULTS] Encontrados ${results.length} agendamentos`);
 
-            return results || [];
+            if (!results || results.length === 0) return [];
+
+            // Fallback robusto: em bases legadas/instâncias antigas o repositório
+            // pode não projetar staffId. Aqui garantimos o staffId persistido por ID.
+            const appointmentIds = results.map((appointment) => appointment.id);
+            const persistedRows = await db
+              .select({
+                id: schema.appointments.id,
+                staffId: schema.appointments.staffId,
+                assignedBy: schema.appointments.assignedBy,
+                validationStatus: schema.appointments.validationStatus,
+                version: schema.appointments.version,
+              })
+              .from(schema.appointments)
+              .where(inArray(schema.appointments.id, appointmentIds));
+
+            const persistedById = new Map(
+              persistedRows.map((row) => [row.id, row]),
+            );
+
+            const normalizedResults = results.map((appointment) => {
+              const persisted = persistedById.get(appointment.id);
+              return {
+                ...appointment,
+                // O banco é a fonte da verdade para modo de atribuição.
+                staffId: persisted?.staffId ?? appointment.staffId ?? null,
+                assignedBy: persisted?.assignedBy ?? appointment.assignedBy ?? "staff",
+                validationStatus:
+                  persisted?.validationStatus ?? appointment.validationStatus ?? "confirmed",
+                version: persisted?.version ?? appointment.version ?? 1,
+              };
+            });
+
+            const assignedIds = Array.from(
+              new Set(
+                normalizedResults
+                  .map((appointment) =>
+                    typeof appointment.staffId === "string"
+                      ? appointment.staffId.trim()
+                      : "",
+                  )
+                  .filter((id) => id.length > 0),
+              ),
+            );
+
+            if (assignedIds.length === 0) return normalizedResults;
+
+            const staffRows = await db
+              .select({
+                id: schema.staff.id,
+                userId: schema.staff.userId,
+                name: schema.staff.name,
+                calendarColor: schema.staff.calendarColor,
+              })
+              .from(schema.staff)
+              .where(
+                and(
+                  eq(schema.staff.companyId, companyId),
+                  or(
+                    inArray(schema.staff.id, assignedIds),
+                    inArray(schema.staff.userId, assignedIds),
+                  ),
+                ),
+              );
+
+            const colorByStaffRef = new Map<string, string>();
+            const nameByStaffRef = new Map<string, string>();
+            const staffIdByRef = new Map<string, string>();
+            for (const member of staffRows) {
+              if (member.id) {
+                colorByStaffRef.set(member.id, member.calendarColor ?? "");
+                nameByStaffRef.set(member.id, member.name);
+                staffIdByRef.set(member.id, member.id);
+              }
+              if (member.userId) {
+                colorByStaffRef.set(member.userId, member.calendarColor ?? "");
+                nameByStaffRef.set(member.userId, member.name);
+                staffIdByRef.set(member.userId, member.id);
+              }
+            }
+
+            return normalizedResults.map((appointment) => {
+              const appointmentStaffId =
+                typeof appointment.staffId === "string"
+                  ? appointment.staffId.trim()
+                  : "";
+              const resolvedColor =
+                appointmentStaffId.length > 0
+                  ? colorByStaffRef.get(appointmentStaffId) ?? null
+                  : null;
+              const resolvedName =
+                appointmentStaffId.length > 0
+                  ? nameByStaffRef.get(appointmentStaffId) ?? null
+                  : null;
+              const resolvedStaffId =
+                appointmentStaffId.length > 0
+                  ? staffIdByRef.get(appointmentStaffId) ?? null
+                  : null;
+
+              return {
+                ...appointment,
+                calendarColor: resolvedColor,
+                assignedStaffName: resolvedName,
+                assignedStaff:
+                  resolvedStaffId && resolvedName
+                    ? {
+                      id: resolvedStaffId,
+                      name: resolvedName,
+                      calendarColor: resolvedColor,
+                    }
+                    : null,
+              };
+            });
           } catch (error: any) {
             console.error(`>>> [ADMIN_ERROR]`, error.message);
             set.status = error.message.includes("Unauthorized access") ? 403 : 500;
@@ -317,6 +720,423 @@ export function appointmentController() {
             startDate: t.Optional(t.String()),
             endDate: t.Optional(t.String())
           })
+        })
+        .post("/admin/company/:companyId/redistribute", async ({ params: { companyId }, body, user, set }) => {
+          const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
+          if (!isAllowed) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
+
+          const startDate = body.startDate ? new Date(body.startDate) : undefined;
+          const endDate = body.endDate ? new Date(body.endDate) : undefined;
+
+          if (startDate && Number.isNaN(startDate.getTime())) {
+            set.status = 400;
+            return { error: "Data inicial inválida." };
+          }
+          if (endDate && Number.isNaN(endDate.getTime())) {
+            set.status = 400;
+            return { error: "Data final inválida." };
+          }
+          if (startDate && endDate && startDate.getTime() > endDate.getTime()) {
+            set.status = 400;
+            return { error: "Intervalo inválido: data inicial maior que data final." };
+          }
+
+          const summary = await redistributeSuggestedAppointments({
+            companyId,
+            startDate,
+            endDate,
+          });
+
+          return {
+            success: true,
+            summary,
+          };
+        }, {
+          params: t.Object({ companyId: t.String() }),
+          body: t.Object({
+            startDate: t.Optional(t.String()),
+            endDate: t.Optional(t.String()),
+          }),
+        })
+        .get("/admin/company/:companyId/unassigned", async ({ params: { companyId }, user, set }) => {
+          const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
+          if (!isAllowed) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
+
+          await autoAssignPendingAppointments({ companyId });
+
+          const rows = await db
+            .select()
+            .from(schema.appointments)
+            .where(
+              and(
+                eq(schema.appointments.companyId, companyId),
+                sql`${schema.appointments.staffId} is null`,
+                inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+              ),
+            )
+            .orderBy(schema.appointments.scheduledAt);
+
+          return rows;
+        }, {
+          params: t.Object({ companyId: t.String() }),
+        })
+        .get("/my/company/:companyId/daily", async ({ params: { companyId }, query, user, set }) => {
+          const membership = await getStaffMembership(companyId, user!.id);
+          if (!membership?.isActive) {
+            set.status = 403;
+            return { error: "Sua conta não está vinculada a um colaborador ativo nessa empresa." };
+          }
+
+          const baseDate = query.date ? new Date(query.date) : new Date();
+          if (Number.isNaN(baseDate.getTime())) {
+            set.status = 400;
+            return { error: "Data inválida." };
+          }
+
+          const { start, end } = getLocalDayWindow(baseDate);
+          const rows = await db
+            .select()
+            .from(schema.appointments)
+            .where(
+              and(
+                eq(schema.appointments.companyId, companyId),
+                eq(schema.appointments.staffId, membership.id),
+                gte(schema.appointments.scheduledAt, start),
+                lte(schema.appointments.scheduledAt, end),
+                inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+              ),
+            )
+            .orderBy(schema.appointments.scheduledAt);
+
+          return rows;
+        }, {
+          params: t.Object({ companyId: t.String() }),
+          query: t.Object({ date: t.Optional(t.String()) }),
+        })
+        .get("/my/company/:companyId/opportunities", async ({ params: { companyId }, user, set }) => {
+          const membership = await getStaffMembership(companyId, user!.id);
+          if (!membership?.isActive || !membership.isProfessional) {
+            set.status = 403;
+            return { error: "Somente profissionais ativos podem acessar oportunidades." };
+          }
+
+          const skillRows = await loadStaffSkills(membership.id);
+          const serviceIds = skillRows.map((skill) => skill.serviceId);
+
+          if (serviceIds.length === 0) return [];
+
+          const opportunities = await db
+            .select()
+            .from(schema.appointments)
+            .where(
+              and(
+                eq(schema.appointments.companyId, companyId),
+                sql`${schema.appointments.staffId} is null`,
+                inArray(schema.appointments.serviceId, serviceIds),
+                inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+              ),
+            )
+            .orderBy(schema.appointments.scheduledAt);
+
+          return opportunities;
+        }, {
+          params: t.Object({ companyId: t.String() }),
+        })
+        .patch("/:id/assignment", async ({ params: { id }, body, user, set }) => {
+          const appointment = await db
+            .select()
+            .from(schema.appointments)
+            .where(eq(schema.appointments.id, id))
+            .limit(1)
+            .then((rows) => rows[0]);
+
+          if (!appointment) {
+            set.status = 404;
+            return { error: "Agendamento não encontrado." };
+          }
+
+          const isAllowed = await canManageCompanyAppointments(
+            appointment.companyId,
+            user!.id,
+            user?.role,
+          );
+          if (!isAllowed) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
+
+          const nextScheduledAt = body.scheduledAt
+            ? new Date(body.scheduledAt)
+            : new Date(appointment.scheduledAt);
+          if (Number.isNaN(nextScheduledAt.getTime())) {
+            set.status = 400;
+            return { error: "Data de agendamento inválida." };
+          }
+
+          const nextStaffId =
+            body.professionalId === undefined
+              ? appointment.staffId
+              : body.professionalId || null;
+
+          if (
+            typeof body.expectedVersion === "number" &&
+            appointment.version !== body.expectedVersion
+          ) {
+            set.status = 409;
+            return {
+              error: "Version conflict",
+              message:
+                "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
+            };
+          }
+
+          if (nextStaffId) {
+            const { start, end } = getLocalDayWindow(nextScheduledAt);
+            const existingAppointments = await db
+              .select()
+              .from(schema.appointments)
+              .where(
+                and(
+                  eq(schema.appointments.companyId, appointment.companyId),
+                  eq(schema.appointments.staffId, nextStaffId),
+                  gte(schema.appointments.scheduledAt, start),
+                  lte(schema.appointments.scheduledAt, end),
+                ),
+              );
+
+            const blocks = await db
+              .select({
+                startTime: schema.scheduleBlocks.startTime,
+                endTime: schema.scheduleBlocks.endTime,
+                isOverrideable: schema.scheduleBlocks.isOverrideable,
+              })
+              .from(schema.scheduleBlocks)
+              .where(eq(schema.scheduleBlocks.staffId, nextStaffId));
+
+            assertNoSchedulingConflict({
+              scheduledAt: nextScheduledAt,
+              durationMinutes: parseDurationToMinutes(
+                appointment.serviceDurationSnapshot,
+              ),
+              existingAppointments: existingAppointments as any,
+              scheduleBlocks: blocks.map((block) => ({
+                startTime: new Date(block.startTime),
+                endTime: new Date(block.endTime),
+                isOverrideable: block.isOverrideable,
+              })),
+              currentAppointmentId: appointment.id,
+              force: true,
+            });
+          }
+
+          const updateWhere =
+            typeof body.expectedVersion === "number"
+              ? and(
+                eq(schema.appointments.id, appointment.id),
+                eq(schema.appointments.version, body.expectedVersion),
+              )
+              : eq(schema.appointments.id, appointment.id);
+
+          const updated = await db
+            .update(schema.appointments)
+            .set({
+              staffId: nextStaffId ?? null,
+              scheduledAt: nextScheduledAt,
+              assignedBy: "staff",
+              validationStatus: "confirmed",
+              version: sql`${schema.appointments.version} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(updateWhere)
+            .returning();
+
+          if (!updated[0]) {
+            set.status = 409;
+            return {
+              error: "Version conflict",
+              message:
+                "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
+            };
+          }
+
+          return updated[0];
+        }, {
+          body: t.Object({
+            professionalId: t.Optional(t.Nullable(t.String())),
+            scheduledAt: t.Optional(t.String()),
+            expectedVersion: t.Optional(t.Number()),
+          }),
+        })
+        .patch("/:id/assignment-mode", async ({ params: { id }, body, user, set }) => {
+          const appointment = await db
+            .select()
+            .from(schema.appointments)
+            .where(eq(schema.appointments.id, id))
+            .limit(1)
+            .then((rows) => rows[0]);
+
+          if (!appointment) {
+            set.status = 404;
+            return { error: "Agendamento não encontrado." };
+          }
+
+          const isAllowed = await canManageCompanyAppointments(
+            appointment.companyId,
+            user!.id,
+            user?.role,
+          );
+          if (!isAllowed) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
+
+          if (
+            typeof body.expectedVersion === "number" &&
+            appointment.version !== body.expectedVersion
+          ) {
+            set.status = 409;
+            return {
+              error: "Version conflict",
+              message:
+                "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
+            };
+          }
+
+          const nextAssignedBy = body.mode === "automatic" ? "system" : "staff";
+          const nextValidationStatus =
+            body.mode === "automatic" ? "suggested" : "confirmed";
+
+          const updateWhere =
+            typeof body.expectedVersion === "number"
+              ? and(
+                eq(schema.appointments.id, appointment.id),
+                eq(schema.appointments.version, body.expectedVersion),
+              )
+              : eq(schema.appointments.id, appointment.id);
+
+          const updated = await db
+            .update(schema.appointments)
+            .set({
+              assignedBy: nextAssignedBy,
+              validationStatus: nextValidationStatus,
+              version: sql`${schema.appointments.version} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(updateWhere)
+            .returning();
+
+          if (!updated[0]) {
+            set.status = 409;
+            return {
+              error: "Version conflict",
+              message:
+                "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
+            };
+          }
+
+          return updated[0];
+        }, {
+          body: t.Object({
+            mode: t.Union([t.Literal("manual"), t.Literal("automatic")]),
+            expectedVersion: t.Optional(t.Number()),
+          }),
+        })
+        .post("/:id/claim", async ({ params: { id }, body, user, set }) => {
+          const membership = await getStaffMembership(body.companyId, user!.id);
+          if (!membership?.isActive || !membership.isProfessional) {
+            set.status = 403;
+            return { error: "Somente profissionais ativos podem assumir serviços." };
+          }
+
+          const appointment = await db
+            .select()
+            .from(schema.appointments)
+            .where(
+              and(
+                eq(schema.appointments.id, id),
+                eq(schema.appointments.companyId, body.companyId),
+              ),
+            )
+            .limit(1)
+            .then((rows) => rows[0]);
+
+          if (!appointment) {
+            set.status = 404;
+            return { error: "Agendamento não encontrado." };
+          }
+
+          if (appointment.staffId) {
+            set.status = 409;
+            return { error: "Este serviço já foi assumido por outro profissional." };
+          }
+
+          const skillRows = await loadStaffSkills(membership.id);
+          const skills = new Set(skillRows.map((skill) => skill.serviceId));
+
+          if (!skills.has(appointment.serviceId)) {
+            set.status = 403;
+            return { error: "Você não possui skill para este serviço." };
+          }
+
+          const start = new Date(appointment.scheduledAt);
+          const { start: dayStart, end: dayEnd } = getLocalDayWindow(start);
+          const existingAppointments = await db
+            .select()
+            .from(schema.appointments)
+            .where(
+              and(
+                eq(schema.appointments.companyId, appointment.companyId),
+                eq(schema.appointments.staffId, membership.id),
+                gte(schema.appointments.scheduledAt, dayStart),
+                lte(schema.appointments.scheduledAt, dayEnd),
+              ),
+            );
+
+          assertNoSchedulingConflict({
+            scheduledAt: start,
+            durationMinutes: parseDurationToMinutes(appointment.serviceDurationSnapshot),
+            existingAppointments: existingAppointments as any,
+            currentAppointmentId: appointment.id,
+          });
+
+          const updated = await db
+            .update(schema.appointments)
+            .set({
+              staffId: membership.id,
+              assignedBy: "staff",
+              validationStatus: "confirmed",
+              version: sql`${schema.appointments.version} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(schema.appointments.id, appointment.id),
+                eq(schema.appointments.version, body.expectedVersion),
+              ),
+            )
+            .returning();
+
+          if (!updated[0]) {
+            set.status = 409;
+            return {
+              error: "Version conflict",
+              message:
+                "Esse serviço foi alterado antes da confirmação. Atualize a lista e tente novamente.",
+            };
+          }
+
+          return updated[0];
+        }, {
+          body: t.Object({
+            companyId: t.String(),
+            expectedVersion: t.Number(),
+          }),
         })
         .patch("/:id/schedule", async ({ params: { id }, body, appointmentRepository, businessRepository, user, set }) => {
           try {
@@ -333,7 +1153,7 @@ export function appointmentController() {
               appointmentRepository,
               businessRepository,
             );
-            return await useCase.execute(id, scheduledAt, user!.id);
+            return await useCase.execute(id, scheduledAt, user!.id, Boolean(body.force));
           } catch (error: any) {
             const message = error?.message || "Erro ao reagendar agendamento";
             if (message.includes("Unauthorized")) {
@@ -352,6 +1172,7 @@ export function appointmentController() {
         }, {
           body: t.Object({
             scheduledAt: t.String(),
+            force: t.Optional(t.Boolean()),
           })
         })
         .patch("/:id", async ({ params: { id }, body, appointmentRepository, serviceRepository, businessRepository, user, set }) => {
@@ -377,6 +1198,8 @@ export function appointmentController() {
                 customerPhone: body.customerPhone,
                 serviceId: body.serviceId,
                 servicePriceSnapshot: body.servicePriceSnapshot,
+                staffId: body.staffId,
+                force: body.force,
                 notes: body.notes,
                 ignoreBusinessHoursValidation: body.ignoreBusinessHoursValidation,
               },
@@ -406,6 +1229,8 @@ export function appointmentController() {
             customerPhone: t.String(),
             serviceId: t.String(),
             servicePriceSnapshot: t.String(),
+            staffId: t.Optional(t.Nullable(t.String())),
+            force: t.Optional(t.Boolean()),
             notes: t.Optional(t.String()),
             ignoreBusinessHoursValidation: t.Optional(t.Boolean()),
           })
@@ -429,6 +1254,7 @@ export function appointmentController() {
               PENDING: "PENDING",
               CONFIRMED: "CONFIRMED",
               COMPLETED: "COMPLETED",
+              ONGOING: "ONGOING",
               CANCELLED: "CANCELLED",
               POSTPONED: "POSTPONED"
             } as const),

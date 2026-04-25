@@ -1,4 +1,6 @@
-export type AppointmentStatus = "PENDING" | "CONFIRMED" | "COMPLETED" | "CANCELLED" | "POSTPONED";
+export type AppointmentStatus = "PENDING" | "CONFIRMED" | "ONGOING" | "COMPLETED" | "CANCELLED" | "POSTPONED";
+export type AppointmentAssignedBy = "system" | "staff";
+export type AppointmentValidationStatus = "suggested" | "confirmed";
 
 export interface AppointmentItem {
   id: string;
@@ -15,7 +17,9 @@ export interface Appointment {
   id: string;
   companyId: string;
   serviceId: string;
+  staffId: string | null;
   customerId: string | null;
+  createdBy: string | null;
   customerName: string;
   customerEmail: string;
   customerPhone: string;
@@ -24,6 +28,14 @@ export interface Appointment {
   serviceDurationSnapshot: string;
   scheduledAt: Date;
   status: AppointmentStatus;
+  assignedBy: AppointmentAssignedBy;
+  validationStatus: AppointmentValidationStatus;
+  version: number;
+  auditLog: Array<{
+    action: string;
+    user: string;
+    date: string;
+  }>;
   notes: string | null;
   items?: AppointmentItem[];
   createdAt: Date;
@@ -33,6 +45,10 @@ export interface Appointment {
 export interface CreateAppointmentInput {
   companyId: string;
   serviceId: string;
+  staffId?: string | null;
+  forceStaffId?: string | null;
+  autoAssign?: boolean;
+  createdBy?: string | null;
   customerId?: string;
   customerName: string;
   customerEmail: string;
@@ -41,6 +57,15 @@ export interface CreateAppointmentInput {
   servicePriceSnapshot: string;
   serviceDurationSnapshot: string;
   scheduledAt: Date;
+  assignedBy?: AppointmentAssignedBy;
+  validationStatus?: AppointmentValidationStatus;
+  version?: number;
+  auditLog?: Array<{
+    action: string;
+    user: string;
+    date: string;
+  }>;
+  force?: boolean;
   notes?: string;
   ignoreBusinessHoursValidation?: boolean;
   items?: Omit<AppointmentItem, "id" | "appointmentId" | "createdAt" | "updatedAt">[];
@@ -48,6 +73,7 @@ export interface CreateAppointmentInput {
 
 export interface UpdateAppointmentInput {
   serviceId: string;
+  staffId?: string | null;
   customerName: string;
   customerEmail: string;
   customerPhone: string;
@@ -55,6 +81,14 @@ export interface UpdateAppointmentInput {
   servicePriceSnapshot: string;
   serviceDurationSnapshot: string;
   scheduledAt: Date;
+  assignedBy?: AppointmentAssignedBy;
+  validationStatus?: AppointmentValidationStatus;
+  version?: number;
+  auditLog?: Array<{
+    action: string;
+    user: string;
+    date: string;
+  }>;
   notes?: string;
   items?: Omit<AppointmentItem, "id" | "appointmentId" | "createdAt" | "updatedAt">[];
 }

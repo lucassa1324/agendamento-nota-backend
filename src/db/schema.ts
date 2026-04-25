@@ -112,6 +112,9 @@ export const verification = pgTable(
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
+  staffMemberships: many(staff),
+  appointmentsAsCustomer: many(appointments),
+  appointmentsCreated: many(appointments, { relationName: "appointment_created_by" }),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -295,12 +298,15 @@ export const companies = pgTable("companies", {
   active: boolean("active").default(true).notNull(),
   subscriptionStatus: text("subscription_status").default('trial').notNull(),
   trialEndsAt: timestamp("trial_ends_at").defaultNow(),
+  firstSubscriptionAt: timestamp("first_subscription_at"),
+  blockedAt: timestamp("blocked_at"),
   billingAnchorDay: integer("billing_anchor_day"),
   billingGraceEndsAt: timestamp("billing_grace_ends_at"),
   billingDayLastChangedAt: timestamp("billing_day_last_changed_at"),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   asaasSubscriptionId: text("asaas_subscription_id"),
+  financialPassword: text("financial_password"),
   accessType: text("access_type").default('automatic').notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
@@ -393,6 +399,70 @@ export const services = pgTable("services", {
     .notNull(),
 });
 
+export const staff = pgTable("staff", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  isAdmin: boolean("is_admin").default(false).notNull(),
+  isSecretary: boolean("is_secretary").default(false).notNull(),
+  isProfessional: boolean("is_professional").default(false).notNull(),
+  calendarColor: varchar("calendar_color", { length: 7 }),
+  commissionRate: integer("commission_rate").default(0).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const staffServices = pgTable(
+  "staff_services",
+  {
+    staffId: text("staff_id")
+      .notNull()
+      .references(() => staff.id, { onDelete: "cascade" }),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => services.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("staff_services_staff_service_unique").on(table.staffId, table.serviceId)],
+);
+
+export const staffServicesCompetency = pgTable(
+  "staff_services_competency",
+  {
+    id: text("id").primaryKey(),
+    staffId: text("staff_id")
+      .notNull()
+      .references(() => staff.id, { onDelete: "cascade" }),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => services.id, { onDelete: "cascade" }),
+    isActive: boolean("is_active").default(true).notNull(),
+    priorityScore: integer("priority_score").default(5).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("staff_services_competency_staff_service_unique").on(
+      table.staffId,
+      table.serviceId,
+    ),
+    index("staff_services_competency_staff_idx").on(table.staffId),
+    index("staff_services_competency_service_idx").on(table.serviceId),
+    index("staff_services_competency_active_idx").on(table.isActive),
+  ],
+);
+
 export const appointments = pgTable("appointments", {
   id: text("id").primaryKey(),
   companyId: text("company_id")
@@ -401,7 +471,9 @@ export const appointments = pgTable("appointments", {
   serviceId: text("service_id")
     .notNull()
     .references(() => services.id, { onDelete: "cascade" }),
+  staffId: text("staff_id").references(() => staff.id, { onDelete: "set null" }),
   customerId: text("customer_id").references(() => user.id, { onDelete: "set null" }),
+  createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email").notNull(),
   customerPhone: text("customer_phone").notNull(),
@@ -410,9 +482,17 @@ export const appointments = pgTable("appointments", {
   servicePriceSnapshot: numeric("service_price_snapshot", { precision: 10, scale: 2 }).notNull(),
   serviceDurationSnapshot: text("service_duration_snapshot").notNull(),
   scheduledAt: timestamp("scheduled_at").notNull(),
-  status: text("status", { enum: ["PENDING", "CONFIRMED", "COMPLETED", "CANCELLED", "POSTPONED"] })
+  status: text("status", { enum: ["PENDING", "CONFIRMED", "ONGOING", "COMPLETED", "CANCELLED", "POSTPONED"] })
     .default("PENDING")
     .notNull(),
+  assignedBy: text("assigned_by", { enum: ["system", "staff"] })
+    .default("staff")
+    .notNull(),
+  validationStatus: text("validation_status", { enum: ["suggested", "confirmed"] })
+    .default("confirmed")
+    .notNull(),
+  version: integer("version").default(1).notNull(),
+  auditLog: jsonb("audit_log").default([]).notNull(),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
@@ -432,6 +512,22 @@ export const agendaBlocks = pgTable("agenda_blocks", {
   endTime: text("end_time"),
   reason: text("reason"),
   type: text("type", { enum: ["BLOCK_HOUR", "BLOCK_DAY", "BLOCK_PERIOD"] }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const scheduleBlocks = pgTable("schedule_blocks", {
+  id: text("id").primaryKey(),
+  staffId: text("staff_id")
+    .notNull()
+    .references(() => staff.id, { onDelete: "cascade" }),
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time").notNull(),
+  reason: text("reason"),
+  isOverrideable: boolean("is_overrideable").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -641,6 +737,7 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
     references: [businessProfiles.businessId],
   }),
   services: many(services),
+  staff: many(staff),
   appointments: many(appointments),
   operatingHours: many(operatingHours),
   agendaBlocks: many(agendaBlocks),
@@ -682,8 +779,49 @@ export const servicesRelations = relations(services, ({ one, many }) => ({
     references: [companies.id],
   }),
   appointments: many(appointments),
+  staffServices: many(staffServices),
   resources: many(serviceResources),
 }));
+
+export const staffRelations = relations(staff, ({ one, many }) => ({
+  company: one(companies, {
+    fields: [staff.companyId],
+    references: [companies.id],
+  }),
+  user: one(user, {
+    fields: [staff.userId],
+    references: [user.id],
+  }),
+  services: many(staffServices),
+  competencies: many(staffServicesCompetency),
+  appointments: many(appointments),
+  scheduleBlocks: many(scheduleBlocks),
+}));
+
+export const staffServicesRelations = relations(staffServices, ({ one }) => ({
+  staff: one(staff, {
+    fields: [staffServices.staffId],
+    references: [staff.id],
+  }),
+  service: one(services, {
+    fields: [staffServices.serviceId],
+    references: [services.id],
+  }),
+}));
+
+export const staffServicesCompetencyRelations = relations(
+  staffServicesCompetency,
+  ({ one }) => ({
+    staff: one(staff, {
+      fields: [staffServicesCompetency.staffId],
+      references: [staff.id],
+    }),
+    service: one(services, {
+      fields: [staffServicesCompetency.serviceId],
+      references: [services.id],
+    }),
+  }),
+);
 
 export const serviceResourcesRelations = relations(serviceResources, ({ one }) => ({
   service: one(services, {
@@ -712,11 +850,27 @@ export const appointmentsRelations = relations(appointments, ({ one, many }) => 
     fields: [appointments.serviceId],
     references: [services.id],
   }),
+  staff: one(staff, {
+    fields: [appointments.staffId],
+    references: [staff.id],
+  }),
   customer: one(user, {
     fields: [appointments.customerId],
     references: [user.id],
   }),
+  createdByUser: one(user, {
+    fields: [appointments.createdBy],
+    references: [user.id],
+    relationName: "appointment_created_by",
+  }),
   items: many(appointmentItems),
+}));
+
+export const scheduleBlocksRelations = relations(scheduleBlocks, ({ one }) => ({
+  staff: one(staff, {
+    fields: [scheduleBlocks.staffId],
+    references: [staff.id],
+  }),
 }));
 
 export const appointmentItemsRelations = relations(appointmentItems, ({ one }) => ({

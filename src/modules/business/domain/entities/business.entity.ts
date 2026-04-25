@@ -13,11 +13,20 @@ export type Business = {
   active: boolean;
   createdAt: Date;
   updatedAt?: Date;
-  subscriptionStatus?: 'trial' | 'active' | 'past_due' | 'canceled' | 'manual_active';
+  subscriptionStatus?:
+  | 'trial'
+  | 'trialing'
+  | 'active'
+  | 'grace_period'
+  | 'past_due'
+  | 'blocked'
+  | 'pending_cancellation'
+  | 'canceled'
+  | 'manual_active';
   trialEndsAt?: Date;
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
-  accessType?: 'automatic' | 'manual';
+  accessType?: 'automatic' | 'manual' | 'extended_trial';
   siteCustomization?: BusinessSiteCustomization;
 };
 

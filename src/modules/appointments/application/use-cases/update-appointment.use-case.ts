@@ -2,6 +2,14 @@ import { IAppointmentRepository } from "../../domain/ports/appointment.repositor
 import { IServiceRepository } from "../../../services/domain/ports/service.repository";
 import { IBusinessRepository } from "../../../business/domain/ports/business.repository";
 import { UpdateAppointmentInput } from "../../domain/entities/appointment.entity";
+import { db } from "../../../infrastructure/drizzle/database";
+import { scheduleBlocks } from "../../../../db/schema";
+import { eq } from "drizzle-orm";
+import {
+  assertNoSchedulingConflict,
+  parseDurationToMinutes,
+} from "../utils/scheduling-conflict.util";
+import { assertUserHasCompanyAccess } from "../utils/company-access.util";
 
 type UpdateAppointmentCommand = {
   id: string;
@@ -10,7 +18,9 @@ type UpdateAppointmentCommand = {
   customerEmail: string;
   customerPhone: string;
   serviceId: string;
+  staffId?: string | null;
   servicePriceSnapshot: string;
+  force?: boolean;
   notes?: string;
   ignoreBusinessHoursValidation?: boolean;
 };
@@ -21,18 +31,6 @@ export class UpdateAppointmentUseCase {
     private serviceRepository: IServiceRepository,
     private businessRepository: IBusinessRepository,
   ) { }
-
-  private parseDurationToMinutes(duration: string): number {
-    if (!duration) return 30;
-    if (duration.includes(":")) {
-      const [h, m] = duration.split(":").map(Number);
-      return (h * 60) + (m || 0);
-    }
-    if (/^\d+$/.test(duration)) {
-      return parseInt(duration, 10);
-    }
-    return 30;
-  }
 
   private formatMinutesToHHmm(totalMinutes: number): string {
     const h = Math.floor(totalMinutes / 60);
@@ -46,10 +44,11 @@ export class UpdateAppointmentUseCase {
       throw new Error("Appointment not found");
     }
 
-    const business = await this.businessRepository.findById(appointment.companyId);
-    if (!business || business.ownerId !== userId) {
-      throw new Error("Unauthorized to update this appointment");
-    }
+    await assertUserHasCompanyAccess(
+      appointment.companyId,
+      userId,
+      "Unauthorized to update this appointment",
+    );
 
     const serviceIds = data.serviceId
       .split(",")
@@ -69,7 +68,7 @@ export class UpdateAppointmentUseCase {
         throw new Error(`Service ${service.name} does not belong to this company`);
       }
       services.push(service);
-      totalDurationMin += this.parseDurationToMinutes(service.duration);
+      totalDurationMin += parseDurationToMinutes(service.duration);
     }
 
     const serviceNameSnapshot = services.map((s) => s.name).join(", ");
@@ -157,25 +156,37 @@ export class UpdateAppointmentUseCase {
       endOfDay,
     );
 
-    const hasConflict = existingAppointments.some((app) => {
-      if (app.id === appointment.id || app.status === "CANCELLED") return false;
+    const targetStaffId = data.staffId === undefined ? appointment.staffId : data.staffId;
+    const sameStaffAppointments = targetStaffId
+      ? existingAppointments.filter((app) => app.staffId === targetStaffId)
+      : [];
+    const staffScheduleBlocks = targetStaffId
+      ? await db
+        .select({
+          startTime: scheduleBlocks.startTime,
+          endTime: scheduleBlocks.endTime,
+          isOverrideable: scheduleBlocks.isOverrideable,
+        })
+        .from(scheduleBlocks)
+        .where(eq(scheduleBlocks.staffId, targetStaffId))
+      : [];
 
-      const dbDate = new Date(app.scheduledAt);
-      const dbParts = formatter.formatToParts(dbDate);
-      const dbH = parseInt(dbParts.find((p) => p.type === "hour")?.value || "0", 10);
-      const dbM = parseInt(dbParts.find((p) => p.type === "minute")?.value || "0", 10);
-      const existingStart = (dbH * 60) + dbM;
-      const existingDuration = this.parseDurationToMinutes(app.serviceDurationSnapshot || "30");
-      const existingEnd = existingStart + existingDuration;
-      return appStartMin < existingEnd && appEndMin > existingStart;
+    assertNoSchedulingConflict({
+      scheduledAt: data.scheduledAt,
+      durationMinutes: totalDurationMin,
+      existingAppointments: sameStaffAppointments,
+      scheduleBlocks: staffScheduleBlocks.map((block) => ({
+        startTime: new Date(block.startTime),
+        endTime: new Date(block.endTime),
+        isOverrideable: block.isOverrideable,
+      })),
+      currentAppointmentId: appointment.id,
+      force: Boolean(data.force),
     });
-
-    if (hasConflict) {
-      throw new Error("O horário selecionado já está ocupado.");
-    }
 
     const updatePayload: UpdateAppointmentInput = {
       serviceId: serviceIds.join(","),
+      staffId: targetStaffId,
       customerName: data.customerName,
       customerEmail: data.customerEmail,
       customerPhone: data.customerPhone,
@@ -183,6 +194,14 @@ export class UpdateAppointmentUseCase {
       servicePriceSnapshot,
       serviceDurationSnapshot,
       scheduledAt: data.scheduledAt,
+      auditLog: [
+        ...(appointment.auditLog ?? []),
+        {
+          action: "Appointment updated",
+          user: userId,
+          date: new Date().toISOString(),
+        },
+      ],
       notes: data.notes,
       items,
     };

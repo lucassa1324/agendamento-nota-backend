@@ -44,6 +44,69 @@ export const detectHashAlgorithm = (hash: string) => {
   return "unknown";
 };
 
+type ResolvedBusinessAccess = {
+  id: string;
+  slug: string;
+  subscriptionStatus: string | null;
+  trialEndsAt: Date | null;
+  asaasSubscriptionId: string | null;
+  viaStaff: boolean;
+  staffIsAdmin: boolean;
+};
+
+const resolveBusinessAccessForUser = async (
+  userId: string,
+): Promise<ResolvedBusinessAccess | null> => {
+  const [ownedBusiness] = await db
+    .select({
+      id: schema.companies.id,
+      slug: schema.companies.slug,
+      subscriptionStatus: schema.companies.subscriptionStatus,
+      trialEndsAt: schema.companies.trialEndsAt,
+      asaasSubscriptionId: schema.companies.asaasSubscriptionId,
+    })
+    .from(schema.companies)
+    .where(eq(schema.companies.ownerId, userId))
+    .limit(1);
+
+  if (ownedBusiness) {
+    return {
+      ...ownedBusiness,
+      subscriptionStatus: ownedBusiness.subscriptionStatus ?? null,
+      trialEndsAt: ownedBusiness.trialEndsAt ?? null,
+      asaasSubscriptionId: ownedBusiness.asaasSubscriptionId ?? null,
+      viaStaff: false,
+      staffIsAdmin: true,
+    };
+  }
+
+  const [staffBusiness] = await db
+    .select({
+      id: schema.companies.id,
+      slug: schema.companies.slug,
+      subscriptionStatus: schema.companies.subscriptionStatus,
+      trialEndsAt: schema.companies.trialEndsAt,
+      asaasSubscriptionId: schema.companies.asaasSubscriptionId,
+      staffIsAdmin: schema.staff.isAdmin,
+    })
+    .from(schema.staff)
+    .innerJoin(schema.companies, eq(schema.staff.companyId, schema.companies.id))
+    .where(and(eq(schema.staff.userId, userId), eq(schema.staff.isActive, true)))
+    .limit(1);
+
+  if (!staffBusiness) return null;
+
+  return {
+    id: staffBusiness.id,
+    slug: staffBusiness.slug,
+    subscriptionStatus: staffBusiness.subscriptionStatus ?? null,
+    trialEndsAt: staffBusiness.trialEndsAt ?? null,
+    asaasSubscriptionId: staffBusiness.asaasSubscriptionId ?? null,
+    viaStaff: true,
+    staffIsAdmin: Boolean(staffBusiness.staffIsAdmin),
+  };
+};
+
 console.log("[AUTH_MODULE] Loading auth module...");
 
 export const auth = betterAuth({
@@ -191,20 +254,12 @@ export const auth = betterAuth({
                 // Se chegou aqui, 'returned' é um objeto JS puro { user, session } 
                 if (!returned.user) return { response: returned };
 
-                const [business] = await db
-                  .select({
-                    id: schema.companies.id,
-                    slug: schema.companies.slug,
-                    subscriptionStatus: schema.companies.subscriptionStatus,
-                    trialEndsAt: schema.companies.trialEndsAt,
-                    asaasSubscriptionId: schema.companies.asaasSubscriptionId,
-                  })
-                  .from(schema.companies)
-                  .where(eq(schema.companies.ownerId, returned.user.id))
-                  .limit(1);
+                const business = await resolveBusinessAccessForUser(returned.user.id);
 
                 if (business) {
-                  console.log(`[AUTH_HOOK] Injetando dados do business para: ${business.slug}`);
+                  console.log(
+                    `[AUTH_HOOK] Injetando dados do business para: ${business.slug} (viaStaff=${business.viaStaff})`,
+                  );
 
                   // Injeção direta no objeto que o Better Auth já ia retornar 
                   return {
@@ -212,6 +267,10 @@ export const auth = betterAuth({
                       ...returned,
                       user: {
                         ...returned.user,
+                        role:
+                          business.viaStaff && !business.staffIsAdmin
+                            ? "USER"
+                            : returned.user.role || "ADMIN",
                         slug: business.slug,
                         businessId: business.id,
                         business: {
@@ -402,7 +461,7 @@ export const auth = betterAuth({
             if (!session) return ctx.json({ business: null, slug: null });
 
             const userId = session.user.id;
-            const results = await db
+            let [result] = await db
               .select({
                 id: schema.companies.id,
                 name: schema.companies.name,
@@ -427,10 +486,47 @@ export const auth = betterAuth({
               .where(eq(schema.companies.ownerId, userId))
               .limit(1);
 
-            if (results.length > 0) {
+            if (!result) {
+              const [staffBusiness] = await db
+                .select({ companyId: schema.staff.companyId })
+                .from(schema.staff)
+                .where(and(eq(schema.staff.userId, userId), eq(schema.staff.isActive, true)))
+                .limit(1);
+
+              if (staffBusiness?.companyId) {
+                const [staffResult] = await db
+                  .select({
+                    id: schema.companies.id,
+                    name: schema.companies.name,
+                    slug: schema.companies.slug,
+                    ownerId: schema.companies.ownerId,
+                    active: schema.companies.active,
+                    subscriptionStatus: schema.companies.subscriptionStatus,
+                    trialEndsAt: schema.companies.trialEndsAt,
+                    createdAt: schema.companies.createdAt,
+                    updatedAt: schema.companies.updatedAt,
+                    siteCustomization: {
+                      layoutGlobal: schema.companySiteCustomizations.layoutGlobal,
+                      home: schema.companySiteCustomizations.home,
+                      gallery: schema.companySiteCustomizations.gallery,
+                    },
+                  })
+                  .from(schema.companies)
+                  .leftJoin(
+                    schema.companySiteCustomizations,
+                    eq(schema.companies.id, schema.companySiteCustomizations.companyId)
+                  )
+                  .where(eq(schema.companies.id, staffBusiness.companyId))
+                  .limit(1);
+
+                result = staffResult;
+              }
+            }
+
+            if (result) {
               return ctx.json({
-                business: results[0],
-                slug: results[0].slug,
+                business: result,
+                slug: result.slug,
               });
             }
 

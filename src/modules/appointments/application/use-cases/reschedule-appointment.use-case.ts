@@ -1,5 +1,13 @@
 import { IAppointmentRepository } from "../../domain/ports/appointment.repository";
 import { IBusinessRepository } from "../../../business/domain/ports/business.repository";
+import { db } from "../../../infrastructure/drizzle/database";
+import { scheduleBlocks } from "../../../../db/schema";
+import { eq } from "drizzle-orm";
+import {
+  assertNoSchedulingConflict,
+  parseDurationToMinutes,
+} from "../utils/scheduling-conflict.util";
+import { assertUserHasCompanyAccess } from "../utils/company-access.util";
 
 export class RescheduleAppointmentUseCase {
   constructor(
@@ -7,34 +15,23 @@ export class RescheduleAppointmentUseCase {
     private businessRepository: IBusinessRepository,
   ) { }
 
-  private parseDurationToMinutes(duration: string): number {
-    if (!duration) return 30;
-    if (duration.includes(":")) {
-      const [h, m] = duration.split(":").map(Number);
-      return (h * 60) + (m || 0);
-    }
-    if (/^\d+$/.test(duration)) {
-      return parseInt(duration, 10);
-    }
-    return 30;
-  }
-
-  async execute(id: string, scheduledAt: Date, userId: string) {
+  async execute(id: string, scheduledAt: Date, userId: string, force = false) {
     const appointment = await this.appointmentRepository.findById(id);
     if (!appointment) {
       throw new Error("Appointment not found");
     }
 
-    const business = await this.businessRepository.findById(appointment.companyId);
-    if (!business || business.ownerId !== userId) {
-      throw new Error("Unauthorized to reschedule this appointment");
-    }
+    await assertUserHasCompanyAccess(
+      appointment.companyId,
+      userId,
+      "Unauthorized to reschedule this appointment",
+    );
 
     if (appointment.status === "CANCELLED") {
       throw new Error("Não é possível reagendar um agendamento cancelado.");
     }
 
-    const durationMin = this.parseDurationToMinutes(
+    const durationMin = parseDurationToMinutes(
       appointment.serviceDurationSnapshot || "30",
     );
 
@@ -68,34 +65,41 @@ export class RescheduleAppointmentUseCase {
       endOfDay,
     );
 
-    const hasConflict = existingAppointments.some((app) => {
-      if (app.id === id || app.status === "CANCELLED") return false;
+    const sameStaffAppointments = appointment.staffId
+      ? existingAppointments.filter((app) => app.staffId === appointment.staffId)
+      : [];
+    const staffScheduleBlocks = appointment.staffId
+      ? await db
+        .select({
+          startTime: scheduleBlocks.startTime,
+          endTime: scheduleBlocks.endTime,
+          isOverrideable: scheduleBlocks.isOverrideable,
+        })
+        .from(scheduleBlocks)
+        .where(eq(scheduleBlocks.staffId, appointment.staffId))
+      : [];
 
-      const dbDate = new Date(app.scheduledAt);
-      const dbParts = formatter.formatToParts(dbDate);
-      const dbH = parseInt(
-        dbParts.find((p) => p.type === "hour")?.value || "0",
-        10,
-      );
-      const dbM = parseInt(
-        dbParts.find((p) => p.type === "minute")?.value || "0",
-        10,
-      );
-      const existingStart = (dbH * 60) + dbM;
-
-      const existingDuration = this.parseDurationToMinutes(
-        app.serviceDurationSnapshot || "30",
-      );
-      const existingEnd = existingStart + existingDuration;
-
-      return appStartMin < existingEnd && appEndMin > existingStart;
+    assertNoSchedulingConflict({
+      scheduledAt,
+      durationMinutes: durationMin,
+      existingAppointments: sameStaffAppointments,
+      scheduleBlocks: staffScheduleBlocks.map((block) => ({
+        startTime: new Date(block.startTime),
+        endTime: new Date(block.endTime),
+        isOverrideable: block.isOverrideable,
+      })),
+      currentAppointmentId: appointment.id,
+      force,
     });
 
-    if (hasConflict) {
-      throw new Error("O horário selecionado já está ocupado.");
-    }
-
-    const updated = await this.appointmentRepository.updateSchedule(id, scheduledAt);
+    const updated = await this.appointmentRepository.updateSchedule(id, scheduledAt, [
+      ...(appointment.auditLog ?? []),
+      {
+        action: "Appointment rescheduled",
+        user: userId,
+        date: new Date().toISOString(),
+      },
+    ]);
     if (!updated) {
       throw new Error("Appointment not found");
     }

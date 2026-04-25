@@ -25,6 +25,10 @@ const startServer = () => {
     const { db } = require("./modules/infrastructure/drizzle/database");
     const schema = require("./db/schema");
     const { asaas } = require("./modules/infrastructure/payment/asaas.client");
+    const {
+      calculateAnchoredNextBillingDate,
+      resolveBillingAnchorDay
+    } = require("./modules/infrastructure/payment/billing-dates");
     const { uploadToB2 } = require("./modules/infrastructure/storage/b2.storage");
     const { eq, and, count, ilike } = require("drizzle-orm");
 
@@ -38,6 +42,7 @@ const startServer = () => {
     const { serviceController } = require("./modules/services/adapters/in/http/service.controller");
     const { reportController } = require("./modules/reports/adapters/in/http/report.controller");
     const { appointmentController } = require("./modules/appointments/adapters/in/http/appointment.controller");
+    const { staffController } = require("./modules/staff/adapters/in/http/staff.controller");
     // Tratamento especial para settingsController que teve problemas de export default/named
     const settingsModule = require("./modules/settings/adapters/in/http/settings.controller");
     const settingsController = settingsModule.default || settingsModule.settingsController;
@@ -582,26 +587,46 @@ const startServer = () => {
                   .from(schema.user)
                   .where(eq(schema.user.id, user!.id))
                   .limit(1);
+                const [currentCompany] = await db
+                  .select({
+                    id: schema.companies.id,
+                    firstSubscriptionAt: schema.companies.firstSubscriptionAt,
+                    billingAnchorDay: schema.companies.billingAnchorDay,
+                    asaasSubscriptionId: schema.companies.asaasSubscriptionId,
+                  })
+                  .from(schema.companies)
+                  .where(eq(schema.companies.ownerId, user!.id))
+                  .limit(1);
 
                 const now = new Date();
                 const accountCreatedAt = currentUser?.createdAt
                   ? new Date(currentUser.createdAt)
                   : now;
-                const diffInMs = now.getTime() - accountCreatedAt.getTime();
+                const firstSubscriptionAt = currentCompany?.firstSubscriptionAt
+                  ? new Date(currentCompany.firstSubscriptionAt)
+                  : null;
+                const refundBaseDate = firstSubscriptionAt || accountCreatedAt;
+                const diffInMs = now.getTime() - refundBaseDate.getTime();
                 const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
                 const eligibleFullRefund = diffInDays <= 7;
                 const refundPolicyMessage = eligibleFullRefund
-                  ? "Cancelamento dentro de 7 dias: elegível a reembolso total."
-                  : "Cancelamento após 7 dias: não há reembolso parcial ou total.";
+                  ? "Cancelamento na primeira assinatura dentro de 7 dias: elegível a reembolso total."
+                  : "Cancelamento fora da janela da primeira assinatura: não há reembolso automático.";
 
-                if (subscriptionId) {
-                  await asaas.cancelSubscription(subscriptionId);
+                const resolvedSubscriptionId = subscriptionId || currentCompany?.asaasSubscriptionId || undefined;
+                const accessUntil = calculateAnchoredNextBillingDate(
+                  now,
+                  resolveBillingAnchorDay(currentCompany?.billingAnchorDay),
+                );
+
+                if (resolvedSubscriptionId) {
+                  await asaas.cancelSubscription(resolvedSubscriptionId);
 
                   // Se for elegível para reembolso total (7 dias), tenta estornar o último pagamento
                   if (eligibleFullRefund) {
                     try {
-                      console.log(`[TERMINATE] Usuário ${user!.id} elegível para reembolso total. Buscando pagamentos da assinatura ${subscriptionId}...`);
-                      const payments = await asaas.listSubscriptionPayments(subscriptionId);
+                      console.log(`[TERMINATE] Usuário ${user!.id} elegível para reembolso total. Buscando pagamentos da assinatura ${resolvedSubscriptionId}...`);
+                      const payments = await asaas.listSubscriptionPayments(resolvedSubscriptionId);
 
                       // Filtra pagamentos confirmados ou recebidos
                       const refundablePayments = payments.filter((p: any) =>
@@ -617,7 +642,7 @@ const startServer = () => {
                         console.log(`[TERMINATE] Iniciando estorno do pagamento ${latestPayment.id} para usuário ${user!.id}`);
                         await asaas.refundPayment(latestPayment.id);
                       } else {
-                        console.warn(`[TERMINATE] Nenhum pagamento confirmando encontrado para reembolso da assinatura ${subscriptionId}`);
+                        console.warn(`[TERMINATE] Nenhum pagamento confirmando encontrado para reembolso da assinatura ${resolvedSubscriptionId}`);
                       }
                     } catch (refundError) {
                       console.error("[TERMINATE_REFUND_ERROR] Erro ao processar estorno automático:", refundError);
@@ -632,21 +657,38 @@ const startServer = () => {
                 await db.update(schema.user)
                   .set({
                     accountStatus: "PENDING_CANCELLATION",
-                    active: true,
+                    active: !eligibleFullRefund,
                     cancellationRequestedAt: now,
                     retentionEndsAt
                   })
                   .where(eq(schema.user.id, user!.id));
 
+                if (currentCompany?.id) {
+                  await db.update(schema.companies)
+                    .set({
+                      subscriptionStatus: eligibleFullRefund ? "canceled" : "pending_cancellation",
+                      active: !eligibleFullRefund,
+                      trialEndsAt: eligibleFullRefund ? now : accessUntil,
+                      billingGraceEndsAt: null,
+                      blockedAt: eligibleFullRefund ? now : null,
+                      updatedAt: now,
+                    })
+                    .where(eq(schema.companies.id, currentCompany.id));
+                }
+
                 return {
                   success: true,
-                  status: "PENDING_CANCELLATION",
+                  status: eligibleFullRefund ? "CANCELED" : "PENDING_CANCELLATION",
                   retentionEndsAt,
                   message:
-                    "Cancelamento agendado. Seu acesso permanece ativo até o fim do ciclo já pago.",
+                    eligibleFullRefund
+                      ? "Cancelamento concluído com estorno automático da primeira assinatura."
+                      : `Cancelamento agendado. Seu acesso permanece ativo até ${accessUntil.toLocaleDateString("pt-BR")}.`,
+                  accessUntil,
                   refundPolicy: {
                     eligibleFullRefund,
-                    daysSinceAccountCreation: diffInDays,
+                    daysSinceRefundBase: diffInDays,
+                    firstSubscriptionAt,
                     message: refundPolicyMessage,
                   },
                 };
@@ -660,6 +702,7 @@ const startServer = () => {
           .use(serviceController())
           .use(reportController())
           .use(appointmentController())
+          .use(staffController())
           .use(settingsController ? settingsController() : (app: any) => app) // Fallback seguro se settingsController falhar
           .use(inventoryController())
           .use(expenseController())

@@ -11,6 +11,9 @@ export const createAppointmentDTO = t.Object({
   serviceNameSnapshot: t.String(),
   servicePriceSnapshot: t.String(),
   serviceDurationSnapshot: t.String(),
+  staffId: t.Optional(t.Nullable(t.String())),
+  force_staff_id: t.Optional(t.Nullable(t.String())),
+  auto_assign: t.Optional(t.Boolean()),
   notes: t.Optional(t.String()),
 });
 

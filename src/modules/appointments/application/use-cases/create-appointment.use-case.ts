@@ -6,8 +6,19 @@ import { IPushSubscriptionRepository } from "../../../notifications/domain/ports
 import { UserRepository } from "../../../user/adapters/out/user.repository";
 import { NotificationService } from "../../../notifications/application/notification.service";
 import { TransactionalEmailService } from "../../../notifications/application/transactional-email.service";
+import { db } from "../../../infrastructure/drizzle/database";
+import { appointments, scheduleBlocks } from "../../../../db/schema";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
+import {
+  assertNoSchedulingConflict,
+  parseDurationToMinutes,
+} from "../utils/scheduling-conflict.util";
+import { assertUserHasCompanyAccess } from "../utils/company-access.util";
+import { AssignmentEngineService } from "../services/assignment-engine.service";
 
 export class CreateAppointmentUseCase {
+  private assignmentEngine = new AssignmentEngineService();
+
   constructor(
     private appointmentRepository: IAppointmentRepository,
     private serviceRepository: IServiceRepository,
@@ -23,9 +34,13 @@ export class CreateAppointmentUseCase {
       throw new Error("Business not found");
     }
 
-    // Se houver um userId, validamos se é o dono (agendamento manual via admin)
-    if (userId && business.ownerId !== userId) {
-      throw new Error("Unauthorized: Only business owners can create manual appointments");
+    // Se houver usuário logado, precisa ter acesso à empresa (owner ou staff ativo)
+    if (userId) {
+      await assertUserHasCompanyAccess(
+        data.companyId,
+        userId,
+        "Unauthorized: User has no access to this company",
+      );
     }
 
     // Regras antiabuso aplicadas somente no fluxo público (sem usuário logado)
@@ -154,16 +169,7 @@ export class CreateAppointmentUseCase {
       services.push(service);
 
       // Calcula a duração total do agendamento
-      let durationMin = 0;
-      if (service.duration && typeof service.duration === 'string') {
-        if (service.duration.includes(':')) {
-          const [h, m] = service.duration.split(':').map(Number);
-          durationMin = (h * 60) + (m || 0);
-        } else if (/^\d+$/.test(service.duration)) {
-          durationMin = parseInt(service.duration);
-        }
-      }
-      totalDurationMin += durationMin;
+      totalDurationMin += parseDurationToMinutes(service.duration);
     }
 
     // Define o ID do serviço principal como o primeiro (necessário para compatibilidade com a FK do banco)
@@ -316,98 +322,138 @@ export class CreateAppointmentUseCase {
     const startOfDay = new Date(`${year}-${month}-${day}T00:00:00.000-03:00`);
     const endOfDay = new Date(`${year}-${month}-${day}T23:59:59.999-03:00`);
 
-    // Validar conflitos com outros agendamentos
-    const existingAppointments = await this.appointmentRepository.findAllByCompanyId(
-      data.companyId,
-      startOfDay,
-      endOfDay
-    );
-
-    // Converte a data do agendamento para o timezone local de Brasília
-    const appStartMin = appTimeTotalMin;
-    const appEndMin = appStartMin + totalDurationMin;
-
-    const hasConflict = existingAppointments.some(app => {
-      if (app.status === 'CANCELLED') return false;
-
-      const dbDate = new Date(app.scheduledAt);
-
-      // Comparação de dia usando o timezone de Brasília
-      const dbDateParts = formatter.formatToParts(dbDate);
-      const dbDay = dbDateParts.find(p => p.type === 'day')?.value;
-      const dbMonth = dbDateParts.find(p => p.type === 'month')?.value;
-      const schDay = parts.find(p => p.type === 'day')?.value;
-      const schMonth = parts.find(p => p.type === 'month')?.value;
-
-      if (dbDay !== schDay || dbMonth !== schMonth) {
-        return false;
-      }
-
-      const dbH = parseInt(dbDateParts.find(p => p.type === 'hour')?.value || '0');
-      const dbM = parseInt(dbDateParts.find(p => p.type === 'minute')?.value || '0');
-      const existingStart = (dbH * 60) + dbM;
-
-      let existingDuration = 30;
-      if (app.serviceDurationSnapshot) {
-        if (app.serviceDurationSnapshot.includes(':')) {
-          const [dH, dM] = app.serviceDurationSnapshot.split(':').map(Number);
-          existingDuration = (dH * 60) + dM;
-        } else if (/^\d+$/.test(app.serviceDurationSnapshot)) {
-          existingDuration = parseInt(app.serviceDurationSnapshot);
-        }
-      }
-      const existingEnd = existingStart + existingDuration;
-
-      return appStartMin < existingEnd && appEndMin > existingStart;
-    });
-
-    if (hasConflict) {
-      throw new Error("O horário selecionado já está ocupado.");
-    }
-
-    // --- NOVA VALIDAÇÃO: PROCEDIMENTOS INCOMPATÍVEIS (Advanced Rules) ---
-    // Verifica se o cliente já tem agendamentos no MESMO DIA que sejam incompatíveis com os novos serviços
-    const customerAppointments = existingAppointments.filter(app => {
-      if (app.status === 'CANCELLED') return false;
-
-      // Verifica se é o mesmo cliente (por ID, Email ou Telefone)
-      const isSameCustomer =
-        (data.customerId && app.customerId === data.customerId) ||
-        (data.customerEmail && app.customerEmail === data.customerEmail) ||
-        (data.customerPhone && app.customerPhone === data.customerPhone);
-
-      // Verifica se é o mesmo dia
-      const appDate = new Date(app.scheduledAt);
-      const isSameDay = appDate.getDate() === scheduledAt.getDate() && appDate.getMonth() === scheduledAt.getMonth();
-
-      return isSameCustomer && isSameDay;
-    });
-
-    if (customerAppointments.length > 0) {
-      for (const existingApp of customerAppointments) {
-        const existingService = await this.serviceRepository.findById(existingApp.serviceId);
-        if (!existingService) continue;
-
-        const existingConflicts = (existingService.advancedRules as any)?.conflicts || [];
-
-        for (const newService of services) {
-          const newConflicts = (newService.advancedRules as any)?.conflicts || [];
-
-          // 1. O serviço existente proíbe o novo?
-          if (existingConflicts.includes(newService.id)) {
-            throw new Error(`Conflito: O serviço '${newService.name}' não pode ser realizado no mesmo dia que '${existingService.name}'`);
-          }
-
-          // 2. O novo serviço proíbe o existente?
-          if (newConflicts.includes(existingService.id)) {
-            throw new Error(`Conflito: O serviço '${newService.name}' não pode ser realizado no mesmo dia que '${existingService.name}'`);
-          }
-        }
-      }
-    }
-
     // Persistência no repositório
-    const newAppointment = await this.appointmentRepository.create(data);
+    data.createdBy = userId ?? null;
+    data.auditLog = [
+      ...(data.auditLog ?? []),
+      {
+        action: "Appointment created",
+        user: userId ?? "public",
+        date: new Date().toISOString(),
+      },
+    ];
+
+    const requestedStaffId = data.forceStaffId ?? data.staffId ?? null;
+    const shouldAutoAssign = data.autoAssign ?? !requestedStaffId;
+    let newAppointment: any;
+
+    await db.transaction(async (tx) => {
+      const lockKey = `${data.companyId}:${scheduledAt.toISOString().slice(0, 16)}`;
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`,
+      );
+
+      const existingAppointments = await tx
+        .select()
+        .from(appointments)
+        .where(
+          and(
+            eq(appointments.companyId, data.companyId),
+            gte(appointments.scheduledAt, startOfDay),
+            lte(appointments.scheduledAt, endOfDay),
+          ),
+        );
+
+      let targetStaffId = requestedStaffId;
+      let assignedBy: "system" | "staff" = requestedStaffId ? "staff" : "system";
+      let validationStatus: "suggested" | "confirmed" = requestedStaffId
+        ? "confirmed"
+        : "suggested";
+
+      if (!targetStaffId && shouldAutoAssign) {
+        const suggestion = await this.assignmentEngine.suggestProfessional({
+          companyId: data.companyId,
+          serviceIds,
+          scheduledAt,
+          durationMinutes: totalDurationMin,
+          customerId: data.customerId ?? null,
+          tx,
+        });
+        if (suggestion.professionalId) {
+          targetStaffId = suggestion.professionalId;
+        }
+      }
+
+      data.staffId = targetStaffId ?? null;
+      data.assignedBy = assignedBy;
+      data.validationStatus = validationStatus;
+      data.version = 1;
+
+      const sameStaffAppointments = targetStaffId
+        ? existingAppointments.filter((app) => app.staffId === targetStaffId)
+        : [];
+      const staffScheduleBlocks = targetStaffId
+        ? await tx
+          .select({
+            startTime: scheduleBlocks.startTime,
+            endTime: scheduleBlocks.endTime,
+            isOverrideable: scheduleBlocks.isOverrideable,
+          })
+          .from(scheduleBlocks)
+          .where(eq(scheduleBlocks.staffId, targetStaffId))
+        : [];
+
+      assertNoSchedulingConflict({
+        scheduledAt,
+        durationMinutes: totalDurationMin,
+        existingAppointments: sameStaffAppointments as any,
+        scheduleBlocks: staffScheduleBlocks.map((block) => ({
+          startTime: new Date(block.startTime),
+          endTime: new Date(block.endTime),
+          isOverrideable: block.isOverrideable,
+        })),
+        force: Boolean(data.force && userId),
+      });
+
+      // --- NOVA VALIDAÇÃO: PROCEDIMENTOS INCOMPATÍVEIS (Advanced Rules) ---
+      // Verifica se o cliente já tem agendamentos no MESMO DIA que sejam incompatíveis com os novos serviços
+      const customerAppointments = existingAppointments.filter((app) => {
+        if (app.status === "CANCELLED") return false;
+
+        const isSameCustomer =
+          (data.customerId && app.customerId === data.customerId) ||
+          (data.customerEmail && app.customerEmail === data.customerEmail) ||
+          (data.customerPhone && app.customerPhone === data.customerPhone);
+        const appDate = new Date(app.scheduledAt);
+        const isSameDay =
+          appDate.getDate() === scheduledAt.getDate() &&
+          appDate.getMonth() === scheduledAt.getMonth();
+
+        return isSameCustomer && isSameDay;
+      });
+
+      if (customerAppointments.length > 0) {
+        for (const existingApp of customerAppointments) {
+          const existingService = await this.serviceRepository.findById(
+            existingApp.serviceId,
+          );
+          if (!existingService) continue;
+
+          const existingConflicts =
+            (existingService.advancedRules as any)?.conflicts || [];
+
+          for (const newService of services) {
+            const newConflicts = (newService.advancedRules as any)?.conflicts || [];
+
+            // 1. O serviço existente proíbe o novo?
+            if (existingConflicts.includes(newService.id)) {
+              throw new Error(
+                `Conflito: O serviço '${newService.name}' não pode ser realizado no mesmo dia que '${existingService.name}'`,
+              );
+            }
+
+            // 2. O novo serviço proíbe o existente?
+            if (newConflicts.includes(existingService.id)) {
+              throw new Error(
+                `Conflito: O serviço '${newService.name}' não pode ser realizado no mesmo dia que '${existingService.name}'`,
+              );
+            }
+          }
+        }
+      }
+
+      newAppointment = await this.appointmentRepository.create(data, tx);
+    });
 
     // Web Push Notification: notify business owner about the new appointment
     // Executamos em background (sem await) para não travar a resposta para o cliente
