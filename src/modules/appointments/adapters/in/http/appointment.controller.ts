@@ -13,7 +13,8 @@ import { GetOperatingHoursUseCase } from "../../../../business/application/use-c
 import { assertNoSchedulingConflict, parseDurationToMinutes } from "../../../application/utils/scheduling-conflict.util";
 import { AssignmentEngineService } from "../../../application/services/assignment-engine.service";
 
-const activeAppointmentStatuses = ["PENDING", "CONFIRMED", "ONGOING", "POSTPONED"] as const;
+const activeAppointmentStatuses =
+  ["PENDING", "CONFIRMED", "ONGOING", "POSTPONED"] as const satisfies readonly (typeof schema.appointments.$inferSelect.status)[];
 
 const isMissingCompetencyTableError = (error: unknown) => {
   const code = (error as any)?.code;
@@ -77,7 +78,7 @@ const autoAssignPendingAppointments = async (params: {
   const filters = [
     eq(schema.appointments.companyId, params.companyId),
     sql`${schema.appointments.staffId} is null`,
-    inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+    inArray(schema.appointments.status, activeAppointmentStatuses),
   ];
 
   if (params.startDate) {
@@ -133,7 +134,7 @@ const redistributeSuggestedAppointments = async (params: {
   const filters = [
     eq(schema.appointments.companyId, params.companyId),
     gte(schema.appointments.scheduledAt, params.startDate ?? now),
-    inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+    inArray(schema.appointments.status, activeAppointmentStatuses),
     or(
       sql`${schema.appointments.staffId} is null`,
       eq(schema.appointments.assignedBy, "system"),
@@ -777,7 +778,7 @@ export function appointmentController() {
               and(
                 eq(schema.appointments.companyId, companyId),
                 sql`${schema.appointments.staffId} is null`,
-                inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+                inArray(schema.appointments.status, activeAppointmentStatuses),
               ),
             )
             .orderBy(schema.appointments.scheduledAt);
@@ -809,7 +810,7 @@ export function appointmentController() {
                 eq(schema.appointments.staffId, membership.id),
                 gte(schema.appointments.scheduledAt, start),
                 lte(schema.appointments.scheduledAt, end),
-                inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+                inArray(schema.appointments.status, activeAppointmentStatuses),
               ),
             )
             .orderBy(schema.appointments.scheduledAt);
@@ -839,7 +840,7 @@ export function appointmentController() {
                 eq(schema.appointments.companyId, companyId),
                 sql`${schema.appointments.staffId} is null`,
                 inArray(schema.appointments.serviceId, serviceIds),
-                inArray(schema.appointments.status, activeAppointmentStatuses as unknown as string[]),
+                inArray(schema.appointments.status, activeAppointmentStatuses),
               ),
             )
             .orderBy(schema.appointments.scheduledAt);
