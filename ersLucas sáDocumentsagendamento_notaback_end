@@ -1,0 +1,20 @@
+[33m5649392[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mstaging[m[33m, [m[1;31morigin/staging[m[33m)[m merge: savepoint backend billing into staging
+[33mbc24e26[m[33m ([m[1;32mfeature/times-rbac-savepoint[m[33m)[m savepoint: backend billing e regras de negocio
+[33m75fe404[m savepoint: persistencia de modo de atribuicao no calendario
+[33m1244c6f[m savepoint: atribuicao persistida e payload de calendario
+[33m7d397ac[m savepoint: atribuicao, sincronizacao e staff (back)
+[33m81b844a[m savepoint: update backend dist bundle
+[33m7df4c99[m savepoint: auto-assignment engine competency + transactional assignment
+[33m4e24ff4[m savepoint: cores staff, assignment e seed de agendamentos
+[33m38871b1[m savepoint: permissao secretaria e migracao staff
+[33mf28670b[m savepoint(back): assignment engine, optimistic lock e rotas de execução staff
+[33m9338250[m savepoint(back): vínculo staff, convite e limpeza total ao excluir
+[33m0757d3c[m chore(savepoint): consolidacao de acessos e fluxo de staff
+[33m34dc6b6[m chore(savepoint): times e rbac no backend
+[33mba2a4ab[m savepoint: harden B2 env normalization for staging
+[33mab64b61[m merge: bring savepoint/back-asaas-20260422 into staging
+[33ma64edcd[m[33m ([m[1;32msavepoint/back-asaas-20260422[m[33m)[m chore: savepoint cancellation lifecycle and audit hardening
+[33m1f051d9[m chore: savepoint billing automation hardening and audit mode
+[33m12b539b[m chore(savepoint): checkpoint back billing sync cancel and asaas updates
+[33mb70b397[m merge(main): atualizar staging com codigo da main
+[33m528b0fc[m fix(staging): permitir origins de staging no auth e cors
