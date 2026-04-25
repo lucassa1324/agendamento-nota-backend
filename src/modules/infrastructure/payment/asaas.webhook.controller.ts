@@ -4,37 +4,14 @@ import path from "node:path";
 import { db } from "../drizzle/database";
 import { companies, user } from "../../../db/schema";
 import { eq } from "drizzle-orm";
+import {
+  calculateAnchoredNextBillingDate,
+  calculateGraceEndDate,
+  resolveBillingAnchorDay,
+} from "./billing-dates";
 
 const normalizeEnvValue = (value?: string) =>
   value?.trim().replace(/^['"]|['"]$/g, "") || "";
-const BILLING_GRACE_DAYS = 7;
-
-const daysInMonth = (year: number, monthIndex: number) =>
-  new Date(year, monthIndex + 1, 0).getDate();
-
-const clampBillingAnchorDay = (anchorDay: number) =>
-  Math.min(Math.max(anchorDay, 1), 31);
-
-const buildDateByAnchor = (year: number, monthIndex: number, anchorDay: number) => {
-  const maxDay = daysInMonth(year, monthIndex);
-  const day = Math.min(clampBillingAnchorDay(anchorDay), maxDay);
-  return new Date(year, monthIndex, day);
-};
-
-const calculateNextDueDate = (referenceDate: Date, anchorDay: number) => {
-  let due = buildDateByAnchor(referenceDate.getFullYear(), referenceDate.getMonth(), anchorDay);
-  if (referenceDate.getTime() >= due.getTime()) {
-    due = buildDateByAnchor(referenceDate.getFullYear(), referenceDate.getMonth() + 1, anchorDay);
-  }
-  return due;
-};
-
-const calculateGraceEndDate = (dueDate: Date) => {
-  const graceEnd = new Date(dueDate);
-  graceEnd.setDate(graceEnd.getDate() + BILLING_GRACE_DAYS);
-  return graceEnd;
-};
-
 const extractEnvValueFromContent = (content: string, key: string) => {
   const regex = new RegExp(`^${key}=(.*)$`, "m");
   const match = content.match(regex);
@@ -250,8 +227,8 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
               company.accessType === "manual" &&
               !!company.trialEndsAt &&
               new Date(company.trialEndsAt) > new Date();
-            const resolvedAnchorDay = company.billingAnchorDay || paymentDate.getDate();
-            const nextDue = calculateNextDueDate(paymentDate, resolvedAnchorDay);
+            const resolvedAnchorDay = resolveBillingAnchorDay(company.billingAnchorDay);
+            const nextDue = calculateAnchoredNextBillingDate(paymentDate, resolvedAnchorDay);
 
             // 2. Atualizar a empresa
             await db.update(companies)
@@ -263,6 +240,8 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
                 billingAnchorDay: resolvedAnchorDay,
                 billingGraceEndsAt: null,
                 trialEndsAt: isManualGraceActive ? company.trialEndsAt : nextDue,
+                firstSubscriptionAt: company.firstSubscriptionAt || paymentDate,
+                blockedAt: null,
                 updatedAt: new Date()
               })
               .where(eq(companies.id, externalReference));
@@ -305,9 +284,67 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
             !!company.trialEndsAt &&
             new Date(company.trialEndsAt) > new Date();
 
+          const isManualOrExtendedExpired =
+            (company.accessType === "manual" || company.accessType === "extended_trial") &&
+            !!company.trialEndsAt &&
+            new Date(company.trialEndsAt) <= new Date();
+
           if (hasManualOverride) {
             console.log(`[ASAAS_WEBHOOK] Bloqueio ignorado para ${company.name} por override manual ativo até ${company.trialEndsAt?.toISOString?.() || company.trialEndsAt}.`);
             return { received: true, skipped: "manual_override" };
+          }
+
+          if (isManualOrExtendedExpired) {
+            const subscriptionToCheck = subscriptionId || company.asaasSubscriptionId || "";
+            const gatewaySubscription = subscriptionToCheck
+              ? await fetchAsaasResource<{ status?: string; nextDueDate?: string }>(`/subscriptions/${subscriptionToCheck}`)
+              : null;
+            const hasActiveGatewaySubscription = gatewaySubscription?.status === "ACTIVE";
+
+            if (hasActiveGatewaySubscription) {
+              const paidAtRaw = gatewaySubscription?.nextDueDate || payment.paymentDate || payment.confirmedDate;
+              const paidAt = paidAtRaw ? new Date(paidAtRaw) : new Date();
+              const anchor = resolveBillingAnchorDay(company.billingAnchorDay);
+              const nextDue = calculateAnchoredNextBillingDate(paidAt, anchor);
+              await db.update(companies)
+                .set({
+                  subscriptionStatus: "active",
+                  active: true,
+                  accessType: "automatic",
+                  trialEndsAt: nextDue,
+                  billingAnchorDay: anchor,
+                  billingGraceEndsAt: null,
+                  blockedAt: null,
+                  updatedAt: new Date(),
+                })
+                .where(eq(companies.id, externalReference));
+              await db.update(user)
+                .set({
+                  active: true,
+                  updatedAt: new Date(),
+                })
+                .where(eq(user.id, company.ownerId));
+              console.log(`[ASAAS_WEBHOOK] Modo manual/teste expirado, porém assinatura ativa detectada para ${company.name}. Reativado em automático.`);
+              return { received: true, status: "active_after_manual_expiration" };
+            }
+
+            await db.update(companies)
+              .set({
+                subscriptionStatus: "blocked",
+                active: false,
+                billingGraceEndsAt: null,
+                blockedAt: new Date(),
+                updatedAt: new Date(),
+              })
+              .where(eq(companies.id, externalReference));
+            await db.update(user)
+              .set({
+                active: false,
+                updatedAt: new Date(),
+              })
+              .where(eq(user.id, company.ownerId));
+            console.log(`[ASAAS_WEBHOOK] Modo manual/teste expirado sem pagamento ativo no gateway. Empresa ${company.name} bloqueada sem carência.`);
+            return { received: true, status: "blocked_manual_expired" };
           }
 
           const dueDateRaw = payment.dueDate || company.trialEndsAt || new Date();
@@ -318,10 +355,11 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
 
           await db.update(companies)
             .set({
-              subscriptionStatus: isStillInGrace ? 'grace_period' : 'past_due',
+              subscriptionStatus: isStillInGrace ? 'grace_period' : 'blocked',
               active: isStillInGrace,
               trialEndsAt: normalizedDueDate,
               billingGraceEndsAt: graceEndsAt,
+              blockedAt: isStillInGrace ? null : new Date(),
               updatedAt: new Date()
             })
             .where(eq(companies.id, externalReference));
@@ -331,7 +369,7 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
               updatedAt: new Date(),
             })
             .where(eq(user.id, company.ownerId));
-          console.log(`[ASAAS_WEBHOOK] Pagamento pendente/estornado. Empresa ${externalReference} marcada como ${isStillInGrace ? "grace_period" : "past_due"} até ${graceEndsAt.toISOString()}.`);
+          console.log(`[ASAAS_WEBHOOK] Pagamento pendente/estornado. Empresa ${externalReference} marcada como ${isStillInGrace ? "grace_period" : "blocked"} até ${graceEndsAt.toISOString()}.`);
         }
       } else if (isSubscriptionCancellationEvent) {
         if (!externalReference) {
@@ -350,16 +388,24 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
         }
 
         const now = new Date();
-        const currentCycleEndsAt = company.trialEndsAt ? new Date(company.trialEndsAt) : now;
+        const anchoredCycleEndsAt = calculateAnchoredNextBillingDate(
+          now,
+          resolveBillingAnchorDay(company.billingAnchorDay),
+        );
+        const currentCycleEndsAt =
+          company.trialEndsAt && new Date(company.trialEndsAt).getTime() > now.getTime()
+            ? new Date(company.trialEndsAt)
+            : anchoredCycleEndsAt;
         const keepAccessUntilCycleEnd = currentCycleEndsAt.getTime() > now.getTime();
 
         await db.update(companies)
           .set({
-            subscriptionStatus: keepAccessUntilCycleEnd ? "active" : "canceled",
+            subscriptionStatus: keepAccessUntilCycleEnd ? "pending_cancellation" : "canceled",
             active: keepAccessUntilCycleEnd,
             asaasSubscriptionId: subscriptionId || company.asaasSubscriptionId,
             trialEndsAt: keepAccessUntilCycleEnd ? currentCycleEndsAt : now,
             billingGraceEndsAt: null,
+            blockedAt: keepAccessUntilCycleEnd ? null : new Date(),
             updatedAt: now,
           })
           .where(eq(companies.id, externalReference));

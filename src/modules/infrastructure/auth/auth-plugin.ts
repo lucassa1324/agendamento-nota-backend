@@ -5,6 +5,10 @@ import { db } from "../drizzle/database";
 import * as schema from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import { auth } from "./auth";
+import {
+    calculateAnchoredNextBillingDate,
+    resolveBillingAnchorDay,
+} from "../payment/billing-dates";
 
 export type User = typeof auth.$Infer.Session.user & {
     business?: any;
@@ -102,26 +106,6 @@ const normalizeAsaasApiUrl = (rawUrl: string) => {
         return sanitized;
     }
     return `${sanitized}/v3`;
-};
-
-const daysInMonth = (year: number, monthIndex: number) =>
-    new Date(year, monthIndex + 1, 0).getDate();
-
-const clampBillingAnchorDay = (anchorDay: number) =>
-    Math.min(Math.max(anchorDay, 1), 31);
-
-const buildDateByAnchor = (year: number, monthIndex: number, anchorDay: number) => {
-    const maxDay = daysInMonth(year, monthIndex);
-    const day = Math.min(clampBillingAnchorDay(anchorDay), maxDay);
-    return new Date(year, monthIndex, day);
-};
-
-const calculateNextDueDate = (referenceDate: Date, anchorDay: number) => {
-    let due = buildDateByAnchor(referenceDate.getFullYear(), referenceDate.getMonth(), anchorDay);
-    if (referenceDate.getTime() >= due.getTime()) {
-        due = buildDateByAnchor(referenceDate.getFullYear(), referenceDate.getMonth() + 1, anchorDay);
-    }
-    return due;
 };
 
 const calculateGraceEndDate = (dueDate: Date) => {
@@ -369,6 +353,7 @@ export async function syncAsaasPaymentForCompany(
             updatedAt: schema.companies.updatedAt,
             billingAnchorDay: schema.companies.billingAnchorDay,
             asaasSubscriptionId: schema.companies.asaasSubscriptionId,
+            firstSubscriptionAt: schema.companies.firstSubscriptionAt,
         })
             .from(schema.companies)
             .where(eq(schema.companies.id, companyId))
@@ -382,7 +367,10 @@ export async function syncAsaasPaymentForCompany(
         // Lógica para ignorar pagamentos antigos se a empresa estiver bloqueada
         // Permitimos pagamentos que ocorreram no mesmo dia ou depois do último bloqueio (updatedAt)
         // Subtraímos 12 horas da data de bloqueio para dar uma margem de segurança contra delays de API e fuso horário
-        const isCurrentlyBlocked = currentCompany?.subscriptionStatus === "past_due" || currentCompany?.active === false;
+        const isCurrentlyBlocked =
+            currentCompany?.subscriptionStatus === "past_due" ||
+            currentCompany?.subscriptionStatus === "blocked" ||
+            currentCompany?.active === false;
         const lastBlockDate = currentCompany?.updatedAt || new Date(0);
         const safetyMargin = 12 * 60 * 60 * 1000; // 12 horas de margem
 
@@ -442,8 +430,8 @@ export async function syncAsaasPaymentForCompany(
         }
 
         const paymentDate = billingSnapshot.latestPaymentDate || billingSnapshot.subscriptionBaseDate || new Date();
-        const resolvedAnchorDay = currentCompany?.billingAnchorDay || paymentDate.getDate();
-        const nextDue = calculateNextDueDate(paymentDate, resolvedAnchorDay);
+        const resolvedAnchorDay = resolveBillingAnchorDay(currentCompany?.billingAnchorDay);
+        const nextDue = calculateAnchoredNextBillingDate(paymentDate, resolvedAnchorDay);
 
         await db.update(schema.companies)
             .set({
@@ -456,6 +444,8 @@ export async function syncAsaasPaymentForCompany(
                 billingAnchorDay: resolvedAnchorDay,
                 billingGraceEndsAt: null,
                 trialEndsAt: nextDue,
+                blockedAt: null,
+                firstSubscriptionAt: currentCompany?.firstSubscriptionAt || paymentDate,
                 updatedAt: new Date()
             })
             .where(eq(schema.companies.id, companyId));
@@ -841,6 +831,9 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                 userCompany.accessType === "manual" ||
                                 status === 'manual' ||
                                 status === 'manual_active';
+                            const isManualOrExtendedAccess =
+                                userCompany.accessType === "manual" ||
+                                userCompany.accessType === "extended_trial";
 
                             if (isPendingCancellation) {
                                 if (trialEnds && now <= trialEnds) {
@@ -885,6 +878,52 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                     userCompany.active = false;
                                     userCompany.subscriptionStatus = "canceled";
                                     auditReason = "pending_cancellation_cycle_ended";
+                                }
+                            }
+
+                            if (isManualOrExtendedAccess && trialEnds && now > trialEnds) {
+                                const manualExpiredSync = await syncAsaasPaymentForCompany(
+                                    userCompany.id,
+                                    userCompany.ownerId,
+                                    user.email,
+                                    {
+                                        requireCurrentMonthPayment: false,
+                                        activationWindowDays: 10,
+                                        ignoreBlockDate: true,
+                                        bypassCache: true,
+                                    },
+                                );
+
+                                if (manualExpiredSync?.activated) {
+                                    userCompany.active = true;
+                                    userCompany.subscriptionStatus = "active";
+                                    userCompany.trialEndsAt = manualExpiredSync.nextDue;
+                                    userCompany.billingGraceEndsAt = null;
+                                    userCompany.accessType = "automatic";
+                                    status = "active";
+                                    trialEnds = manualExpiredSync.nextDue;
+                                    graceEnds = null;
+                                    auditReason = "manual_expired_gateway_confirmed";
+                                } else {
+                                    await db.update(schema.companies)
+                                        .set({
+                                            subscriptionStatus: "blocked",
+                                            active: false,
+                                            billingGraceEndsAt: null,
+                                            blockedAt: now,
+                                            updatedAt: now,
+                                        })
+                                        .where(eq(schema.companies.id, userCompany.id));
+                                    await db.update(schema.user)
+                                        .set({
+                                            active: false,
+                                            updatedAt: now,
+                                        })
+                                        .where(eq(schema.user.id, userCompany.ownerId));
+                                    userCompany.active = false;
+                                    userCompany.subscriptionStatus = "blocked";
+                                    status = "blocked";
+                                    auditReason = "manual_expired_without_gateway_payment";
                                 }
                             }
 
@@ -949,16 +988,17 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                         if (effectiveGraceEnd && now > effectiveGraceEnd) {
                                             await db.update(schema.companies)
                                                 .set({
-                                                    subscriptionStatus: "past_due",
+                                                    subscriptionStatus: "blocked",
                                                     active: false,
                                                     billingGraceEndsAt: effectiveGraceEnd,
+                                                    blockedAt: new Date(),
                                                     updatedAt: new Date()
                                                 })
                                                 .where(eq(schema.companies.id, userCompany.id));
                                             userCompany.active = false;
-                                            userCompany.subscriptionStatus = "past_due";
+                                            userCompany.subscriptionStatus = "blocked";
                                             userCompany.billingGraceEndsAt = effectiveGraceEnd;
-                                            status = "past_due";
+                                            status = "blocked";
                                             graceEnds = effectiveGraceEnd;
                                             auditReason = "grace_expired_after_sync";
                                         }
@@ -993,17 +1033,18 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                 if (status === "grace_period" && graceEnds && now > graceEnds) {
                                     await db.update(schema.companies)
                                         .set({
-                                            subscriptionStatus: "past_due",
+                                            subscriptionStatus: "blocked",
                                             active: false,
                                             billingGraceEndsAt: graceEnds,
+                                            blockedAt: new Date(),
                                             updatedAt: new Date()
                                         })
                                         .where(eq(schema.companies.id, userCompany.id));
-                                    status = "past_due";
+                                    status = "blocked";
                                     userCompany.active = false;
-                                    userCompany.subscriptionStatus = "past_due";
+                                    userCompany.subscriptionStatus = "blocked";
                                     auditReason = "grace_expired_blocked";
-                                    console.warn(`[AUTH_SYNC] Carência expirada para ${userCompany.slug}. Rebaixado para past_due.`);
+                                    console.warn(`[AUTH_SYNC] Carência expirada para ${userCompany.slug}. Rebaixado para blocked.`);
                                 }
                             }
 
@@ -1034,12 +1075,13 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             if (status === "grace_period" && graceEnds && now > graceEnds) {
                                 await db.update(schema.companies)
                                     .set({
-                                        subscriptionStatus: "past_due",
+                                        subscriptionStatus: "blocked",
                                         active: false,
+                                        blockedAt: new Date(),
                                         updatedAt: new Date()
                                     })
                                     .where(eq(schema.companies.id, userCompany.id));
-                                status = "past_due";
+                                status = "blocked";
                                 userCompany.active = false;
                                 auditReason = "fallback_grace_expired";
                             }
@@ -1048,7 +1090,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                             // quando o pagamento já foi confirmado no Asaas.
                             if (
                                 isAutomaticAccess &&
-                                (status === "past_due" || status === "grace_period")
+                                (status === "past_due" || status === "grace_period" || status === "blocked")
                             ) {
                                 const finalSync = await syncAsaasPaymentForCompany(
                                     userCompany.id,
@@ -1076,7 +1118,11 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                             // Validação final de acesso baseada no status resolvido
                             const isExpired = trialEnds && trialEnds < now;
-                            const isBlocked = status === 'past_due' || status === 'unpaid' || status === 'canceled' || status === 'inactive';
+                            const isBlocked =
+                                status === 'blocked' ||
+                                status === 'unpaid' ||
+                                status === 'canceled' ||
+                                status === 'inactive';
 
                             if (isBlocked || (isTrialStatus && isExpired)) {
                                 logBillingAudit(billingAuditEnabled, {

@@ -5,6 +5,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "bun run --watch src/local.ts",
     "build": "bun build src/index.ts --outdir ./dist --target bun",
+    "billing:purge-blocked": "bun run src/scripts/purge-blocked-companies.ts",
     "db:generate": "bunx drizzle-kit generate",
     "db:migrate": "bunx drizzle-kit migrate",
     "db:push": "bunx drizzle-kit push",

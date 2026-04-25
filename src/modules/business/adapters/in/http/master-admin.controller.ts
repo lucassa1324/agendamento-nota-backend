@@ -795,6 +795,14 @@ export const masterAdminController = () => new Elysia({ prefix: "/admin/master" 
 
         const now = new Date();
 
+        if (
+          (actionType === "manual_custom_days" || actionType === "extend_trial_custom") &&
+          (!trialDays || Number(trialDays) <= 0)
+        ) {
+          set.status = 400;
+          return { error: "Para acesso manual/trial estendido é obrigatório informar um prazo de expiração válido (dias)." };
+        }
+
         if (actionType === 'manual_custom_days') {
           // Opção 1: Liberar por X dias (Manual/Fatura)
           // Define status como 'active' para liberar acesso imediato

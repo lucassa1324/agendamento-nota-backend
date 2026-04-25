@@ -298,6 +298,8 @@ export const companies = pgTable("companies", {
   active: boolean("active").default(true).notNull(),
   subscriptionStatus: text("subscription_status").default('trial').notNull(),
   trialEndsAt: timestamp("trial_ends_at").defaultNow(),
+  firstSubscriptionAt: timestamp("first_subscription_at"),
+  blockedAt: timestamp("blocked_at"),
   billingAnchorDay: integer("billing_anchor_day"),
   billingGraceEndsAt: timestamp("billing_grace_ends_at"),
   billingDayLastChangedAt: timestamp("billing_day_last_changed_at"),
