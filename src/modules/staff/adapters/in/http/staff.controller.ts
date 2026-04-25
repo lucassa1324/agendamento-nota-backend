@@ -177,7 +177,7 @@ const activeAppointmentStatuses = [
   "CONFIRMED",
   "ONGOING",
   "POSTPONED",
-] as const;
+] as const satisfies readonly (typeof schema.appointments.$inferSelect.status)[];
 
 const rebalanceUpcomingSuggestedAppointments = async (
   companyId: string,
@@ -209,7 +209,7 @@ const rebalanceUpcomingSuggestedAppointments = async (
         inArray(schema.appointments.serviceId, uniqueServiceIds),
         inArray(
           schema.appointments.status,
-          activeAppointmentStatuses as unknown as string[],
+          activeAppointmentStatuses,
         ),
         or(
           eq(schema.appointments.validationStatus, "suggested"),

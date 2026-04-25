@@ -15,6 +15,7 @@ import {
 } from "../utils/scheduling-conflict.util";
 import { assertUserHasCompanyAccess } from "../utils/company-access.util";
 import { AssignmentEngineService } from "../services/assignment-engine.service";
+import type { Service } from "../../../services/domain/entities/service.entity";
 
 export class CreateAppointmentUseCase {
   private assignmentEngine = new AssignmentEngineService();
@@ -150,7 +151,7 @@ export class CreateAppointmentUseCase {
       throw new Error("Nenhum serviço selecionado para o agendamento");
     }
 
-    const services = [];
+    const services: Service[] = [];
     let totalDurationMin = 0;
     let totalPrice = 0;
     let combinedServiceNames = [];
