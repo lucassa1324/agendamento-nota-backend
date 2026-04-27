@@ -289,7 +289,8 @@ const redistributeSuggestedAppointments = async (params: {
           eq(schema.staff.isActive, true),
           eq(schema.staff.isProfessional, true),
         ),
-      );
+      )
+      .orderBy(schema.staff.id);
 
     if (professionals.length < 2) continue;
 
@@ -364,6 +365,11 @@ const redistributeSuggestedAppointments = async (params: {
     }
 
     const movableById = new Map(dayRows.map((row) => [row.id, row]));
+    const totalEligibleAppointments = allDayAppointments.filter(
+      (appt) => appt.staffId && professionalIds.includes(appt.staffId),
+    ).length;
+    const baseTarget = Math.floor(totalEligibleAppointments / professionalIds.length);
+    const remainder = totalEligibleAppointments % professionalIds.length;
     const maxIterations = dayRows.length * professionalIds.length;
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       const countByStaff = new Map<string, number>();
@@ -381,16 +387,28 @@ const redistributeSuggestedAppointments = async (params: {
           staffId,
           count: countByStaff.get(staffId) ?? 0,
         }))
-        .sort((a, b) => a.count - b.count);
+        .sort((a, b) => a.count - b.count || a.staffId.localeCompare(b.staffId));
 
-      const minCount = orderedByLoad[0]?.count ?? 0;
-      const maxCount = orderedByLoad[orderedByLoad.length - 1]?.count ?? 0;
-      if (maxCount - minCount <= 1) break;
+      // Meta por dia:
+      // - Total divisível: distribuição exata (ex.: 14 em 2 profs => 7/7)
+      // - Total indivisível: diferença máxima de 1 (floor/ceil)
+      const targetByStaff = new Map<string, number>();
+      for (let index = 0; index < orderedByLoad.length; index += 1) {
+        // Em caso de resto (ex.: 10 agendamentos / 3 profs => 4,3,3),
+        // as "vagas extras" ficam com quem está menos carregado no momento.
+        const staffId = orderedByLoad[index]!.staffId;
+        targetByStaff.set(staffId, baseTarget + (index < remainder ? 1 : 0));
+      }
 
-      const receivers = orderedByLoad.filter((item) => item.count === minCount);
+      const receivers = orderedByLoad.filter(
+        (item) => item.count < (targetByStaff.get(item.staffId) ?? baseTarget),
+      );
       const donors = [...orderedByLoad]
         .reverse()
-        .filter((item) => item.count === maxCount);
+        .filter(
+          (item) => item.count > (targetByStaff.get(item.staffId) ?? baseTarget),
+        );
+      if (receivers.length === 0 || donors.length === 0) break;
 
       let moved = false;
       for (const receiver of receivers) {
