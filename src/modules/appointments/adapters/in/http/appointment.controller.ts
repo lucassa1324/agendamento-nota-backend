@@ -68,6 +68,69 @@ const getLocalDayWindow = (date: Date) => {
   return { start, end };
 };
 
+const getLocalDayKey = (date: Date) => getLocalDayWindow(date).start.toISOString().slice(0, 10);
+
+const overlaps = (
+  startA: Date,
+  endA: Date,
+  startB: Date,
+  endB: Date,
+) => startA < endB && endA > startB;
+
+const loadQualifiedStaffIdsByService = async (
+  companyId: string,
+  serviceId: string,
+) => {
+  const loadLegacyRows = async () =>
+    await db
+      .select({
+        staffId: schema.staff.id,
+      })
+      .from(schema.staff)
+      .innerJoin(
+        schema.staffServices,
+        eq(schema.staffServices.staffId, schema.staff.id),
+      )
+      .where(
+        and(
+          eq(schema.staff.companyId, companyId),
+          eq(schema.staff.isActive, true),
+          eq(schema.staff.isProfessional, true),
+          eq(schema.staffServices.serviceId, serviceId),
+        ),
+      );
+
+  try {
+    const competencyRows = await db
+      .select({
+        staffId: schema.staff.id,
+      })
+      .from(schema.staff)
+      .innerJoin(
+        schema.staffServicesCompetency,
+        eq(schema.staffServicesCompetency.staffId, schema.staff.id),
+      )
+      .where(
+        and(
+          eq(schema.staff.companyId, companyId),
+          eq(schema.staff.isActive, true),
+          eq(schema.staff.isProfessional, true),
+          eq(schema.staffServicesCompetency.serviceId, serviceId),
+          eq(schema.staffServicesCompetency.isActive, true),
+        ),
+      );
+
+    if (competencyRows.length === 0) {
+      return await loadLegacyRows();
+    }
+
+    return competencyRows;
+  } catch (error) {
+    if (!isMissingCompetencyTableError(error)) throw error;
+    return await loadLegacyRows();
+  }
+};
+
 const assignmentEngine = new AssignmentEngineService();
 
 const autoAssignPendingAppointments = async (params: {
@@ -108,6 +171,7 @@ const autoAssignPendingAppointments = async (params: {
       scheduledAt: new Date(appointment.scheduledAt),
       durationMinutes: parseDurationToMinutes(appointment.serviceDurationSnapshot),
       customerId: appointment.customerId,
+      ignoreAppointmentId: appointment.id,
     });
 
     if (!suggestion.professionalId) continue;
@@ -163,6 +227,7 @@ const redistributeSuggestedAppointments = async (params: {
   let reassignedCount = 0;
   let unchangedCount = 0;
   let skippedCount = 0;
+  let rebalancedCount = 0;
 
   for (const appointment of candidateRows) {
     const suggestion = await assignmentEngine.suggestProfessional({
@@ -198,11 +263,218 @@ const redistributeSuggestedAppointments = async (params: {
     reassignedCount += 1;
   }
 
+  // Segunda passada: balanceia por dia para aproximar distribuição igualitária
+  // entre profissionais ativos, sempre respeitando habilidade e conflitos.
+  const byDay = new Map<string, typeof candidateRows>();
+  for (const row of candidateRows) {
+    const key = getLocalDayKey(new Date(row.scheduledAt));
+    const current = byDay.get(key) ?? [];
+    current.push(row);
+    byDay.set(key, current);
+  }
+
+  for (const [, dayRows] of byDay) {
+    if (dayRows.length < 2) continue;
+
+    const dayBase = new Date(dayRows[0].scheduledAt);
+    const { start, end } = getLocalDayWindow(dayBase);
+    const dayServiceIds = new Set(dayRows.map((row) => row.serviceId));
+
+    const professionals = await db
+      .select({ id: schema.staff.id })
+      .from(schema.staff)
+      .where(
+        and(
+          eq(schema.staff.companyId, params.companyId),
+          eq(schema.staff.isActive, true),
+          eq(schema.staff.isProfessional, true),
+        ),
+      );
+
+    if (professionals.length < 2) continue;
+
+    const allDayAppointments = await db
+      .select({
+        id: schema.appointments.id,
+        staffId: schema.appointments.staffId,
+        serviceId: schema.appointments.serviceId,
+        scheduledAt: schema.appointments.scheduledAt,
+        serviceDurationSnapshot: schema.appointments.serviceDurationSnapshot,
+      })
+      .from(schema.appointments)
+      .where(
+        and(
+          eq(schema.appointments.companyId, params.companyId),
+          gte(schema.appointments.scheduledAt, start),
+          lte(schema.appointments.scheduledAt, end),
+          inArray(schema.appointments.status, activeAppointmentStatuses),
+        ),
+      );
+
+    const allProfessionalIds = professionals.map((item) => item.id);
+    const skillMap = new Map<string, Set<string>>();
+    for (const professionalId of allProfessionalIds) {
+      const skills = await loadStaffSkills(professionalId);
+      skillMap.set(
+        professionalId,
+        new Set(skills.map((skill) => skill.serviceId)),
+      );
+    }
+
+    // Balanceia somente entre profissionais elegíveis para os serviços do dia.
+    // Isso evita "puxar" para profissionais sem competência e melhora o equilíbrio real.
+    const professionalIds = allProfessionalIds.filter((professionalId) => {
+      const skills = skillMap.get(professionalId) ?? new Set<string>();
+      return Array.from(dayServiceIds).some((serviceId) => skills.has(serviceId));
+    });
+
+    if (professionalIds.length < 2) continue;
+
+    const blockRows =
+      professionalIds.length > 0
+        ? await db
+          .select({
+            staffId: schema.scheduleBlocks.staffId,
+            startTime: schema.scheduleBlocks.startTime,
+            endTime: schema.scheduleBlocks.endTime,
+            isOverrideable: schema.scheduleBlocks.isOverrideable,
+          })
+          .from(schema.scheduleBlocks)
+          .where(
+            and(
+              inArray(schema.scheduleBlocks.staffId, professionalIds),
+              lte(schema.scheduleBlocks.startTime, end),
+              gte(schema.scheduleBlocks.endTime, start),
+            ),
+          )
+        : [];
+
+    const blocksByStaff = new Map<
+      string,
+      Array<{ startTime: Date; endTime: Date; isOverrideable: boolean }>
+    >();
+    for (const block of blockRows) {
+      const current = blocksByStaff.get(block.staffId) ?? [];
+      current.push({
+        startTime: new Date(block.startTime),
+        endTime: new Date(block.endTime),
+        isOverrideable: block.isOverrideable,
+      });
+      blocksByStaff.set(block.staffId, current);
+    }
+
+    const movableById = new Map(dayRows.map((row) => [row.id, row]));
+    const maxIterations = dayRows.length * professionalIds.length;
+    for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+      const countByStaff = new Map<string, number>();
+      for (const professionalId of professionalIds) {
+        countByStaff.set(professionalId, 0);
+      }
+      for (const appt of allDayAppointments) {
+        if (!appt.staffId) continue;
+        if (!countByStaff.has(appt.staffId)) continue;
+        countByStaff.set(appt.staffId, (countByStaff.get(appt.staffId) ?? 0) + 1);
+      }
+
+      const orderedByLoad = professionalIds
+        .map((staffId) => ({
+          staffId,
+          count: countByStaff.get(staffId) ?? 0,
+        }))
+        .sort((a, b) => a.count - b.count);
+
+      const minCount = orderedByLoad[0]?.count ?? 0;
+      const maxCount = orderedByLoad[orderedByLoad.length - 1]?.count ?? 0;
+      if (maxCount - minCount <= 1) break;
+
+      const receivers = orderedByLoad.filter((item) => item.count === minCount);
+      const donors = [...orderedByLoad]
+        .reverse()
+        .filter((item) => item.count === maxCount);
+
+      let moved = false;
+      for (const receiver of receivers) {
+        const receiverSkills = skillMap.get(receiver.staffId) ?? new Set<string>();
+        for (const donor of donors) {
+          if (receiver.staffId === donor.staffId) continue;
+
+          const donorMovable = dayRows
+            .filter((row) => {
+              const rowStaffId =
+                allDayAppointments.find((item) => item.id === row.id)?.staffId ??
+                row.staffId;
+              return rowStaffId === donor.staffId;
+            })
+            .sort(
+              (a, b) =>
+                new Date(a.scheduledAt).getTime() -
+                new Date(b.scheduledAt).getTime(),
+            );
+
+          for (const row of donorMovable) {
+            if (!receiverSkills.has(row.serviceId)) continue;
+
+            const targetStart = new Date(row.scheduledAt);
+            const targetEnd = new Date(
+              targetStart.getTime() +
+              parseDurationToMinutes(row.serviceDurationSnapshot) * 60_000,
+            );
+
+            const hasAppointmentConflict = allDayAppointments.some((item) => {
+              if (item.id === row.id) return false;
+              if (item.staffId !== receiver.staffId) return false;
+              const itemStart = new Date(item.scheduledAt);
+              const itemEnd = new Date(
+                itemStart.getTime() +
+                parseDurationToMinutes(item.serviceDurationSnapshot) * 60_000,
+              );
+              return overlaps(targetStart, targetEnd, itemStart, itemEnd);
+            });
+            if (hasAppointmentConflict) continue;
+
+            const receiverBlocks = blocksByStaff.get(receiver.staffId) ?? [];
+            const hasBlockConflict = receiverBlocks.some((block) => {
+              if (block.isOverrideable) return false;
+              return overlaps(targetStart, targetEnd, block.startTime, block.endTime);
+            });
+            if (hasBlockConflict) continue;
+
+            await db
+              .update(schema.appointments)
+              .set({
+                staffId: receiver.staffId,
+                assignedBy: "system",
+                validationStatus: "suggested",
+                version: sql`${schema.appointments.version} + 1`,
+                updatedAt: new Date(),
+              })
+              .where(eq(schema.appointments.id, row.id));
+
+            const rowRef = movableById.get(row.id);
+            if (rowRef) rowRef.staffId = receiver.staffId;
+            const allRef = allDayAppointments.find((item) => item.id === row.id);
+            if (allRef) allRef.staffId = receiver.staffId;
+
+            rebalancedCount += 1;
+            moved = true;
+            break;
+          }
+
+          if (moved) break;
+        }
+        if (moved) break;
+      }
+
+      if (!moved) break;
+    }
+  }
+
   return {
     scanned: candidateRows.length,
     reassigned: reassignedCount,
     unchanged: unchangedCount,
     skipped: skippedCount,
+    rebalanced: rebalancedCount,
   };
 };
 
@@ -263,6 +535,122 @@ const getStaffMembership = async (companyId: string, userId: string) => {
   return membershipByEmail;
 };
 
+const rescueAppointmentsForStaffAbsence = async (params: {
+  companyId: string;
+  staffId: string;
+  startTime: Date;
+  endTime: Date;
+  reason?: string;
+  createdBy?: string;
+}) =>
+  await db.transaction(async (tx) => {
+    const lockKey = `rescue:${params.companyId}:${params.startTime.toISOString().slice(0, 10)}`;
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`);
+
+    const [staffMember] = await tx
+      .select({
+        id: schema.staff.id,
+      })
+      .from(schema.staff)
+      .where(
+        and(
+          eq(schema.staff.id, params.staffId),
+          eq(schema.staff.companyId, params.companyId),
+          eq(schema.staff.isActive, true),
+        ),
+      )
+      .limit(1);
+
+    if (!staffMember) {
+      throw new Error("Profissional não encontrado ou inativo para esta empresa.");
+    }
+
+    const absenceId = crypto.randomUUID();
+    await tx.insert(schema.staffAbsences).values({
+      id: absenceId,
+      companyId: params.companyId,
+      staffId: params.staffId,
+      startTime: params.startTime,
+      endTime: params.endTime,
+      reason: params.reason,
+      createdBy: params.createdBy ?? null,
+    });
+
+    const impactedAppointments = await tx
+      .select({
+        id: schema.appointments.id,
+        companyId: schema.appointments.companyId,
+        customerId: schema.appointments.customerId,
+        serviceId: schema.appointments.serviceId,
+        serviceDurationSnapshot: schema.appointments.serviceDurationSnapshot,
+        scheduledAt: schema.appointments.scheduledAt,
+      })
+      .from(schema.appointments)
+      .where(
+        and(
+          eq(schema.appointments.companyId, params.companyId),
+          eq(schema.appointments.staffId, params.staffId),
+          gte(schema.appointments.scheduledAt, params.startTime),
+          lte(schema.appointments.scheduledAt, params.endTime),
+          inArray(schema.appointments.status, activeAppointmentStatuses),
+        ),
+      )
+      .orderBy(schema.appointments.scheduledAt);
+
+    let rescuedCount = 0;
+    let orphanedCount = 0;
+
+    for (const appointment of impactedAppointments) {
+      const suggestion = await assignmentEngine.suggestProfessional({
+        companyId: appointment.companyId,
+        serviceIds: [appointment.serviceId],
+        scheduledAt: new Date(appointment.scheduledAt),
+        durationMinutes: parseDurationToMinutes(appointment.serviceDurationSnapshot),
+        customerId: appointment.customerId,
+        tx,
+      });
+
+      const nextStaffId = suggestion.professionalId;
+
+      if (nextStaffId && nextStaffId !== params.staffId) {
+        await tx
+          .update(schema.appointments)
+          .set({
+            staffId: nextStaffId,
+            assignedBy: "system_rescue",
+            validationStatus: "suggested",
+            version: sql`${schema.appointments.version} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.appointments.id, appointment.id));
+
+        rescuedCount += 1;
+        continue;
+      }
+
+      await tx
+        .update(schema.appointments)
+        .set({
+          staffId: null,
+          status: "ORPHANED",
+          assignedBy: "system_rescue",
+          validationStatus: "suggested",
+          version: sql`${schema.appointments.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.appointments.id, appointment.id));
+
+      orphanedCount += 1;
+    }
+
+    return {
+      absenceId,
+      scanned: impactedAppointments.length,
+      rescued: rescuedCount,
+      orphaned: orphanedCount,
+    };
+  });
+
 const canManageCompanyAppointments = async (
   companyId: string,
   userId: string,
@@ -303,6 +691,10 @@ export function appointmentController() {
 
             const startDateStr = query.startDate as string;
             const endDateStr = query.endDate as string;
+            const requestedServiceId =
+              typeof query.serviceId === "string" && query.serviceId.trim()
+                ? query.serviceId.trim()
+                : undefined;
 
             const startDate = startDateStr ? new Date(startDateStr) : undefined;
             const endDate = endDateStr ? new Date(endDateStr) : undefined;
@@ -341,6 +733,55 @@ export function appointmentController() {
               const intervalMin = (intH * 60) + intM;
 
               const slots: any[] = [];
+              const { start: localDayStart, end: localDayEnd } = getLocalDayWindow(startDate);
+
+              const qualifiedStaffRows = requestedServiceId
+                ? await loadQualifiedStaffIdsByService(companyId, requestedServiceId)
+                : [];
+              const qualifiedStaffIds = Array.from(
+                new Set(qualifiedStaffRows.map((row) => row.staffId)),
+              );
+
+              const appointmentsForCapacity =
+                requestedServiceId && qualifiedStaffIds.length > 0
+                  ? await db
+                    .select({
+                      staffId: schema.appointments.staffId,
+                      scheduledAt: schema.appointments.scheduledAt,
+                      serviceDurationSnapshot: schema.appointments.serviceDurationSnapshot,
+                      status: schema.appointments.status,
+                    })
+                    .from(schema.appointments)
+                    .where(
+                      and(
+                        eq(schema.appointments.companyId, companyId),
+                        eq(schema.appointments.serviceId, requestedServiceId),
+                        inArray(schema.appointments.staffId, qualifiedStaffIds),
+                        gte(schema.appointments.scheduledAt, localDayStart),
+                        lte(schema.appointments.scheduledAt, localDayEnd),
+                        inArray(schema.appointments.status, activeAppointmentStatuses),
+                      ),
+                    )
+                  : [];
+
+              const absencesForCapacity =
+                requestedServiceId && qualifiedStaffIds.length > 0
+                  ? await db
+                    .select({
+                      staffId: schema.staffAbsences.staffId,
+                      startTime: schema.staffAbsences.startTime,
+                      endTime: schema.staffAbsences.endTime,
+                    })
+                    .from(schema.staffAbsences)
+                    .where(
+                      and(
+                        eq(schema.staffAbsences.companyId, companyId),
+                        inArray(schema.staffAbsences.staffId, qualifiedStaffIds),
+                        lte(schema.staffAbsences.startTime, localDayEnd),
+                        gte(schema.staffAbsences.endTime, localDayStart),
+                      ),
+                    )
+                  : [];
 
               const processPeriod = (startStr: string | null | undefined, endStr: string | null | undefined) => {
                 if (!startStr || !endStr) return;
@@ -356,34 +797,54 @@ export function appointmentController() {
                   const m = currentTotalMin % 60;
                   const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-                  // Verificar se o horário está ocupado por um agendamento (considerando duração)
-                  const isOccupied = appointments.some(app => {
-                    const appDate = new Date(app.scheduledAt);
-                    // Usar o horário local para comparação com o expediente (HH:mm)
-                    const appH = appDate.getHours();
-                    const appM = appDate.getMinutes();
+                  const slotStart = new Date(startDate);
+                  slotStart.setHours(h, m, 0, 0);
+                  const slotEnd = new Date(slotStart.getTime() + intervalMin * 60_000);
 
-                    const appStartTotalMin = (appH * 60) + appM;
+                  // Modo legado: sem serviceId mantém regra de "qualquer atendimento no horário".
+                  const isOccupiedLegacy = !requestedServiceId
+                    ? appointments.some(app => {
+                      const appDate = new Date(app.scheduledAt);
+                      const appH = appDate.getHours();
+                      const appM = appDate.getMinutes();
+                      const appStartTotalMin = (appH * 60) + appM;
+                      const durationMin = parseDurationToMinutes(app.serviceDurationSnapshot);
+                      const appEndTotalMin = appStartTotalMin + durationMin;
+                      return app.status !== "CANCELLED" &&
+                        currentTotalMin >= appStartTotalMin &&
+                        currentTotalMin < appEndTotalMin;
+                    })
+                    : false;
 
-                    // Pegar duração do snapshot (formato HH:mm ou minutos)
-                    let durationMin = 30; // default
-                    if (app.serviceDurationSnapshot) {
-                      if (app.serviceDurationSnapshot.includes(':')) {
-                        const [dH, dM] = app.serviceDurationSnapshot.split(':').map(Number);
-                        durationMin = (dH * 60) + dM;
-                      } else if (/^\d+$/.test(app.serviceDurationSnapshot)) {
-                        durationMin = parseInt(app.serviceDurationSnapshot);
-                      }
+                  let availableCapacity = 0;
+                  if (requestedServiceId) {
+                    for (const staffId of qualifiedStaffIds) {
+                      const staffIsAbsent = absencesForCapacity.some((absence) =>
+                        absence.staffId === staffId &&
+                        overlaps(
+                          slotStart,
+                          slotEnd,
+                          new Date(absence.startTime),
+                          new Date(absence.endTime),
+                        ),
+                      );
+                      if (staffIsAbsent) continue;
+
+                      const staffIsBusy = appointmentsForCapacity.some((appointment) => {
+                        if (appointment.staffId !== staffId) return false;
+                        const apptStart = new Date(appointment.scheduledAt);
+                        const apptEnd = new Date(
+                          apptStart.getTime() +
+                          parseDurationToMinutes(appointment.serviceDurationSnapshot) *
+                          60_000,
+                        );
+                        return overlaps(slotStart, slotEnd, apptStart, apptEnd);
+                      });
+                      if (staffIsBusy) continue;
+
+                      availableCapacity += 1;
                     }
-
-                    const appEndTotalMin = appStartTotalMin + durationMin;
-
-                    // O slot está ocupado se o seu início estiver dentro do intervalo do agendamento
-                    // ou se o agendamento começar durante este slot
-                    return app.status !== 'CANCELLED' &&
-                      currentTotalMin >= appStartTotalMin &&
-                      currentTotalMin < appEndTotalMin;
-                  });
+                  }
 
                   // Verificar bloqueios de agenda
                   const isBlocked = settings.blocks.some((block: any) => {
@@ -394,8 +855,21 @@ export function appointmentController() {
 
                   slots.push({
                     time: timeStr,
-                    available: !isOccupied && !isBlocked,
-                    reason: isOccupied ? 'OCCUPIED' : (isBlocked ? 'BLOCKED' : null)
+                    available:
+                      requestedServiceId
+                        ? availableCapacity > 0 && !isBlocked
+                        : !isOccupiedLegacy && !isBlocked,
+                    availableCapacity: requestedServiceId ? availableCapacity : undefined,
+                    reason:
+                      isBlocked
+                        ? "BLOCKED"
+                        : requestedServiceId
+                          ? availableCapacity > 0
+                            ? null
+                            : "NO_CAPACITY"
+                          : isOccupiedLegacy
+                            ? "OCCUPIED"
+                            : null,
                   });
 
                   currentTotalMin += intervalMin;
@@ -428,7 +902,8 @@ export function appointmentController() {
           params: t.Object({ companyId: t.String() }),
           query: t.Object({
             startDate: t.Optional(t.String()),
-            endDate: t.Optional(t.String())
+            endDate: t.Optional(t.String()),
+            serviceId: t.Optional(t.String()),
           })
         })
         .post("/", async ({ body, headers, appointmentRepository, serviceRepository, businessRepository, pushSubscriptionRepository, userRepository, user, set }) => {
@@ -762,6 +1237,97 @@ export function appointmentController() {
             endDate: t.Optional(t.String()),
           }),
         })
+        .post("/admin/company/:companyId/staff-absences", async ({ params: { companyId }, body, user, set }) => {
+          const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
+          if (!isAllowed) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
+
+          const startTime = new Date(body.startTime);
+          const endTime = new Date(body.endTime);
+
+          if (Number.isNaN(startTime.getTime()) || Number.isNaN(endTime.getTime())) {
+            set.status = 400;
+            return { error: "Data/hora de ausência inválida." };
+          }
+          if (startTime.getTime() >= endTime.getTime()) {
+            set.status = 400;
+            return { error: "Período inválido: início deve ser anterior ao fim." };
+          }
+
+          try {
+            const summary = await rescueAppointmentsForStaffAbsence({
+              companyId,
+              staffId: body.staffId,
+              startTime,
+              endTime,
+              reason: body.reason,
+              createdBy: user?.id,
+            });
+
+            return {
+              success: true,
+              summary,
+            };
+          } catch (error: any) {
+            set.status = 500;
+            return {
+              error: "Falha ao aplicar ausência e realocar agendamentos.",
+              message: error?.message ?? "Erro interno",
+            };
+          }
+        }, {
+          params: t.Object({ companyId: t.String() }),
+          body: t.Object({
+            staffId: t.String(),
+            startTime: t.String(),
+            endTime: t.String(),
+            reason: t.Optional(t.String()),
+          }),
+        })
+        .get("/admin/company/:companyId/exceptions", async ({ params: { companyId }, query, user, set }) => {
+          const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
+          if (!isAllowed) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
+
+          const startDate = query.startDate ? new Date(query.startDate) : new Date();
+          const endDate = query.endDate ? new Date(query.endDate) : undefined;
+
+          if (Number.isNaN(startDate.getTime())) {
+            set.status = 400;
+            return { error: "Data inicial inválida." };
+          }
+          if (endDate && Number.isNaN(endDate.getTime())) {
+            set.status = 400;
+            return { error: "Data final inválida." };
+          }
+
+          const filters = [
+            eq(schema.appointments.companyId, companyId),
+            eq(schema.appointments.status, "ORPHANED"),
+            gte(schema.appointments.scheduledAt, startDate),
+          ];
+          if (endDate) {
+            filters.push(lte(schema.appointments.scheduledAt, endDate));
+          }
+
+          const rows = await db
+            .select()
+            .from(schema.appointments)
+            .where(and(...filters))
+            .orderBy(schema.appointments.scheduledAt);
+
+          return rows;
+        }, {
+          params: t.Object({ companyId: t.String() }),
+          query: t.Object({
+            startDate: t.Optional(t.String()),
+            endDate: t.Optional(t.String()),
+          }),
+        })
         .get("/admin/company/:companyId/unassigned", async ({ params: { companyId }, user, set }) => {
           const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
           if (!isAllowed) {
@@ -819,6 +1385,54 @@ export function appointmentController() {
         }, {
           params: t.Object({ companyId: t.String() }),
           query: t.Object({ date: t.Optional(t.String()) }),
+        })
+        .post("/my/company/:companyId/staff-absences", async ({ params: { companyId }, body, user, set }) => {
+          const membership = await getStaffMembership(companyId, user!.id);
+          if (!membership?.isActive) {
+            set.status = 403;
+            return { error: "Sua conta não está vinculada a um colaborador ativo nessa empresa." };
+          }
+
+          const startTime = new Date(body.startTime);
+          const endTime = new Date(body.endTime);
+
+          if (Number.isNaN(startTime.getTime()) || Number.isNaN(endTime.getTime())) {
+            set.status = 400;
+            return { error: "Data/hora de ausência inválida." };
+          }
+          if (startTime.getTime() >= endTime.getTime()) {
+            set.status = 400;
+            return { error: "Período inválido: início deve ser anterior ao fim." };
+          }
+
+          try {
+            const summary = await rescueAppointmentsForStaffAbsence({
+              companyId,
+              staffId: membership.id,
+              startTime,
+              endTime,
+              reason: body.reason,
+              createdBy: user?.id,
+            });
+
+            return {
+              success: true,
+              summary,
+            };
+          } catch (error: any) {
+            set.status = 500;
+            return {
+              error: "Falha ao aplicar ausência e realocar agendamentos.",
+              message: error?.message ?? "Erro interno",
+            };
+          }
+        }, {
+          params: t.Object({ companyId: t.String() }),
+          body: t.Object({
+            startTime: t.String(),
+            endTime: t.String(),
+            reason: t.Optional(t.String()),
+          }),
         })
         .get("/my/company/:companyId/opportunities", async ({ params: { companyId }, user, set }) => {
           const membership = await getStaffMembership(companyId, user!.id);

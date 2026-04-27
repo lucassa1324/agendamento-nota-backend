@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import * as schema from "../../../../db/schema";
 import { db } from "../../../infrastructure/drizzle/database";
 import { parseDurationToMinutes } from "../utils/scheduling-conflict.util";
@@ -9,6 +9,7 @@ type SuggestAssignmentInput = {
   scheduledAt: Date;
   durationMinutes: number;
   customerId?: string | null;
+  ignoreAppointmentId?: string;
   tx?: any;
 };
 
@@ -183,6 +184,7 @@ export class AssignmentEngineService {
 
     const appointments = await conn
       .select({
+        id: schema.appointments.id,
         staffId: schema.appointments.staffId,
         scheduledAt: schema.appointments.scheduledAt,
         serviceDurationSnapshot: schema.appointments.serviceDurationSnapshot,
@@ -195,6 +197,9 @@ export class AssignmentEngineService {
           inArray(schema.appointments.staffId, fullyQualifiedCandidates),
           gte(schema.appointments.scheduledAt, startOfDay),
           lte(schema.appointments.scheduledAt, endOfDay),
+          input.ignoreAppointmentId
+            ? ne(schema.appointments.id, input.ignoreAppointmentId)
+            : undefined,
         ),
       );
 
@@ -215,6 +220,9 @@ export class AssignmentEngineService {
             inArray(schema.appointments.staffId, fullyQualifiedCandidates),
             gte(schema.appointments.scheduledAt, sixMonthsAgo),
             lte(schema.appointments.scheduledAt, input.scheduledAt),
+            input.ignoreAppointmentId
+              ? ne(schema.appointments.id, input.ignoreAppointmentId)
+              : undefined,
           ),
         );
 

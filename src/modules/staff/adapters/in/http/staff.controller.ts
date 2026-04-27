@@ -642,6 +642,21 @@ export const staffController = () =>
           console.error("[STAFF_INVITE_EMAIL_ERROR]", error);
         }
 
+        if (!emailSent) {
+          set.status = 502;
+          return {
+            success: false,
+            error: "Colaborador criado, mas o envio de e-mail falhou.",
+            staffId: memberId,
+            email: normalizedEmail,
+            inviteUrl: invite.inviteUrl,
+            expiresAt: invite.expiresAt.toISOString(),
+            emailSent,
+            emailError,
+            temporaryPassword: temporaryPasswordForInvite,
+          };
+        }
+
         return {
           success: true,
           staffId: memberId,
@@ -738,6 +753,21 @@ export const staffController = () =>
                 ? (error as { message: string }).message
                 : "Falha desconhecida ao reenviar convite por e-mail.";
           console.error("[STAFF_RESEND_INVITE_EMAIL_ERROR]", error);
+        }
+
+        if (!emailSent) {
+          set.status = 502;
+          return {
+            success: false,
+            error: "Não foi possível enviar o e-mail de convite.",
+            staffId: member.id,
+            email: normalizedEmail,
+            inviteUrl: invite.inviteUrl,
+            expiresAt: invite.expiresAt.toISOString(),
+            emailSent,
+            emailError,
+            temporaryPassword: temporaryPasswordForInvite,
+          };
         }
 
         return {

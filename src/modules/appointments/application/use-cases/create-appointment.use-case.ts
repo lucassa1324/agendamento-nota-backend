@@ -339,7 +339,9 @@ export class CreateAppointmentUseCase {
     let newAppointment: any;
 
     await db.transaction(async (tx) => {
-      const lockKey = `${data.companyId}:${scheduledAt.toISOString().slice(0, 16)}`;
+      // Serializa autoatribuição por empresa/dia para evitar corrida em criações paralelas,
+      // que pode concentrar todos os horários no mesmo profissional.
+      const lockKey = `assign:${data.companyId}:${year}-${month}-${day}`;
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`,
       );
