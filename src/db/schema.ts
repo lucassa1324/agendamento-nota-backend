@@ -300,7 +300,7 @@ export const companies = pgTable("companies", {
   trialEndsAt: timestamp("trial_ends_at").defaultNow(),
   firstSubscriptionAt: timestamp("first_subscription_at"),
   blockedAt: timestamp("blocked_at"),
-  billingAnchorDay: integer("billing_anchor_day"),
+  billingAnchorDay: integer("billing_anchor_day").notNull().default(27),
   billingGraceEndsAt: timestamp("billing_grace_ends_at"),
   billingDayLastChangedAt: timestamp("billing_day_last_changed_at"),
   stripeCustomerId: text("stripe_customer_id"),
@@ -482,10 +482,10 @@ export const appointments = pgTable("appointments", {
   servicePriceSnapshot: numeric("service_price_snapshot", { precision: 10, scale: 2 }).notNull(),
   serviceDurationSnapshot: text("service_duration_snapshot").notNull(),
   scheduledAt: timestamp("scheduled_at").notNull(),
-  status: text("status", { enum: ["PENDING", "CONFIRMED", "ONGOING", "COMPLETED", "CANCELLED", "POSTPONED"] })
+  status: text("status", { enum: ["PENDING", "CONFIRMED", "ONGOING", "COMPLETED", "CANCELLED", "POSTPONED", "ORPHANED"] })
     .default("PENDING")
     .notNull(),
-  assignedBy: text("assigned_by", { enum: ["system", "staff"] })
+  assignedBy: text("assigned_by", { enum: ["system", "staff", "system_rescue"] })
     .default("staff")
     .notNull(),
   validationStatus: text("validation_status", { enum: ["suggested", "confirmed"] })
@@ -534,6 +534,33 @@ export const scheduleBlocks = pgTable("schedule_blocks", {
     .$onUpdate(() => new Date())
     .notNull(),
 });
+
+export const staffAbsences = pgTable(
+  "staff_absences",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    staffId: text("staff_id")
+      .notNull()
+      .references(() => staff.id, { onDelete: "cascade" }),
+    startTime: timestamp("start_time").notNull(),
+    endTime: timestamp("end_time").notNull(),
+    reason: text("reason"),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("staff_absences_company_idx").on(table.companyId),
+    index("staff_absences_staff_idx").on(table.staffId),
+    index("staff_absences_time_idx").on(table.startTime, table.endTime),
+  ],
+);
 
 export const serviceResources = pgTable("service_resources", {
   id: text("id").primaryKey(),
@@ -796,6 +823,7 @@ export const staffRelations = relations(staff, ({ one, many }) => ({
   competencies: many(staffServicesCompetency),
   appointments: many(appointments),
   scheduleBlocks: many(scheduleBlocks),
+  absences: many(staffAbsences),
 }));
 
 export const staffServicesRelations = relations(staffServices, ({ one }) => ({
@@ -870,6 +898,21 @@ export const scheduleBlocksRelations = relations(scheduleBlocks, ({ one }) => ({
   staff: one(staff, {
     fields: [scheduleBlocks.staffId],
     references: [staff.id],
+  }),
+}));
+
+export const staffAbsencesRelations = relations(staffAbsences, ({ one }) => ({
+  company: one(companies, {
+    fields: [staffAbsences.companyId],
+    references: [companies.id],
+  }),
+  staff: one(staff, {
+    fields: [staffAbsences.staffId],
+    references: [staff.id],
+  }),
+  createdByUser: one(user, {
+    fields: [staffAbsences.createdBy],
+    references: [user.id],
   }),
 }));
 
