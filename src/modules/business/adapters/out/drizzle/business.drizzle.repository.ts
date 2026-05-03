@@ -115,6 +115,7 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
         subscriptionStatus: 'trial',
         trialEndsAt: trialEndsAt,
         accessType: 'automatic',
+        billingAnchorDay: 27,
       }).returning();
 
       const [newCustomization] = await tx.insert(companySiteCustomizations).values({

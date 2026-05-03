@@ -3,7 +3,7 @@
   "version": "1.0.50",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "bun run --watch src/local.ts",
+    "dev": "bun --env-file=.env.local --watch src/local.ts",
     "build": "bun build src/index.ts --outdir ./dist --target bun",
     "billing:purge-blocked": "bun run src/scripts/purge-blocked-companies.ts",
     "db:generate": "bunx drizzle-kit generate",
@@ -20,6 +20,7 @@
     "better-auth": "^1.4.10",
     "drizzle-orm": "^0.45.1",
     "elysia": "latest",
+    "fast-decode-uri-component": "^1.0.1",
     "handlebars": "^4.7.9",
     "postgres": "^3.4.8",
     "resend": "^6.9.2",

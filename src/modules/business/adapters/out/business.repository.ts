@@ -85,6 +85,7 @@ export class BusinessRepository {
         name: data.name,
         slug: data.slug,
         ownerId: data.ownerId,
+        billingAnchorDay: 27,
       }).returning();
 
       const [newCustomization] = await tx.insert(companySiteCustomizations).values({
