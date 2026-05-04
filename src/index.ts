@@ -17,7 +17,7 @@ const createApp = () => {
     const { auth } = require("./modules/infrastructure/auth/auth");
     const { authPlugin } = require("./modules/infrastructure/auth/auth-plugin");
     const { repositoriesPlugin } = require("./modules/infrastructure/di/repositories.plugin");
-    
+
     // Controllers
     const { userController } = require("./modules/user/adapters/in/http/user.controller");
     const { businessController } = require("./modules/business/adapters/in/http/business.controller");
@@ -72,7 +72,7 @@ const createApp = () => {
           const response = await auth.handler(ctx.request);
           console.log(`<<< [AUTH_HANDLER] Status: ${response.status}`);
           return response;
-        } catch (error) {
+        } catch (error: any) {
           console.error(`<<< [AUTH_HANDLER_ERROR]`, error);
           return new Response(
             JSON.stringify({ error: "Auth handler error", message: error?.message || "Unknown error" }),
