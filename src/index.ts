@@ -1,24 +1,12 @@
-console.log("[STARTUP] Inicializando Back-end com Try-Catch Global");
-
-// Validação CRÍTICA de variáveis de ambiente antes de qualquer coisa
-if (!process.env.DATABASE_URL) {
-  console.error("FATAL: DATABASE_URL IS MISSING");
-  throw new Error("DATABASE_URL IS MISSING");
-}
-
-if (!process.env.BETTER_AUTH_SECRET) {
-  console.warn("WARNING: BETTER_AUTH_SECRET IS MISSING");
-}
-
-import { Elysia, t } from "elysia";
-import { DNSController } from './modules/dns/infrastructure/adapters/in/http/dns.controller'
+console.log("[STARTUP] Preparando handler para Vercel (Bun)");
 
 // Definição da App Wrapper para capturar erros de importação/inicialização
-const startServer = () => {
+const createApp = () => {
   try {
     console.log("[STARTUP] Carregando módulos...");
 
-    // Imports dentro do try-catch para capturar erros de linkagem/dependência circular
+    // Imports dinâmicos para evitar problemas de inicialização no ESM
+    const { Elysia, t } = require("elysia");
     const { auth, detectHashAlgorithm, verifyScryptPassword } = require("./modules/infrastructure/auth/auth");
     const { authPlugin } = require("./modules/infrastructure/auth/auth-plugin");
     const { repositoriesPlugin } = require("./modules/infrastructure/di/repositories.plugin");
@@ -31,6 +19,7 @@ const startServer = () => {
     } = require("./modules/infrastructure/payment/billing-dates");
     const { uploadToB2 } = require("./modules/infrastructure/storage/b2.storage");
     const { eq, and, count, ilike } = require("drizzle-orm");
+    const { DNSController } = require("./modules/dns/infrastructure/adapters/in/http/dns.controller");
 
     // Controllers
     const { UserController } = require("./modules/user/adapters/in/http/user.controller");
@@ -779,11 +768,7 @@ const startServer = () => {
 
     console.log("[STARTUP] Servidor configurado com sucesso.");
     const urlHint = process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-    console.log(`🦊 Elysia está rodando em ${urlHint}`);
-
-    app.listen(3001, (server) => {
-      console.log(`[STARTUP] Elysia escutando explicitamente na porta ${server.port}`);
-    });
+    console.log(`🦊 Elysia configurado com sucesso em ${urlHint}`);
 
     return app;
   } catch (error) {
@@ -792,6 +777,7 @@ const startServer = () => {
       console.error("Stack:", error.stack);
     }
     // Retorna uma instância mínima de erro para não derrubar o processo sem logs
+    const { Elysia } = require("elysia");
     return new Elysia()
       .get("/api/health", () => ({ status: "startup_failed", error: String(error) }))
       .get("/*", () => {
@@ -804,5 +790,47 @@ const startServer = () => {
   }
 };
 
-// Exporta a aplicação inicializada
-export default startServer();
+// Handler para Vercel Serverless - inicialização sob demanda
+export default async function handler(request: Request) {
+  try {
+    // Validação de variáveis de ambiente apenas quando a função é chamada
+    if (!process.env.DATABASE_URL) {
+      console.error("[HANDLER] FATAL: DATABASE_URL IS MISSING");
+      return new Response(JSON.stringify({ error: "DATABASE_URL_IS_MISSING" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    if (!process.env.BETTER_AUTH_SECRET) {
+      console.warn("[HANDLER] WARNING: BETTER_AUTH_SECRET IS MISSING");
+    }
+
+    const app = createApp();
+
+    // Se app for uma instância do Elysia, usa o método fetch
+    if (app && typeof app.fetch === 'function') {
+      return await app.fetch(request);
+    }
+
+    // Fallback: tenta usar handleRequest se existir
+    if (app && typeof app.handleRequest === 'function') {
+      return await app.handleRequest(request);
+    }
+
+    console.error("[HANDLER] App não é uma instância válida do Elysia");
+    return new Response(JSON.stringify({ error: "INVALID_APP_INSTANCE" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" }
+    });
+  } catch (error) {
+    console.error("[HANDLER_ERROR]", error);
+    return new Response(JSON.stringify({
+      error: "HANDLER_ERROR",
+      message: error instanceof Error ? error.message : String(error)
+    }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+}
