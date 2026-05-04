@@ -110,6 +110,7 @@ const resolveBusinessAccessForUser = async (
 console.log("[AUTH_MODULE] Loading auth module...");
 
 export const auth = betterAuth({
+  telemetry: { enabled: false },
   secret: process.env.BETTER_AUTH_SECRET || "placeholder_secret_for_build",
   emailAndPassword: {
     enabled: true,
