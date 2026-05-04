@@ -112,8 +112,7 @@ console.log("[AUTH_MODULE] Loading auth module...");
 export const auth = betterAuth({
   telemetry: { enabled: false },
   secret: process.env.BETTER_AUTH_SECRET || "placeholder_secret_for_build",
-  baseURL: getBaseUrl(),
-  basePath: "/api/auth", // Caminho explícito para as rotas do Better Auth
+  basePath: "/auth", // Caminho relativo ao prefixo /api do Elysia
   emailAndPassword: {
     enabled: true,
     password: {
