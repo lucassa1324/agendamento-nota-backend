@@ -62,19 +62,13 @@ const createApp = () => {
     // Lazy load do db - apenas quando necessário
     const { db } = require("./modules/infrastructure/drizzle/database");
 
-    // Instanciação de Dependências Globais
-    const userRepository = new UserRepository();
-    const createUserUseCase = new CreateUserUseCase(userRepository);
-    const listUsersUseCase = new ListUsersUseCase(userRepository);
-    const userController = new UserController(createUserUseCase, listUsersUseCase);
-
-    console.log("[STARTUP] Criando instância do Elysia...");
-
-    const app = new Elysia({
-      name: 'AgendamentoNota',
-      prefix: "/api"
-    })
-      .get("/email-verified", async ({ query, set }) => {
+    // Controllers - usar a mesma estrutura do local.ts
+    const { userController } = require("./modules/user/adapters/in/http/user.controller");
+    const { businessController } = require("./modules/business/adapters/in/http/business.controller");
+    const { serviceController } = require("./modules/services/adapters/in/http/service.controller");
+    const { reportController } = require("./modules/reports/adapters/in/http/report.controller");
+    const { appointmentController } = require("./modules/appointments/adapters/in/http/appointment.controller");
+    const { staffController } = require("./modules/staff/adapters/in/http/staff.controller");
         const { token, callbackURL } = query;
         const frontendBaseUrl =
           process.env.FRONTEND_URL ||

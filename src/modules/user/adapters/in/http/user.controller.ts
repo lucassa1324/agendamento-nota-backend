@@ -14,7 +14,7 @@ export const userController = () => new Elysia({ prefix: "/users" })
   .use(authPlugin)
   .post(
     "/",
-    async ({ body, set, userRepository, createUserUseCase }) => {
+    async ({ body, set, userRepository }) => {
       console.log(`\n[${new Date().toISOString()}] [USER_REGISTER] Nova requisição de cadastro recebida:`);
       console.log(`> Body:`, JSON.stringify(body, null, 2));
 
