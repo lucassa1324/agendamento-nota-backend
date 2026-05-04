@@ -1,8 +1,11 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "bunVersion": "1.x",
+  "version": 2,
+  "buildCommand": "npm run build",
+  "devCommand": "bun dev",
+  "installCommand": "bun install",
   "functions": {
     "api/index.ts": {
+      "runtime": "bun@1.x",
       "includeFiles": [
         "node_modules/@better-auth/telemetry/**/*"
       ]
