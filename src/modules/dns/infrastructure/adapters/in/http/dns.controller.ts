@@ -9,7 +9,7 @@ const forbiddenDomains = [
   'aurasistema.com.br'
 ]
 
-export const DNSController = () => new Elysia({ prefix: '/dns' })
+export const dnsController = () => new Elysia({ prefix: '/dns' })
   .use(authPlugin)
   .use(dnsPlugin)
   .onBeforeHandle(({ user, set }) => {

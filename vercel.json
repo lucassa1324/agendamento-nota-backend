@@ -1,14 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "bunVersion": "1.x",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "node_modules/@better-auth/telemetry/**"
+    }
+  },
   "rewrites": [
     {
-      "source": "/api/auth/api/auth/:match*",
-      "destination": "/api/auth/:match*"
-    },
-    {
-      "source": "/api/auth/api/:match*",
-      "destination": "/api/:match*"
+      "source": "/(.*)",
+      "destination": "/api/index.ts"
     }
   ]
 }
