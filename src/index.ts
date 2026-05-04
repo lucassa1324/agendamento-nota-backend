@@ -71,7 +71,8 @@ const createApp = () => {
     console.log("[STARTUP] Criando instância do Elysia...");
 
     const app = new Elysia({
-      name: 'AgendamentoNota'
+      name: 'AgendamentoNota',
+      prefix: "/api"
     })
       .get("/email-verified", async ({ query, set }) => {
         const { token, callbackURL } = query;
@@ -121,12 +122,12 @@ const createApp = () => {
           return Response.redirect(errorUrl, 302);
         }
       })
-      .all("/api/auth/*", async (ctx) => {
+      .all("/auth/*", async (ctx) => {
         console.log(`>>> [AUTH_HANDLER_START] ${ctx.request.method} ${ctx.path}`);
         try {
           if (
             ctx.request.method === "GET" &&
-            (ctx.path === "/api/auth/session" || ctx.path === "/api/auth/get-session")
+            (ctx.path === "/auth/session" || ctx.path === "/auth/get-session")
           ) {
             let sessionData: unknown = null;
             try {
@@ -213,7 +214,7 @@ const createApp = () => {
       .onRequest(({ request, set }) => {
         // Log simplificado apenas para ver a rota sendo chamada
         const url = new URL(request.url);
-        if (!url.pathname.includes("/api/auth/session")) { // Opcional: silenciar logs de sessão frequentes
+        if (!url.pathname.includes("/auth/session")) { // Opcional: silenciar logs de sessão frequentes
           console.log(`>>> [RECEIVE] ${request.method} ${url.pathname}`);
         }
 
@@ -750,13 +751,13 @@ const createApp = () => {
         }
       })
       // Redirecionamentos Legados para compatibilidade
-      .get("/get-session", ({ set }) => { set.redirect = "/api/auth/get-session"; })
-      .post("/sign-in/*", ({ path, set }) => { set.redirect = `/api/auth${path}`; })
-      .post("/sign-out", ({ set }) => { set.redirect = "/api/auth/sign-out"; })
-      .get("/api/auth/session", ({ set }) => { set.redirect = "/api/auth/get-session"; })
-      .get("/session", ({ set }) => { set.redirect = "/api/auth/get-session"; })
-      .get("/api/proxy/api/auth/session", ({ set }) => { set.redirect = "/api/auth/get-session"; })
-      .get("/api/proxy/session", ({ set }) => { set.redirect = "/api/auth/get-session"; })
+      .get("/get-session", ({ set }) => { set.redirect = "/auth/get-session"; })
+      .post("/sign-in/*", ({ path, set }) => { set.redirect = `/auth${path}`; })
+      .post("/sign-out", ({ set }) => { set.redirect = "/auth/sign-out"; })
+      .get("/auth/session", ({ set }) => { set.redirect = "/auth/get-session"; })
+      .get("/session", ({ set }) => { set.redirect = "/auth/get-session"; })
+      .get("/api/proxy/auth/session", ({ set }) => { set.redirect = "/auth/get-session"; })
+      .get("/proxy/session", ({ set }) => { set.redirect = "/auth/get-session"; })
       .get("/api/test-error", () => {
         throw new Error("Test error for logs");
       })
