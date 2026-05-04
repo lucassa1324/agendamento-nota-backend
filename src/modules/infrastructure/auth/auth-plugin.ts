@@ -571,7 +571,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             } else {
                 if (authHeader && authHeader.startsWith("Bearer ")) {
                     const token = authHeader.substring(7).trim();
-                    let sessionRow = null;
+                    let sessionRow: any = null;
 
                     const byToken = await db
                         .select()
