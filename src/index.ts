@@ -10,7 +10,7 @@ const createApp = () => {
     const { auth, detectHashAlgorithm, verifyScryptPassword } = require("./modules/infrastructure/auth/auth");
     const { authPlugin } = require("./modules/infrastructure/auth/auth-plugin");
     const { repositoriesPlugin } = require("./modules/infrastructure/di/repositories.plugin");
-    const { db } = require("./modules/infrastructure/drizzle/database");
+    // Lazy load do db - não importa no topo
     const schema = require("./db/schema");
     const { asaas } = require("./modules/infrastructure/payment/asaas.client");
     const {
@@ -49,6 +49,9 @@ const createApp = () => {
     const { billingController } = require("./modules/billing/adapters/in/http/billing.controller");
 
     console.log("[STARTUP] Módulos carregados. Instanciando dependências...");
+
+    // Lazy load do db - apenas quando necessário
+    const { db } = require("./modules/infrastructure/drizzle/database");
 
     // Instanciação de Dependências Globais
     const userRepository = new UserRepository();
@@ -772,21 +775,16 @@ const createApp = () => {
 
     return app;
   } catch (error) {
-    console.error("ERRO DE STARTUP (CRÍTICO):", error);
+    console.error("ERRO DE STARTUP (CRÍTICO): Falha ao inicializar a aplicação.", error);
     if (error instanceof Error) {
-      console.error("Stack:", error.stack);
+      console.error("Stack completa:", error.stack);
+      console.error("Mensagem:", error.message);
+      console.error("Nome do erro:", error.name);
+    } else {
+      console.error("Erro não é uma instância de Error:", JSON.stringify(error));
     }
-    // Retorna uma instância mínima de erro para não derrubar o processo sem logs
-    const { Elysia } = require("elysia");
-    return new Elysia()
-      .get("/api/health", () => ({ status: "startup_failed", error: String(error) }))
-      .get("/*", () => {
-        return {
-          error: "STARTUP_FAILED",
-          details: String(error),
-          stack: error instanceof Error ? error.stack : undefined
-        };
-      });
+    // Força o encerramento do processo para evitar timeout de 5 minutos na Vercel
+    process.exit(1);
   }
 };
 
