@@ -63,7 +63,6 @@ export class CreateUserUseCase {
         ownerId: response.user.id,
         trialEndsAt: trialEndsAt,
         subscriptionStatus: 'trial',
-        billingAnchorDay: 27,
       }).returning({
         id: companies.id,
         name: companies.name,

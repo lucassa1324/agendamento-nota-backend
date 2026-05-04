@@ -289,9 +289,9 @@ export const companies = pgTable("companies", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
-  address: text("address"),
+  address: text("address").default(null),
   phone: text("phone"),
-  contact: text("contact"),
+  contact: text("contact").default(null),
   ownerId: text("owner_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
