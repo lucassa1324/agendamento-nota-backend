@@ -3,7 +3,9 @@
   "bunVersion": "1.x",
   "functions": {
     "api/index.ts": {
-      "includeFiles": "node_modules/@better-auth/telemetry/**"
+      "includeFiles": [
+        "node_modules/@better-auth/telemetry/**/*"
+      ]
     }
   },
   "rewrites": [

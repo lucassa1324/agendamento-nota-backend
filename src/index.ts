@@ -1,12 +1,3 @@
-// Forçar importação do @better-auth/telemetry para garantir que esteja disponível no bundle
-try {
-  require("@better-auth/telemetry");
-  console.log("[STARTUP] @better-auth/telemetry carregado com sucesso");
-} catch (e) {
-  const errorMessage = e instanceof Error ? e.message : String(e);
-  console.warn("[STARTUP] @better-auth/telemetry não encontrado, continuando sem telemetria:", errorMessage);
-}
-
 console.log("[STARTUP] Preparando handler para Vercel (Bun)");
 
 const createApp = () => {
