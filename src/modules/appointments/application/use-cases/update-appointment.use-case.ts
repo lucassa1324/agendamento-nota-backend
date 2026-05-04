@@ -59,10 +59,10 @@ export class UpdateAppointmentUseCase {
       throw new Error("Nenhum serviço selecionado para atualização.");
     }
 
-    const services = [];
+    const services: any[] = [];
     let totalDurationMin = 0;
     for (const sId of serviceIds) {
-      const service = await this.serviceRepository.findById(sId);
+      const service: any = await this.serviceRepository.findById(sId);
       if (!service) throw new Error(`Service not found: ${sId}`);
       if (service.companyId !== appointment.companyId) {
         throw new Error(`Service ${service.name} does not belong to this company`);
