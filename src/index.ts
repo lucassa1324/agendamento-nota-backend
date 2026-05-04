@@ -3,7 +3,8 @@ try {
   require("@better-auth/telemetry");
   console.log("[STARTUP] @better-auth/telemetry carregado com sucesso");
 } catch (e) {
-  console.warn("[STARTUP] @better-auth/telemetry não encontrado, continuando sem telemetria:", e.message);
+  const errorMessage = e instanceof Error ? e.message : String(e);
+  console.warn("[STARTUP] @better-auth/telemetry não encontrado, continuando sem telemetria:", errorMessage);
 }
 
 console.log("[STARTUP] Preparando handler para Vercel (Bun)");
