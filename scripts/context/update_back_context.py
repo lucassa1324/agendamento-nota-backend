@@ -21,7 +21,7 @@ def update_context():
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("# Contexto Backend - Agendamento Nota\n\n")
-        f.write("Este arquivo contém o código fonte do backend para referência do Gemini.\n\n")
+        f.write("Este arquivo contém o código fonte do backend para referência.\n\n")
         
         for root, dirs, files in os.walk(backend_root):
             # Exclude directories
@@ -49,7 +49,9 @@ def update_context():
                     with open(file_path, "r", encoding="utf-8") as file_content:
                         content = file_content.read()
                         
+                        # Título claro com caminho absoluto e relativo
                         f.write(f"## Arquivo: `{rel_path}`\n")
+                        f.write(f"**Caminho completo:** `{file_path}`\n\n")
                         
                         # Determine language for markdown block
                         lang = "typescript" if ext == ".ts" else \
@@ -64,6 +66,7 @@ def update_context():
                         if not content.endswith('\n'):
                             f.write('\n')
                         f.write("```\n\n")
+                        f.write("---\n\n")
                 except Exception as e:
                     print(f"Erro ao ler {rel_path}: {e}")
 

@@ -24,59 +24,64 @@ import { asaasWebhookController } from "./modules/infrastructure/payment/asaas.w
 import { billingController } from "./modules/billing/adapters/in/http/billing.controller";
 import { dnsController } from "./modules/dns/infrastructure/adapters/in/http/dns.controller";
 
-let appInstance: Elysia | null = null;
+let appInstance: ReturnType<typeof createApp> | null = null;
+
+function createElysiaApp() {
+  console.log("[STARTUP] Preparando app Elysia (src/index.ts)");
+
+  const app = new Elysia({ name: 'AgendamentoNota' });
+
+  return app
+    .group("/api", (api) =>
+      api
+        .use(authPlugin)
+        .use(repositoriesPlugin)
+        .use(userController())
+        .use(businessController())
+        .use(serviceController())
+        .use(reportController())
+        .use(appointmentController())
+        .use(staffController())
+        .use(settingsController())
+        .use(inventoryController())
+        .use(expenseController())
+        .use(masterAdminController())
+        .use(galleryController())
+        .use(storageController())
+        .use(notificationsController())
+        .use(pushController())
+        .use(userPreferencesController())
+        .use(paymentController())
+        .use(asaasWebhookController)
+        .use(billingController())
+        .use(dnsController())
+        .all("/auth/*", async (ctx) => {
+          console.log(`>>> [AUTH_HANDLER] ${ctx.request.method} ${ctx.path}`);
+          try {
+            const response = await auth.handler(ctx.request);
+            console.log(`<<< [AUTH_HANDLER] Status: ${response.status}`);
+            return response;
+          } catch (error: any) {
+            console.error(`<<< [AUTH_HANDLER_ERROR]`, error);
+            return new Response(
+              JSON.stringify({ error: "Auth handler error", message: error?.message || "Unknown error" }),
+              { status: 500, headers: { "Content-Type": "application/json" } }
+            );
+          }
+        })
+        .get("/health", () => ({
+          status: "ok",
+          timestamp: new Date().toISOString(),
+        }))
+    );
+}
 
 export function createApp(): Elysia {
   if (appInstance) {
     return appInstance;
   }
 
-  console.log("[STARTUP] Preparando app Elysia (src/index.ts)");
-
-  appInstance = new Elysia({
-    name: 'AgendamentoNota'
-  })
-    .group("/api", (api) => api
-      .use(authPlugin)
-      .use(repositoriesPlugin)
-      .use(userController())
-      .use(businessController())
-      .use(serviceController())
-      .use(reportController())
-      .use(appointmentController())
-      .use(staffController())
-      .use(settingsController())
-      .use(inventoryController())
-      .use(expenseController())
-      .use(masterAdminController())
-      .use(galleryController())
-      .use(storageController())
-      .use(notificationsController())
-      .use(pushController())
-      .use(userPreferencesController())
-      .use(paymentController())
-      .use(asaasWebhookController)
-      .use(billingController())
-      .use(dnsController())
-      .all("/auth/*", async (ctx) => {
-        console.log(`>>> [AUTH_HANDLER] ${ctx.request.method} ${ctx.path}`);
-        try {
-          const response = await auth.handler(ctx.request);
-          console.log(`<<< [AUTH_HANDLER] Status: ${response.status}`);
-          return response;
-        } catch (error: any) {
-          console.error(`<<< [AUTH_HANDLER_ERROR]`, error);
-          return new Response(
-            JSON.stringify({ error: "Auth handler error", message: error?.message || "Unknown error" }),
-            { status: 500, headers: { "Content-Type": "application/json" } }
-          );
-        }
-      })
-      .get("/health", () => ({
-        status: "ok",
-        timestamp: new Date().toISOString(),
-      }))
-    );
+  appInstance = createElysiaApp() as unknown as Elysia;
 
   if (process.env.NODE_ENV !== "production") {
     appInstance.listen(3001);
