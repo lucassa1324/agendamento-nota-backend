@@ -11,12 +11,32 @@ if (dbUrl.includes("localhost") || dbUrl.includes("127.0.0.1")) {
     console.log(">>> [DB] Conectado ao PostgreSQL Local (Docker) na porta 5432");
 }
 
-// Configuração resiliente do client Postgres
-const queryClient = postgres(dbUrl, {
-    prepare: false, // Otimização para serverless (evita prepared statements cacheados que falham em conexões pooladas)
-    connect_timeout: 10, // Timeout curto para falhar rápido se a conexão estiver ruim
-});
+let _queryClient: ReturnType<typeof postgres> | null = null;
+let _db: ReturnType<typeof drizzle> | null = null;
 
-export const db = drizzle(queryClient, {
-    logger: process.env.NODE_ENV === "production" ? false : true
+export function getDB() {
+    if (_db) {
+        return _db;
+    }
+
+    // Configuração resiliente do client Postgres (lazy)
+    _queryClient = postgres(dbUrl, {
+        prepare: false, // Otimização para serverless
+        connect_timeout: 10,
+    });
+
+    _db = drizzle(_queryClient, {
+        logger: process.env.NODE_ENV === "production" ? false : true
+    });
+
+    console.log("[DB] Instância do banco inicializada sob demanda");
+    return _db;
+}
+
+// Mantém a exportação para compatibilidade, mas agora é lazy
+export const db = new Proxy({} as ReturnType<typeof drizzle>, {
+    get(target, prop) {
+        const database = getDB();
+        return (database as any)[prop];
+    }
 });

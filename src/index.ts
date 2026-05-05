@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import { auth } from "./modules/infrastructure/auth/auth";
 import { authPlugin } from "./modules/infrastructure/auth/auth-plugin";
-import { repositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
+import { createRepositoriesPlugin } from "./modules/infrastructure/di/repositories.plugin";
 
 // Controllers
 import { userController } from "./modules/user/adapters/in/http/user.controller";
@@ -24,7 +24,7 @@ import { asaasWebhookController } from "./modules/infrastructure/payment/asaas.w
 import { billingController } from "./modules/billing/adapters/in/http/billing.controller";
 import { dnsController } from "./modules/dns/infrastructure/adapters/in/http/dns.controller";
 
-let appInstance: ReturnType<typeof createApp> | null = null;
+let appInstance: Elysia<any, any, any, any, any, any, any> | null = null;
 
 function createElysiaApp() {
   console.log("[STARTUP] Preparando app Elysia (src/index.ts)");
@@ -35,7 +35,7 @@ function createElysiaApp() {
     .group("/api", (api) =>
       api
         .use(authPlugin)
-        .use(repositoriesPlugin)
+        .use(createRepositoriesPlugin()) // Lazy initialization do plugin de repositórios
         .use(userController())
         .use(businessController())
         .use(serviceController())
@@ -76,12 +76,12 @@ function createElysiaApp() {
     );
 }
 
-export function createApp(): Elysia {
+export function createApp(): Elysia<any, any, any, any, any, any, any> {
   if (appInstance) {
     return appInstance;
   }
 
-  appInstance = createElysiaApp() as unknown as Elysia;
+  appInstance = createElysiaApp();
 
   if (process.env.NODE_ENV !== "production") {
     appInstance.listen(3001);

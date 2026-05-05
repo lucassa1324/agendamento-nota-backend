@@ -9,13 +9,18 @@ import { GalleryDrizzleRepository } from "../../gallery/adapters/out/drizzle/gal
 import { DrizzlePushSubscriptionRepository } from "../../notifications/adapters/out/drizzle/push-subscription.drizzle.repository";
 import { UserRepository } from "../../user/adapters/out/user.repository";
 
-export const repositoriesPlugin = new Elysia()
-  .decorate("businessRepository", new DrizzleBusinessRepository())
-  .decorate("userRepository", new UserRepository())
-  .decorate("appointmentRepository", new DrizzleAppointmentRepository())
-  .decorate("serviceRepository", new DrizzleServiceRepository())
-  .decorate("inventoryRepository", new DrizzleInventoryRepository())
-  .decorate("settingsRepository", new DrizzleSettingsRepository())
-  .decorate("expenseRepository", new DrizzleExpenseRepository())
-  .decorate("galleryRepository", new GalleryDrizzleRepository())
-  .decorate("pushSubscriptionRepository", new DrizzlePushSubscriptionRepository());
+export function createRepositoriesPlugin() {
+    return new Elysia({ name: "repositories-plugin" })
+        .decorate("businessRepository", new DrizzleBusinessRepository())
+        .decorate("userRepository", new UserRepository())
+        .decorate("appointmentRepository", new DrizzleAppointmentRepository())
+        .decorate("serviceRepository", new DrizzleServiceRepository())
+        .decorate("inventoryRepository", new DrizzleInventoryRepository())
+        .decorate("settingsRepository", new DrizzleSettingsRepository())
+        .decorate("expenseRepository", new DrizzleExpenseRepository())
+        .decorate("galleryRepository", new GalleryDrizzleRepository())
+        .decorate("pushSubscriptionRepository", new DrizzlePushSubscriptionRepository());
+}
+
+// Mantém exportação para compatibilidade (lazy se chamado dentro de createApp)
+export const repositoriesPlugin = createRepositoriesPlugin();

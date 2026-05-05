@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { createAuthEndpoint } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { Resend } from "resend";
-import { db } from "../drizzle/database";
+import { getDB } from "../drizzle/database"; // Importa a função lazy
 import * as schema from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import { verifyPassword as verifyScryptPassword } from "better-auth/crypto";
@@ -57,7 +57,7 @@ type ResolvedBusinessAccess = {
 const resolveBusinessAccessForUser = async (
   userId: string,
 ): Promise<ResolvedBusinessAccess | null> => {
-  const [ownedBusiness] = await db
+  const [ownedBusiness] = await getDB()
     .select({
       id: schema.companies.id,
       slug: schema.companies.slug,
@@ -80,7 +80,7 @@ const resolveBusinessAccessForUser = async (
     };
   }
 
-  const [staffBusiness] = await db
+  const [staffBusiness] = await getDB()
     .select({
       id: schema.companies.id,
       slug: schema.companies.slug,
@@ -127,7 +127,7 @@ export const auth = betterAuth({
             if (isCorrect) {
               try {
                 const newHash = await Bun.password.hash(password, { algorithm: "argon2id" });
-                const updated = await db
+                const updated = await getDB()
                   .update(schema.account)
                   .set({ password: newHash, updatedAt: new Date() })
                   .where(and(eq(schema.account.password, hash), eq(schema.account.providerId, "credential")))
@@ -190,7 +190,7 @@ export const auth = betterAuth({
     },
     freshAge: 0, // Força a verificação da sessão no banco se houver dúvida
   },
-  database: drizzleAdapter(db, {
+  database: drizzleAdapter(getDB(), {
     provider: "pg",
     schema: schema,
   }),
@@ -359,7 +359,7 @@ export const auth = betterAuth({
             }
 
             // 1. Buscar o hash atual do usuário no banco
-            const userAccount = await db
+            const userAccount = await getDB()
               .select()
               .from(schema.account)
               .where(
@@ -409,11 +409,11 @@ export const auth = betterAuth({
             console.log(`[CHANGE_PASSWORD] 🚀 Tentando update para userId: ${session.user.id}`);
 
             // Debug: Listar todas as contas desse usuário antes de atualizar
-            const allAccounts = await db.select().from(schema.account).where(eq(schema.account.userId, session.user.id));
+            const allAccounts = await getDB().select().from(schema.account).where(eq(schema.account.userId, session.user.id));
             console.log(`[CHANGE_PASSWORD] Contas encontradas para este usuário:`, allAccounts.length);
             allAccounts.forEach(acc => console.log(` - Account ID: ${acc.id}, Provider: ${acc.providerId}`));
 
-            const updateResult = await db
+            const updateResult = await getDB()
               .update(schema.account)
               .set({
                 password: newHash,
@@ -463,7 +463,7 @@ export const auth = betterAuth({
             if (!session) return ctx.json({ business: null, slug: null });
 
             const userId = session.user.id;
-            let [result] = await db
+            let [result] = await getDB()
               .select({
                 id: schema.companies.id,
                 name: schema.companies.name,
@@ -489,14 +489,14 @@ export const auth = betterAuth({
               .limit(1);
 
             if (!result) {
-              const [staffBusiness] = await db
+              const [staffBusiness] = await getDB()
                 .select({ companyId: schema.staff.companyId })
                 .from(schema.staff)
                 .where(and(eq(schema.staff.userId, userId), eq(schema.staff.isActive, true)))
                 .limit(1);
 
               if (staffBusiness?.companyId) {
-                const [staffResult] = await db
+                const [staffResult] = await getDB()
                   .select({
                     id: schema.companies.id,
                     name: schema.companies.name,
