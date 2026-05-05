@@ -56,8 +56,9 @@ type ResolvedBusinessAccess = {
 
 const resolveBusinessAccessForUser = async (
   userId: string,
+  db: any,
 ): Promise<ResolvedBusinessAccess | null> => {
-  const [ownedBusiness] = await getDB()
+  const [ownedBusiness] = await db
     .select({
       id: schema.companies.id,
       slug: schema.companies.slug,
@@ -80,7 +81,7 @@ const resolveBusinessAccessForUser = async (
     };
   }
 
-  const [staffBusiness] = await getDB()
+  const [staffBusiness] = await db
     .select({
       id: schema.companies.id,
       slug: schema.companies.slug,
