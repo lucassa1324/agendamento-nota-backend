@@ -24,54 +24,63 @@ import { asaasWebhookController } from "./modules/infrastructure/payment/asaas.w
 import { billingController } from "./modules/billing/adapters/in/http/billing.controller";
 import { dnsController } from "./modules/dns/infrastructure/adapters/in/http/dns.controller";
 
-console.log("[STARTUP] Preparando app Elysia (src/index.ts)");
+let appInstance: Elysia | null = null;
 
-export const app = new Elysia({
-  name: 'AgendamentoNota',
-  prefix: "/api"
-})
-  .use(authPlugin)
-  .use(repositoriesPlugin)
-  .use(userController())
-  .use(businessController())
-  .use(serviceController())
-  .use(reportController())
-  .use(appointmentController())
-  .use(staffController())
-  .use(settingsController())
-  .use(inventoryController())
-  .use(expenseController())
-  .use(masterAdminController())
-  .use(galleryController())
-  .use(storageController())
-  .use(notificationsController())
-  .use(pushController())
-  .use(userPreferencesController())
-  .use(paymentController())
-  .use(asaasWebhookController)
-  .use(billingController())
-  .use(dnsController())
-  .all("/auth/*", async (ctx) => {
-    console.log(`>>> [AUTH_HANDLER] ${ctx.request.method} ${ctx.path}`);
-    try {
-      const response = await auth.handler(ctx.request);
-      console.log(`<<< [AUTH_HANDLER] Status: ${response.status}`);
-      return response;
-    } catch (error: any) {
-      console.error(`<<< [AUTH_HANDLER_ERROR]`, error);
-      return new Response(
-        JSON.stringify({ error: "Auth handler error", message: error?.message || "Unknown error" }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
-    }
+export function createApp(): Elysia {
+  if (appInstance) {
+    return appInstance;
+  }
+
+  console.log("[STARTUP] Preparando app Elysia (src/index.ts)");
+
+  appInstance = new Elysia({
+    name: 'AgendamentoNota',
+    prefix: "" as "" | "/api"
   })
-  .get("/health", () => ({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-  }));
+    .use(authPlugin)
+    .use(repositoriesPlugin)
+    .use(userController())
+    .use(businessController())
+    .use(serviceController())
+    .use(reportController())
+    .use(appointmentController())
+    .use(staffController())
+    .use(settingsController())
+    .use(inventoryController())
+    .use(expenseController())
+    .use(masterAdminController())
+    .use(galleryController())
+    .use(storageController())
+    .use(notificationsController())
+    .use(pushController())
+    .use(userPreferencesController())
+    .use(paymentController())
+    .use(asaasWebhookController)
+    .use(billingController())
+    .use(dnsController())
+    .all("/auth/*", async (ctx) => {
+      console.log(`>>> [AUTH_HANDLER] ${ctx.request.method} ${ctx.path}`);
+      try {
+        const response = await auth.handler(ctx.request);
+        console.log(`<<< [AUTH_HANDLER] Status: ${response.status}`);
+        return response;
+      } catch (error: any) {
+        console.error(`<<< [AUTH_HANDLER_ERROR]`, error);
+        return new Response(
+          JSON.stringify({ error: "Auth handler error", message: error?.message || "Unknown error" }),
+          { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    })
+    .get("/health", () => ({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+    }));
 
-// Listen apenas localmente (desenvolvimento)
-if (process.env.NODE_ENV !== "production") {
-  app.listen(3001);
-  console.log(`🦊 Elysia está rodando em http://localhost:3001`);
+  if (process.env.NODE_ENV !== "production") {
+    appInstance.listen(3001);
+    console.log(`🦊 Elysia está rodando em http://localhost:3001`);
+  }
+
+  return appInstance!;
 }
