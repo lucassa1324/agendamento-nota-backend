@@ -34,48 +34,49 @@ export function createApp(): Elysia {
   console.log("[STARTUP] Preparando app Elysia (src/index.ts)");
 
   appInstance = new Elysia({
-    name: 'AgendamentoNota',
-    prefix: "" as "" | "/api"
+    name: 'AgendamentoNota'
   })
-    .use(authPlugin)
-    .use(repositoriesPlugin)
-    .use(userController())
-    .use(businessController())
-    .use(serviceController())
-    .use(reportController())
-    .use(appointmentController())
-    .use(staffController())
-    .use(settingsController())
-    .use(inventoryController())
-    .use(expenseController())
-    .use(masterAdminController())
-    .use(galleryController())
-    .use(storageController())
-    .use(notificationsController())
-    .use(pushController())
-    .use(userPreferencesController())
-    .use(paymentController())
-    .use(asaasWebhookController)
-    .use(billingController())
-    .use(dnsController())
-    .all("/auth/*", async (ctx) => {
-      console.log(`>>> [AUTH_HANDLER] ${ctx.request.method} ${ctx.path}`);
-      try {
-        const response = await auth.handler(ctx.request);
-        console.log(`<<< [AUTH_HANDLER] Status: ${response.status}`);
-        return response;
-      } catch (error: any) {
-        console.error(`<<< [AUTH_HANDLER_ERROR]`, error);
-        return new Response(
-          JSON.stringify({ error: "Auth handler error", message: error?.message || "Unknown error" }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
-      }
-    })
-    .get("/health", () => ({
-      status: "ok",
-      timestamp: new Date().toISOString(),
-    }));
+    .group("/api", (api) => api
+      .use(authPlugin)
+      .use(repositoriesPlugin)
+      .use(userController())
+      .use(businessController())
+      .use(serviceController())
+      .use(reportController())
+      .use(appointmentController())
+      .use(staffController())
+      .use(settingsController())
+      .use(inventoryController())
+      .use(expenseController())
+      .use(masterAdminController())
+      .use(galleryController())
+      .use(storageController())
+      .use(notificationsController())
+      .use(pushController())
+      .use(userPreferencesController())
+      .use(paymentController())
+      .use(asaasWebhookController)
+      .use(billingController())
+      .use(dnsController())
+      .all("/auth/*", async (ctx) => {
+        console.log(`>>> [AUTH_HANDLER] ${ctx.request.method} ${ctx.path}`);
+        try {
+          const response = await auth.handler(ctx.request);
+          console.log(`<<< [AUTH_HANDLER] Status: ${response.status}`);
+          return response;
+        } catch (error: any) {
+          console.error(`<<< [AUTH_HANDLER_ERROR]`, error);
+          return new Response(
+            JSON.stringify({ error: "Auth handler error", message: error?.message || "Unknown error" }),
+            { status: 500, headers: { "Content-Type": "application/json" } }
+          );
+        }
+      })
+      .get("/health", () => ({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+      }))
+    );
 
   if (process.env.NODE_ENV !== "production") {
     appInstance.listen(3001);
