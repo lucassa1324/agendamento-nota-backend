@@ -257,7 +257,7 @@ export const auth = betterAuth({
                 // Se chegou aqui, 'returned' é um objeto JS puro { user, session } 
                 if (!returned.user) return { response: returned };
 
-                const business = await resolveBusinessAccessForUser(returned.user.id);
+                const business = await resolveBusinessAccessForUser(returned.user.id, getDB());
 
                 if (business) {
                   console.log(
