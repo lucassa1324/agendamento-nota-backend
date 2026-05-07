@@ -1,9 +1,13 @@
 {
-  "bunVersion": "1.x",
+  "functions": {
+    "src/index.ts": {
+      "runtime": "vercel-bun@1.1.0"
+    }
+  },
   "rewrites": [
     {
-      "source": "/(.*)",
-      "destination": "/api/index.ts"
+      "source": "/api/(.*)",
+      "destination": "src/index.ts"
     }
   ]
 }

@@ -191,7 +191,7 @@ export const auth = betterAuth({
     },
     freshAge: 0, // Força a verificação da sessão no banco se houver dúvida
   },
-  database: drizzleAdapter(getDB(), {
+  database: drizzleAdapter(() => getDB(), {
     provider: "pg",
     schema: schema,
   }),

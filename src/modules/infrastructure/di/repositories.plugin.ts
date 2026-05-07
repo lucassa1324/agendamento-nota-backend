@@ -22,5 +22,5 @@ export function createRepositoriesPlugin() {
         .decorate("pushSubscriptionRepository", new DrizzlePushSubscriptionRepository());
 }
 
-// Mantém exportação para compatibilidade (lazy se chamado dentro de createApp)
-export const repositoriesPlugin = createRepositoriesPlugin();
+// Exportação que permite uso como função (.use(repositoriesPlugin())) ou diretamente (.use(repositoriesPlugin))
+export const repositoriesPlugin = createRepositoriesPlugin;
