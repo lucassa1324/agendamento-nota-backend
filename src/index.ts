@@ -90,3 +90,6 @@ export function createApp(): Elysia<any, any, any, any, any, any, any> {
 
   return appInstance!;
 }
+
+const app = createApp();
+export default app.handle;

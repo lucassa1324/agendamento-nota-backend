@@ -3,7 +3,10 @@
   "builds": [
     {
       "src": "src/index.ts",
-      "use": "@vercel/bun"
+      "use": "@vercel/node",
+      "config": {
+        "runtime": "bun"
+      }
     }
   ],
   "routes": [
