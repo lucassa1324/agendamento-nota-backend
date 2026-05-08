@@ -76,14 +76,15 @@ function createElysiaApp() {
     );
 }
 
-export function createApp(): Elysia<any, any, any, any, any, any, any> {
+export function createApp(): Elysia<any, any, any, any, any, any> {
   if (appInstance) {
     return appInstance;
   }
 
   appInstance = createElysiaApp();
 
-  if (process.env.NODE_ENV !== "production") {
+  const isProduction = process.env.NODE_ENV === "production";
+  if (!isProduction) {
     appInstance.listen(3001);
     console.log(`🦊 Elysia está rodando em http://localhost:3001`);
   }

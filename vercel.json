@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "buildCommand": "bun run build",
   "builds": [
     {
       "src": "dist/index.js",
