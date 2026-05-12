@@ -224,6 +224,7 @@ const startServer = () => {
             'http://localhost:3002',
             'http://127.0.0.1:3000',
             'https://app.aurasistema.com.br',
+            'https://app.staging.aurasistema.com.br',
             'https://aurasistema.com.br'
           ];
 
@@ -254,6 +255,7 @@ const startServer = () => {
           'http://localhost:3002',
           'http://127.0.0.1:3000',
           'https://app.aurasistema.com.br',
+          'https://app.staging.aurasistema.com.br',
           'https://aurasistema.com.br'
         ];
 

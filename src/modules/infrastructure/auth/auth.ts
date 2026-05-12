@@ -157,6 +157,7 @@ export const auth = betterAuth({
     "http://localhost:3001",
     "http://localhost:3002",
     "https://app.aurasistema.com.br",
+    "https://app.staging.aurasistema.com.br",
     "https://aurasistema.com.br",
     "https://agendamento-nota-front.vercel.app",
     "https://landingpage-agendamento-front.vercel.app",
