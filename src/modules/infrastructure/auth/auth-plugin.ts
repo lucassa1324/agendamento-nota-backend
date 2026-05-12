@@ -32,7 +32,14 @@ const extractEnvValueFromContent = (content: string, key: string) => {
     return normalizeEnvValue(match[1]);
 };
 
+// Cache para variáveis de ambiente lidas do disco
+const envFallbackCache = new Map<string, string>();
+
 const readEnvFallback = async (key: string) => {
+    if (envFallbackCache.has(key)) {
+        return envFallbackCache.get(key) || "";
+    }
+
     const candidates = [
         path.join(process.cwd(), ".env"),
         path.join(process.cwd(), ".env.local"),
@@ -49,11 +56,13 @@ const readEnvFallback = async (key: string) => {
             const content = await readFile(envPath, "utf8");
             const value = extractEnvValueFromContent(content, key);
             if (value) {
+                envFallbackCache.set(key, value);
                 return value;
             }
         } catch { }
     }
 
+    envFallbackCache.set(key, "");
     return "";
 };
 
@@ -148,17 +157,18 @@ async function resolveAsaasBillingSnapshot(companyId: string, ownerEmail?: strin
         (await readEnvFallback("ASAAS_API_URL")) ||
         (await readEnvFallback("ASAAS_BASE_URL"));
 
-    const keyCandidates = [
+    const keyCandidates = [...new Set([
         normalizeEnvValue(process.env.ASAAS_API_KEY),
         normalizeEnvValue(process.env.ASAAS_ACCESS_TOKEN),
         normalizeEnvValue(fallbackApiKey),
-    ].filter(Boolean) as string[];
-    const urlCandidates = [
+    ].filter(Boolean))] as string[];
+
+    const urlCandidates = [...new Set([
         normalizeAsaasApiUrl(normalizeEnvValue(process.env.ASAAS_API_URL)),
         normalizeAsaasApiUrl(normalizeEnvValue(process.env.ASAAS_BASE_URL)),
         normalizeAsaasApiUrl(normalizeEnvValue(fallbackApiUrl)),
         "https://api-sandbox.asaas.com/v3",
-    ].filter(Boolean) as string[];
+    ].filter(Boolean))] as string[];
 
     if (keyCandidates.length === 0) {
         console.warn(`[AUTH_SYNC] ASAAS API key ausente. Não foi possível validar pagamento para companyId=${companyId}.`);
@@ -168,153 +178,108 @@ async function resolveAsaasBillingSnapshot(companyId: string, ownerEmail?: strin
     const now = new Date();
     let bestSnapshot: AsaasBillingSnapshot | null = null;
 
+    // Reduzimos o número de tentativas exaustivas para evitar timeouts.
+    // Priorizamos a primeira chave e URL que funcionarem.
     for (const asaasApiKey of keyCandidates) {
         for (const asaasApiUrl of urlCandidates) {
-            const fetchPayments = async (url: string) => {
-                const response = await fetch(url, {
-                    method: "GET",
-                    headers: {
-                        access_token: asaasApiKey
+            try {
+                const fetchPayments = async (params: string) => {
+                    const response = await fetch(`${asaasApiUrl}/payments?${params}`, {
+                        method: "GET",
+                        headers: { access_token: asaasApiKey }
+                    });
+                    if (!response.ok) return [];
+                    const payload = await response.json() as { data?: any[] };
+                    return payload.data || [];
+                };
+
+                let customerIdByEmail = "";
+                if (ownerEmail) {
+                    const customerResponse = await fetch(
+                        `${asaasApiUrl}/customers?email=${encodeURIComponent(ownerEmail)}`,
+                        {
+                            method: "GET",
+                            headers: { access_token: asaasApiKey }
+                        },
+                    );
+                    if (customerResponse.ok) {
+                        const customerPayload = await customerResponse.json() as { data?: any[] };
+                        customerIdByEmail = customerPayload.data?.[0]?.id || "";
                     }
+                }
+
+                // Busca pagamentos de forma paralela para os diferentes status
+                const paymentPromises = paidStatuses.flatMap(status => {
+                    const promises = [fetchPayments(`externalReference=${encodeURIComponent(companyId)}&status=${status}&limit=10`)];
+                    if (customerIdByEmail) {
+                        promises.push(fetchPayments(`customer=${encodeURIComponent(customerIdByEmail)}&status=${status}&limit=10`));
+                    }
+                    return promises;
                 });
 
-                if (!response.ok) {
-                    return [] as Array<Record<string, any>>;
+                // Adiciona busca de assinatura se houver cliente
+                let subscriptionPromise = Promise.resolve(null);
+                if (customerIdByEmail) {
+                    subscriptionPromise = fetch(`${asaasApiUrl}/subscriptions?customer=${encodeURIComponent(customerIdByEmail)}&status=ACTIVE&limit=1`, {
+                        method: "GET",
+                        headers: { access_token: asaasApiKey }
+                    }).then(r => r.ok ? r.json() : null);
                 }
 
-                const payload = await response.json() as { data?: Array<Record<string, any>> };
-                return payload.data || [];
-            };
+                const [paymentResults, subscriptionData] = await Promise.all([
+                    Promise.all(paymentPromises),
+                    subscriptionPromise
+                ]);
 
-            let customerIdByEmail = "";
-            const foundPayments: Array<Record<string, any>> = [];
-            let subscriptionBaseDate: Date | null = null;
-            let hasActiveSubscription = false;
-            let activeSubscriptionId: string | null = null;
-
-            for (const paidStatus of paidStatuses) {
-                const byExternalReference = await fetchPayments(
-                    `${asaasApiUrl}/payments?externalReference=${encodeURIComponent(companyId)}&status=${paidStatus}&limit=10`,
-                );
-
-                let byCustomer: Array<Record<string, any>> = [];
-                if (ownerEmail) {
-                    if (!customerIdByEmail) {
-                        const customerResponse = await fetch(
-                            `${asaasApiUrl}/customers?email=${encodeURIComponent(ownerEmail)}`,
-                            {
-                                method: "GET",
-                                headers: {
-                                    access_token: asaasApiKey
-                                }
-                            },
-                        );
-                        if (customerResponse.ok) {
-                            const customerPayload = await customerResponse.json() as {
-                                data?: Array<{ id?: string }>;
-                            };
-                            customerIdByEmail = customerPayload.data?.[0]?.id || "";
-                        }
-                    }
-                    if (customerIdByEmail) {
-                        byCustomer = await fetchPayments(
-                            `${asaasApiUrl}/payments?customer=${encodeURIComponent(customerIdByEmail)}&status=${paidStatus}&limit=10`,
-                        );
-                    }
-                }
-
-                const eligiblePayments = [...byExternalReference, ...byCustomer].filter((candidate) => {
-                    if (!candidate) {
-                        return false;
-                    }
-                    if (candidate.externalReference && candidate.externalReference !== companyId) {
-                        return false;
-                    }
+                const foundPayments = paymentResults.flat().filter(p => {
+                    if (!p) return false;
+                    if (p.externalReference && p.externalReference !== companyId) return false;
                     return true;
                 });
 
-                if (eligiblePayments.length > 0) {
-                    foundPayments.push(...eligiblePayments);
+                let subscriptionBaseDate: Date | null = null;
+                let hasActiveSubscription = false;
+                let activeSubscriptionId: string | null = null;
+
+                const activeSubscription = (subscriptionData as any)?.data?.[0];
+                if (activeSubscription) {
+                    activeSubscriptionId = activeSubscription.id ? String(activeSubscription.id) : null;
+                    const baseDateRaw = activeSubscription.dateCreated || activeSubscription.nextDueDate || new Date().toISOString();
+                    const baseDate = new Date(baseDateRaw);
+                    subscriptionBaseDate = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate;
+                    hasActiveSubscription = true;
                 }
-            }
 
-            if (customerIdByEmail) {
-                const subscriptionsResponse = await fetch(
-                    `${asaasApiUrl}/subscriptions?customer=${encodeURIComponent(customerIdByEmail)}&status=ACTIVE&limit=1`,
-                    {
-                        method: "GET",
-                        headers: {
-                            access_token: asaasApiKey
-                        }
-                    },
-                );
+                const uniquePayments = [...new Map(
+                    foundPayments.map((p) => [p.id || Math.random(), p])
+                ).values()];
 
-                if (subscriptionsResponse.ok) {
-                    const subscriptionsPayload = await subscriptionsResponse.json() as {
-                        data?: Array<Record<string, any>>;
-                    };
-                    const activeSubscription = subscriptionsPayload.data?.[0];
-                    if (activeSubscription) {
-                        activeSubscriptionId = activeSubscription.id ? String(activeSubscription.id) : null;
-                        const baseDateRaw =
-                            activeSubscription.dateCreated ||
-                            activeSubscription.nextDueDate ||
-                            new Date().toISOString();
-                        const baseDate = new Date(baseDateRaw);
-                        subscriptionBaseDate = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate;
-                        hasActiveSubscription = true;
-                    }
+                const normalizedDates = uniquePayments
+                    .map(extractPaymentDate)
+                    .filter((date): date is Date => !!date)
+                    .sort((a, b) => b.getTime() - a.getTime());
+
+                const snapshot: AsaasBillingSnapshot = {
+                    latestPaymentDate: normalizedDates[0] || null,
+                    hasAnyConfirmedPayment: uniquePayments.length > 0,
+                    hasCurrentMonthPayment: normalizedDates.some(d => isSameMonthAndYear(d, now)),
+                    hasActiveSubscription,
+                    activeSubscriptionId,
+                    subscriptionBaseDate,
+                    sourceUrl: asaasApiUrl,
+                };
+
+                // Se encontramos algo sólido, paramos a busca exaustiva
+                if (snapshot.hasCurrentMonthPayment || snapshot.hasActiveSubscription) {
+                    return snapshot;
                 }
-            }
 
-            const uniquePayments = [...new Map(
-                foundPayments.map((payment) => {
-                    const paymentId = payment?.id
-                        ? String(payment.id)
-                        : `${payment?.externalReference || "noref"}-${payment?.dateCreated || payment?.paymentDate || Math.random()}`;
-                    return [paymentId, payment];
-                }),
-            ).values()];
-
-            const normalizedDates = uniquePayments
-                .map((payment) => extractPaymentDate(payment))
-                .filter((date): date is Date => !!date)
-                .sort((a, b) => b.getTime() - a.getTime());
-
-            const latestPaymentDate = normalizedDates[0] || null;
-            const hasAnyConfirmedPayment = uniquePayments.length > 0;
-            const hasCurrentMonthPayment = normalizedDates.some((paymentDate) => isSameMonthAndYear(paymentDate, now));
-
-            const snapshot: AsaasBillingSnapshot = {
-                latestPaymentDate,
-                hasAnyConfirmedPayment,
-                hasCurrentMonthPayment,
-                hasActiveSubscription,
-                activeSubscriptionId,
-                subscriptionBaseDate,
-                sourceUrl: asaasApiUrl,
-            };
-
-            if (snapshot.hasCurrentMonthPayment || snapshot.hasActiveSubscription) {
-                return snapshot;
-            }
-
-            if (!bestSnapshot) {
-                bestSnapshot = snapshot;
+                if (!bestSnapshot || (snapshot.latestPaymentDate && (!bestSnapshot.latestPaymentDate || snapshot.latestPaymentDate > bestSnapshot.latestPaymentDate))) {
+                    bestSnapshot = snapshot;
+                }
+            } catch (err) {
+                console.error(`[AUTH_SYNC_FETCH_ERROR] Erro ao consultar Asaas (${asaasApiUrl}):`, err);
                 continue;
-            }
-
-            if (!bestSnapshot.latestPaymentDate && snapshot.latestPaymentDate) {
-                bestSnapshot = snapshot;
-                continue;
-            }
-
-            if (
-                bestSnapshot.latestPaymentDate &&
-                snapshot.latestPaymentDate &&
-                snapshot.latestPaymentDate.getTime() > bestSnapshot.latestPaymentDate.getTime()
-            ) {
-                bestSnapshot = snapshot;
             }
         }
     }
@@ -890,7 +855,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                         requireCurrentMonthPayment: false,
                                         activationWindowDays: 10,
                                         ignoreBlockDate: true,
-                                        bypassCache: true,
+                                        bypassCache: false,
                                     },
                                 );
 
@@ -943,7 +908,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                             {
                                                 requireCurrentMonthPayment: false,
                                                 ignoreBlockDate: true,
-                                                bypassCache: true,
+                                                bypassCache: false,
                                             },
                                         );
                                         if (renewalSyncResult?.activated) {
@@ -969,7 +934,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                                             requireCurrentMonthPayment: false,
                                             activationWindowDays: 10,
                                             ignoreBlockDate: true,
-                                            bypassCache: true,
+                                            bypassCache: false,
                                         },
                                     );
 

@@ -27,7 +27,13 @@ const extractEnvValueFromContent = (content: string, key: string) => {
   return normalizeEnvValue(match[1]);
 };
 
+const envFallbackCacheSync = new Map<string, string>();
+
 const readEnvFallbackSync = (key: string) => {
+  if (envFallbackCacheSync.has(key)) {
+    return envFallbackCacheSync.get(key) || "";
+  }
+
   const candidates = [
     path.join(process.cwd(), ".env"),
     path.join(process.cwd(), ".env.local"),
@@ -42,10 +48,13 @@ const readEnvFallbackSync = (key: string) => {
       const content = readFileSync(envPath, "utf8");
       const value = extractEnvValueFromContent(content, key);
       if (value) {
+        envFallbackCacheSync.set(key, value);
         return value;
       }
     } catch { }
   }
+
+  envFallbackCacheSync.set(key, "");
   return "";
 };
 
