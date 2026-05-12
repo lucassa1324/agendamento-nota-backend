@@ -23,8 +23,6 @@ export function getDB() {
     _queryClient = postgres(dbUrl, {
         prepare: false, // Otimização para serverless
         connect_timeout: 10,
-        idle_timeout: 20, // Fecha conexões inativas após 20s
-        max_lifetime: 60 * 30, // Vida máxima de uma conexão (30 min)
     });
 
     _db = drizzle(_queryClient, {
