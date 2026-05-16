@@ -60,6 +60,18 @@ export class StaffDrizzleRepository implements IStaffRepository {
     return result.length > 0;
   }
 
+  async findByEmail(email: string): Promise<Staff | null> {
+    const normalizedEmail = Staff.normalizeEmail(email);
+    const result = await db
+      .select()
+      .from(schema.staff)
+      .where(eq(schema.staff.email, normalizedEmail))
+      .limit(1);
+
+    if (result.length === 0) return null;
+    return this.mapToEntity(result[0]);
+  }
+
   async findByEmailAndCompany(
     email: string,
     companyId: string,
