@@ -397,7 +397,7 @@ export const staffController = () =>
     // ou já cadastrado no mesmo estúdio, permitindo que o frontend mostre erro em tempo real.
     .get(
       "/validate-email",
-      async ({ query, user, set }) => {
+      async ({ query, set }) => {
         const email = String(query.email || "").trim();
         const companyId = String(query.companyId || "").trim();
         const excludeStaffId = query.excludeStaffId
