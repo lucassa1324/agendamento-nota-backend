@@ -1,7 +1,7 @@
 import { eq, and, ne } from "drizzle-orm";
 import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
-import { IStaffRepository } from "../../domain/ports/staff.repository";
+import { IStaffRepository } from "../../../domain/ports/staff.repository";
 import { Staff } from "../../../domain/entities/staff.entity";
 
 export class StaffDrizzleRepository implements IStaffRepository {
