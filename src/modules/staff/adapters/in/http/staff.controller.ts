@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { and, eq, gte, inArray, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "../../../../infrastructure/drizzle/database";
 import * as schema from "../../../../../db/schema";
 import { authPlugin } from "../../../../infrastructure/auth/auth-plugin";
@@ -393,6 +393,85 @@ export const staffController = () =>
         }),
       },
     )
+    // Validação de e-mail antes do convite: bloqueia e-mail já em uso em outro estúdio
+    // ou já cadastrado no mesmo estúdio, permitindo que o frontend mostre erro em tempo real.
+    .get(
+      "/validate-email",
+      async ({ query, user, set }) => {
+        const email = String(query.email || "").trim();
+        const companyId = String(query.companyId || "").trim();
+        const excludeStaffId = query.excludeStaffId
+          ? String(query.excludeStaffId)
+          : undefined;
+
+        // Validação de formato
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+          set.status = 400;
+          return {
+            error: 'O e-mail "' + email + '" possui formato inválido.',
+            code: "INVALID_EMAIL_FORMAT",
+            details: "Verifique o formato do e-mail informado.",
+          };
+        }
+
+        const normalizedEmail = email.toLowerCase();
+
+        // 1ª verificação: e-mail em OUTRO estúdio (bloqueia imediatamente)
+        const [otherCompanyRecord] = await db
+          .select({ id: schema.staff.id })
+          .from(schema.staff)
+          .where(
+            and(
+              eq(schema.staff.email, normalizedEmail),
+              ne(schema.staff.companyId, companyId),
+              ...(excludeStaffId ? [ne(schema.staff.id, excludeStaffId)] : []),
+            ),
+          )
+          .limit(1);
+
+        if (otherCompanyRecord) {
+          set.status = 409;
+          return {
+            error: 'O e-mail "' + normalizedEmail + '" já está vinculado a outro estúdio.',
+            code: "EMAIL_ALREADY_IN_USE",
+            details: "Este e-mail já está vinculado a outro estúdio. Use um e-mail diferente.",
+          };
+        }
+
+        // 2ª verificação: e-mail já cadastrado no MESMO estúdio
+        const [sameCompanyRecord] = await db
+          .select({ id: schema.staff.id })
+          .from(schema.staff)
+          .where(
+            and(
+              eq(schema.staff.email, normalizedEmail),
+              eq(schema.staff.companyId, companyId),
+            ),
+          )
+          .limit(1);
+
+        if (sameCompanyRecord) {
+          set.status = 409;
+          return {
+            error: 'O e-mail "' + normalizedEmail + '" já existe neste estúdio.',
+            code: "EMAIL_ALREADY_EXISTS_IN_COMPANY",
+            details: "Este e-mail já está cadastrado neste estúdio.",
+          };
+        }
+
+        // Todas as validações passaram — e-mail disponível
+        set.status = 200;
+        return { available: true };
+      },
+      {
+        query: t.Object({
+          email: t.String(),
+          companyId: t.String(),
+          excludeStaffId: t.Optional(t.String()),
+        }),
+      },
+    )
     .use(authPlugin)
     .onBeforeHandle(({ user, set }) => {
       if (!user) {
@@ -515,16 +594,42 @@ export const staffController = () =>
     .post(
       "/invite",
       async ({ body, user, set }) => {
-        const normalizedEmail = normalizeEmail(body.email);
-        const isAllowed = await canManageStaff(body.companyId, user!.id, user?.role);
+        try {
+          const normalizedEmail = normalizeEmail(body.email);
+          const isAllowed = await canManageStaff(body.companyId, user!.id, user?.role);
 
-        if (!isAllowed) {
-          set.status = 403;
-          return { error: "Forbidden" };
-        }
+          if (!isAllowed) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
 
-        const now = new Date();
+          const now = new Date();
 
+          // ── Validação 1: e-mail já vinculado a OUTRO estúdio? ──────────────────
+          // Impede cadastro duplicado de colaborador que já pertence a outro studio.
+          const [otherCompanyStaff] = await db
+            .select({ id: schema.staff.id })
+            .from(schema.staff)
+            .where(
+              and(
+                eq(schema.staff.email, normalizedEmail),
+                ne(schema.staff.companyId, body.companyId),
+              ),
+            )
+            .limit(1);
+
+          if (otherCompanyStaff) {
+            set.status = 409;
+            return {
+              error: 'O e-mail "' + normalizedEmail + '" já está vinculado a outro estúdio.',
+              code: "EMAIL_ALREADY_IN_USE",
+              details: "Este e-mail já está vinculado a outro estúdio. Use um e-mail diferente.",
+            };
+          }
+
+
+        // ── Validação 2: e-mail já cadastrado no MESMO estúdio? ─────────────────
+        // Impede duplicidade dentro do mesmo studio.
         const [existingMember] = await db
           .select({ id: schema.staff.id })
           .from(schema.staff)
@@ -590,34 +695,78 @@ export const staffController = () =>
             ...serviceIds,
           ]),
         );
-        await rebalanceUpcomingSuggestedAppointments(body.companyId, touchedServiceIds);
+        try {
+          await rebalanceUpcomingSuggestedAppointments(body.companyId, touchedServiceIds);
+        } catch (rebalanceError: any) {
+          console.error("[STAFF_INVITE_REBALANCE_ERROR]", rebalanceError?.message || rebalanceError);
+        }
 
         const temporaryPassword = generateTemporaryPassword();
-        const temporaryPasswordHash = await Bun.password.hash(temporaryPassword, {
-          algorithm: "argon2id",
-        });
+        let temporaryPasswordHash: string;
+        try {
+          temporaryPasswordHash = await Bun.password.hash(temporaryPassword, {
+            algorithm: "argon2id",
+          });
+        } catch (hashError: any) {
+          console.error("[STAFF_INVITE_HASH_ERROR]", hashError?.message || hashError);
+          set.status = 500;
+          return {
+            error: "Erro ao gerar senha temporária.",
+            message: hashError?.message || "Erro desconhecido",
+          };
+        }
 
-        const ensuredUser = await ensureUserAndCredentialForStaff({
-          email: normalizedEmail,
-          name: body.name,
-          passwordHash: temporaryPasswordHash,
-          updateExistingPassword: true,
-        });
+        let ensuredUser: { userId: string; createdUser: boolean; createdCredentialAccount: boolean; updatedCredentialAccount: boolean };
+        try {
+          ensuredUser = await ensureUserAndCredentialForStaff({
+            email: normalizedEmail,
+            name: body.name,
+            passwordHash: temporaryPasswordHash,
+            updateExistingPassword: true,
+          });
+        } catch (userError: any) {
+          console.error("[STAFF_INVITE_USER_ERROR]", userError?.message || userError);
+          set.status = 500;
+          return {
+            error: "Erro ao criar ou atualizar usuário.",
+            message: userError?.message || "Erro desconhecido",
+          };
+        }
         const temporaryPasswordForInvite = temporaryPassword;
-        await db
-          .update(schema.staff)
-          .set({
-            userId: ensuredUser.userId,
-            updatedAt: now,
-          })
-          .where(eq(schema.staff.id, memberId));
 
-        const invite = await createInviteRecord({
-          staffId: memberId,
-          companyId: body.companyId,
-          email: normalizedEmail,
-          invitedBy: user!.id,
-        });
+        try {
+          await db
+            .update(schema.staff)
+            .set({
+              userId: ensuredUser.userId,
+              updatedAt: now,
+            })
+            .where(eq(schema.staff.id, memberId));
+        } catch (staffUpdateError: any) {
+          console.error("[STAFF_INVITE_UPDATE_ERROR]", staffUpdateError?.message || staffUpdateError);
+          set.status = 500;
+          return {
+            error: "Erro ao atualizar colaborador.",
+            message: staffUpdateError?.message || "Erro desconhecido",
+          };
+        }
+
+        let invite: { inviteToken: string; inviteUrl: string; expiresAt: Date };
+        try {
+          invite = await createInviteRecord({
+            staffId: memberId,
+            companyId: body.companyId,
+            email: normalizedEmail,
+            invitedBy: user!.id,
+          });
+        } catch (inviteError: any) {
+          console.error("[STAFF_INVITE_RECORD_ERROR]", inviteError?.message || inviteError);
+          set.status = 500;
+          return {
+            error: "Erro ao registrar convite.",
+            message: inviteError?.message || "Erro desconhecido",
+          };
+        }
         let emailSent = false;
         let emailError: string | null = null;
 
@@ -667,6 +816,14 @@ export const staffController = () =>
           emailError,
           temporaryPassword: temporaryPasswordForInvite,
         };
+      } catch (e: any) {
+        console.error("[STAFF_INVITE_ERROR]", e);
+        set.status = 500;
+        return {
+          error: "Erro interno ao processar convite.",
+          message: e?.message || "Erro desconhecido",
+        };
+      }
       },
       {
         body: t.Object({
@@ -1061,7 +1218,10 @@ export const staffController = () =>
 
         const isTemporaryId = id.startsWith("temp-");
         const [existing] = await db
-          .select({ id: schema.staff.id })
+          .select({
+            id: schema.staff.id,
+            email: schema.staff.email,
+          })
           .from(schema.staff)
           .where(
             and(
@@ -1077,13 +1237,65 @@ export const staffController = () =>
         }
 
         const staffId = existing?.id || crypto.randomUUID();
+        const updatedEmail = normalizeEmail(body.email);
+        const originalEmail = existing?.email || "";
+
+        // ── Validação de e-mail na edição ─────────────────────────────────────
+        // Só valida se o e-mail está sendo alterado (evita falso positivo ao
+        // salvar sem mexer no campo).
+        const isEmailBeingChanged =
+          !existing || updatedEmail !== originalEmail.toLowerCase();
+
+        if (isEmailBeingChanged) {
+          const [otherCompanyStaff] = await db
+            .select({ id: schema.staff.id })
+            .from(schema.staff)
+            .where(
+              and(
+                eq(schema.staff.email, updatedEmail),
+                ne(schema.staff.companyId, body.companyId),
+                ...(existing ? [ne(schema.staff.id, existing.id)] : []),
+              ),
+            )
+            .limit(1);
+
+          if (otherCompanyStaff) {
+            set.status = 409;
+            return {
+              error: 'O e-mail "' + updatedEmail + '" já está vinculado a outro estúdio.',
+              code: "EMAIL_ALREADY_IN_USE",
+              details: "Este e-mail já está vinculado a outro estúdio. Use um e-mail diferente.",
+            };
+          }
+
+          const [sameCompanyStaff] = await db
+            .select({ id: schema.staff.id })
+            .from(schema.staff)
+            .where(
+              and(
+                eq(schema.staff.email, updatedEmail),
+                eq(schema.staff.companyId, body.companyId),
+                ...(existing ? [ne(schema.staff.id, existing.id)] : []),
+              ),
+            )
+            .limit(1);
+
+          if (sameCompanyStaff) {
+            set.status = 409;
+            return {
+              error: 'O e-mail "' + updatedEmail + '" já existe neste estúdio.',
+              code: "EMAIL_ALREADY_EXISTS_IN_COMPANY",
+              details: "Este e-mail já está cadastrado neste estúdio.",
+            };
+          }
+        }
 
         if (!existing && isTemporaryId) {
           await db.insert(schema.staff).values({
             id: staffId,
             companyId: body.companyId,
             name: body.name.trim(),
-            email: normalizeEmail(body.email),
+            email: updatedEmail,
             isActive: body.isActive,
             isAdmin: body.isAdmin,
             isSecretary: body.isSecretary,
@@ -1096,7 +1308,7 @@ export const staffController = () =>
             .update(schema.staff)
             .set({
               name: body.name.trim(),
-              email: normalizeEmail(body.email),
+              email: updatedEmail,
               isActive: body.isActive,
               isAdmin: body.isAdmin,
               isSecretary: body.isSecretary,

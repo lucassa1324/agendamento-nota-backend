@@ -416,9 +416,16 @@ export const staff = pgTable("staff", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
-    .$onUpdate(() => new Date())
+    .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull(),
-});
+}, (table) => [
+  // Índice único composto: garante que o mesmo e-mail não seja cadastrado duas vezes
+  // dentro do mesmo estúdio.
+  uniqueIndex("staff_email_company_unique").on(table.email, table.companyId),
+  // Índice de busca rápida por e-mail: usado para detectar e-mails que já pertencem
+  // a outro estúdio antes de permitir o cadastro/edição.
+  index("staff_email_idx").on(table.email),
+]);
 
 export const staffServices = pgTable(
   "staff_services",

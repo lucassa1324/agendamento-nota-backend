@@ -122,11 +122,49 @@ const startServer = () => {
       })
       .all("/api/auth/*", async (ctx) => {
         console.log(`>>> [AUTH_HANDLER_START] ${ctx.request.method} ${ctx.path}`);
+
+        // Helper: extrai o body JSON independentemente do método
+        const getJsonBody = async (): Promise<Record<string, unknown>> => {
+          try {
+            const cloned = ctx.request.clone();
+            return (await cloned.json()) as Record<string, unknown>;
+          } catch {
+            return {};
+          }
+        };
+
+        const getTextBody = async (): Promise<string> => {
+          try {
+            const cloned = ctx.request.clone();
+            return await cloned.text();
+          } catch {
+            return "";
+          }
+        };
+
         try {
-          if (
-            ctx.request.method === "GET" &&
-            (ctx.path === "/api/auth/session" || ctx.path === "/api/auth/get-session")
-          ) {
+          const path = ctx.path;
+
+          // ── SIGN-IN por e-mail e senha ─────────────────────────────────────
+          // O auth.handler(request) do Better-Auth v1.1+ não retorna resposta
+          // válida quando executado dentro do contexto Elysia/Bun.  Por isso
+          // chamamos a API diretamente aqui.
+          if (ctx.request.method === "POST" && (path === "/api/auth/sign-in/email" || path === "/api/auth/sign-in")) {
+            try {
+              const response = await auth.handler(ctx.request);
+              if (response) return response;
+            } catch (e) {
+              console.error(`>>> [SIGNIN_HANDLER_ERROR]`, e);
+            }
+
+            return new Response(JSON.stringify({ error: "Email ou senha incorretos." }), {
+              status: 401,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          // ── GET SESSION (já existente) ─────────────────────────────────────
+          if (ctx.request.method === "GET" && (path === "/api/auth/session" || path === "/api/auth/get-session")) {
             let sessionData: unknown = null;
             try {
               sessionData = await auth.api.getSession({
@@ -150,62 +188,202 @@ const startServer = () => {
             });
           }
 
-          const response = await auth.handler(ctx.request);
-
-          if (!response) {
-            console.error("<<< [AUTH_HANDLER_END] Better Auth retornou resposta vazia");
-            return new Response(JSON.stringify({ error: "Internal Auth Error" }), {
-              status: 500,
-              headers: { "Content-Type": "application/json" }
+          // ── SIGN-OUT ──────────────────────────────────────────────────────
+          if (ctx.request.method === "POST" && (path === "/api/auth/sign-out" || path === "/api/auth/logout")) {
+            try {
+              await auth.api.signOut({
+                headers: ctx.request.headers,
+              });
+            } catch (e) {
+              console.warn(`>>> [AUTH_SIGN_OUT] Erro (não fatal):`, e);
+            }
+            return new Response(JSON.stringify({ success: true }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
             });
           }
 
-          console.log(`<<< [AUTH_HANDLER_END] Status: ${response.status}`);
+          // ── VERIFY-EMAIL ──────────────────────────────────────────────────
+          if (ctx.request.method === "GET" && path === "/api/auth/verify-email") {
+            const url = new URL(ctx.request.url);
+            const token = url.searchParams.get("token");
+            const callbackURL = url.searchParams.get("callbackURL");
 
-          if (response.status >= 400) {
+            if (!token) {
+              return new Response(JSON.stringify({ error: "Token ausente." }), {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+
             try {
-              const clonedRes = response.clone();
-              const errorText = await clonedRes.text();
-              console.error(`<<< [AUTH_ERROR_DETAILS] ${errorText}`);
-            } catch (e) {
-              console.error("<<< [AUTH_ERROR_DETAILS_FAILED] Erro ao ler corpo do erro");
+              await auth.api.verifyEmail({
+                query: { token, callbackURL: callbackURL ?? undefined },
+              });
+              return Response.redirect(callbackURL ?? "/admin", 302);
+            } catch (e: any) {
+              return Response.redirect((callbackURL ?? "/admin") + "?error=verification_failed", 302);
             }
           }
 
-          // Pegamos o corpo da resposta. Se for nulo, usamos um JSON vazio.
-          const responseBody = response.body ? response.body : JSON.stringify({});
+          // ── RESET PASSWORD (fluxo de esqueci a senha) ─────────────────────
+          // Rota padrão do Better-Auth: /api/auth/forget-password
+          if (ctx.request.method === "POST" && path === "/api/auth/forget-password") {
+            const body = await getJsonBody();
+            const { email, redirectTo } = body as { email?: string; redirectTo?: string };
 
-          // Criamos a nova resposta
-          const newResponse = new Response(responseBody, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: new Headers(response.headers)
+            if (!email) {
+              return new Response(JSON.stringify({ error: "E-mail é obrigatório." }), {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+
+            try {
+              await auth.api.forgetPassword({
+                email: String(email),
+                redirectTo: redirectTo ? String(redirectTo) : undefined,
+              });
+              return new Response(JSON.stringify({ success: true, message: "E-mail de recuperação enviado." }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              });
+            } catch (e: any) {
+              // Por segurança, sempre retornamos sucesso para não vazar e-mails cadastrados
+              return new Response(JSON.stringify({ success: true, message: "Se o e-mail existir, você receberá um link de recuperação." }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+          }
+
+          // Rota padrão do Better-Auth: /api/auth/reset-password
+          if (ctx.request.method === "POST" && path === "/api/auth/reset-password") {
+            const body = await getJsonBody();
+            const { token, password } = body as { token?: string; password?: string };
+
+            if (!token || !password) {
+              return new Response(JSON.stringify({ error: "Token e nova senha são obrigatórios." }), {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+
+            try {
+              await auth.api.resetPassword({ token: String(token), password: String(password) });
+              return new Response(JSON.stringify({ success: true, message: "Senha redefinida com sucesso." }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              });
+            } catch (e: any) {
+              return new Response(JSON.stringify({ error: e?.message || "Erro ao redefinir senha." }), {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+          }
+
+          // ── CHANGE PASSWORD (endpoint customizado) ─────────────────────────
+          if (ctx.request.method === "POST" && path === "/api/auth/change-password") {
+            const body = await getJsonBody();
+            const { currentPassword, newPassword } = body as { currentPassword?: string; newPassword?: string };
+
+            if (!currentPassword || !newPassword) {
+              return new Response(JSON.stringify({ error: "Senha atual e nova senha são obrigatórias." }), {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+
+            const sessionHeader = ctx.request.headers;
+            let session: any = null;
+            try {
+              session = await auth.api.getSession({ headers: sessionHeader });
+            } catch { }
+
+            if (!session) {
+              return new Response(JSON.stringify({ error: "Não autorizado." }), {
+                status: 401,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+
+            // 1. Buscar hash atual
+            const [userAccount] = await db
+              .select()
+              .from(schema.account)
+              .where(and(eq(schema.account.userId, session.user.id), eq(schema.account.providerId, "credential")))
+              .limit(1);
+
+            if (!userAccount?.password) {
+              return new Response(JSON.stringify({ error: "Conta não encontrada." }), {
+                status: 404,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+
+            const algorithm = detectHashAlgorithm(userAccount.password);
+            let isPasswordValid = false;
+            try {
+              if (algorithm === "scrypt") {
+                isPasswordValid = await verifyScryptPassword({ hash: userAccount.password, password: String(currentPassword) });
+              } else {
+                isPasswordValid = await Bun.password.verify(String(currentPassword), userAccount.password);
+              }
+            } catch {
+              isPasswordValid = false;
+            }
+
+            if (!isPasswordValid) {
+              return new Response(JSON.stringify({ error: "Senha atual incorreta." }), {
+                status: 403,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+
+            // 2. Gerar novo hash e atualizar
+            const newHash = await Bun.password.hash(String(newPassword), { algorithm: "argon2id" });
+            const [updateResult] = await db
+              .update(schema.account)
+              .set({ password: newHash, updatedAt: new Date() })
+              .where(and(eq(schema.account.userId, session.user.id), eq(schema.account.providerId, "credential")))
+              .returning({ id: schema.account.id });
+
+            if (!updateResult) {
+              return new Response(JSON.stringify({ error: "Falha ao atualizar senha." }), {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+
+            return new Response(JSON.stringify({ success: true, message: "Senha atualizada com sucesso." }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          // ── FALLBACK: auth.handler para rotas desconhecidas ───────────────
+          // Útil para rotas adicionais que o Better-Auth registrar futuramente
+          // (ex: /api/auth/callback/*, /api/auth/sso/* etc.)
+          try {
+            const response = await auth.handler(ctx.request);
+            if (response) {
+              return response;
+            }
+          } catch (handlerError: any) {
+            console.error(`>>> [AUTH_HANDLER_FALLBACK_ERROR] ${path}:`, handlerError?.message);
+          }
+
+          console.warn(`>>> [AUTH_HANDLER_END] Rota de auth não reconhecida: ${path}`);
+          return new Response(JSON.stringify({ error: "Rota de autenticação não encontrada.", path }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
           });
-
-          // Adicionar headers de CORS manualmente para o bypass do front funcionar
-          const origin = ctx.request.headers.get("origin");
-          if (origin) {
-            newResponse.headers.set("Access-Control-Allow-Origin", origin);
-            newResponse.headers.set("Access-Control-Allow-Credentials", "true");
-            newResponse.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
-            newResponse.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control");
-          }
-
-          // Se for logout, limpamos o cookie explicitamente para o front-end
-          if (ctx.path.endsWith("/sign-out") || ctx.path.endsWith("/logout")) {
-            console.log("[LOGOUT] Limpando cookie better-auth.session_token");
-            newResponse.headers.set("Set-Cookie", "better-auth.session_token=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax");
-          }
-
-          return newResponse;
         } catch (e: any) {
-          console.error(`!!! [AUTH_HANDLER_ERROR] ${e.message}`, e.stack);
+          console.error(`!!! [AUTH_HANDLER_ERROR] ${ctx.path}:`, e.message, e.stack);
           return new Response(
-            JSON.stringify({ error: "Auth handler failure", message: e?.message || "unknown" }),
-            {
-              status: 500,
-              headers: { "Content-Type": "application/json" }
-            },
+            JSON.stringify({ error: e.message || "Erro no handler de autenticação." }),
+            { status: 500, headers: { "Content-Type": "application/json" } },
           );
         }
       })
