@@ -220,41 +220,31 @@ export class DrizzleSettingsRepository implements SettingsRepository {
         appointmentFlow: data.appointmentFlow || DEFAULT_APPOINTMENT_FLOW_SECTION,
       };
 
-      const existing = await this.findDraftByBusinessId(businessId);
-
-      if (existing) {
-        console.log(`[DRIZZLE_REPOSITORY] Atualizando draft existente para companyId: ${businessId}`);
-        const [updated] = await db
-          .update(siteDrafts)
-          .set({
-            ...dataToSave,
-            updatedAt: new Date(),
-          })
-          .where(eq(siteDrafts.companyId, businessId))
-          .returning();
-
-        if (!updated) {
-          throw new Error("Falha ao atualizar draft: nenhum registro retornado.");
-        }
-
-        return this.sanitizeCustomization(updated);
-      }
-
-      console.log(`[DRIZZLE_REPOSITORY] Criando novo draft para companyId: ${businessId}`);
-      const [created] = await db
+      // 2. UPSERT: Usa insert ... on conflict para evitar race conditions
+      console.log(`[DRIZZLE_REPOSITORY] Salvando draft para companyId: ${businessId}`);
+      
+      const [result] = await db
         .insert(siteDrafts)
         .values({
           id: crypto.randomUUID(),
           companyId: businessId,
           ...dataToSave,
         })
+        .onConflictDoUpdate({
+          target: siteDrafts.companyId,
+          set: {
+            ...dataToSave,
+            updatedAt: new Date(),
+          },
+        })
         .returning();
 
-      if (!created) {
-        throw new Error("Falha ao criar draft: nenhum registro retornado.");
+      if (!result) {
+        console.error(`[DRIZZLE_REPOSITORY] Upsert falhou para companyId: ${businessId}`);
+        throw new Error("Falha ao salvar draft: operação não retornou registros.");
       }
 
-      return this.sanitizeCustomization(created);
+      return this.sanitizeCustomization(result);
     } catch (error: any) {
       console.error("[DRIZZLE_SETTINGS_REPOSITORY_SAVEDRAFT_ERROR]:", error);
       throw error;
