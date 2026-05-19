@@ -71,17 +71,17 @@ export class UpdateAppointmentStatusUseCase {
     const appointment = await this.appointmentRepository.findById(id);
 
     if (!appointment) {
-      throw new Error("Appointment not found");
+      throw new Error("Agendamento não encontrado");
     }
 
     await assertUserHasCompanyAccess(
       appointment.companyId,
       userId,
-      "Unauthorized to update this appointment status",
+      "Não autorizado a atualizar o status deste agendamento",
     );
     const business = await this.businessRepository.findById(appointment.companyId);
     if (!business) {
-      throw new Error("Business not found");
+      throw new Error("Empresa não encontrada");
     }
 
     const updatedAppointment = await db.transaction(async (tx) => {
@@ -92,7 +92,7 @@ export class UpdateAppointmentStatusUseCase {
         .where(eq(appointments.id, id));
 
       if (!currentAppointment) {
-        throw new Error("Appointment not found in transaction");
+        throw new Error("Agendamento não encontrado na transação");
       }
 
       // Extrair IDs de todos os serviços (Multi-Serviço)

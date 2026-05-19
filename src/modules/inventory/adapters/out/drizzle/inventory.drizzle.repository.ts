@@ -147,7 +147,7 @@ export class DrizzleInventoryRepository implements InventoryRepository {
 
       if (!result) {
         console.error(`[DRIZZLE_INVENTORY_REPO] Produto com ID ${id} não encontrado para update.`);
-        throw new Error("Product not found");
+        throw new Error("Produto não encontrado");
       }
 
       console.log(`[DRIZZLE_INVENTORY_REPO] Update realizado com sucesso. Resultado:`, JSON.stringify(result, null, 2));

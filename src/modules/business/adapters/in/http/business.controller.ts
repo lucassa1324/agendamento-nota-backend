@@ -47,7 +47,7 @@ export const businessController = () => new Elysia({ prefix: "/business" })
     if (code === "VALIDATION") {
       set.status = 422;
       return {
-        error: "ValidationError",
+        error: "Erro de Validação",
         message,
         detail
       };
@@ -119,7 +119,7 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           console.error(`[BUSINESS_CONTROLLER] ❌ ERRO 404: Empresa não encontrada para o slug: '${normalizedSlug}'`);
           set.status = 404;
           return {
-            error: "Business not found",
+            error: "Empresa não encontrada",
             message: `Nenhum estúdio encontrado com o endereço '${normalizedSlug}'. Verifique se o link está correto.`
           };
         }
@@ -131,7 +131,7 @@ export const businessController = () => new Elysia({ prefix: "/business" })
         if ((business.active === false || isBlockedStatus) && (!user || (user.id !== business.ownerId && user.role !== "SUPER_ADMIN"))) {
           set.status = 403;
           return {
-            error: "Business suspended",
+            error: "Empresa suspensa",
             message: "Este site está temporariamente indisponível."
           };
         }
@@ -230,7 +230,7 @@ export const businessController = () => new Elysia({ prefix: "/business" })
       .onBeforeHandle(({ user, set }) => {
         if (!user) {
           set.status = 401;
-          return { error: "Unauthorized" };
+          return { error: "Não autorizado" };
         }
       })
       .get("/my", async ({ user, businessRepository }) => {
@@ -249,7 +249,7 @@ export const businessController = () => new Elysia({ prefix: "/business" })
 
           if (!userCompany) {
             set.status = 404;
-            return { error: "Company not found" };
+            return { error: "Empresa não encontrada" };
           }
 
           console.log(`[BUSINESS_SYNC] Sincronização manual solicitada pelo usuário ${user!.email} para a empresa ${userCompany.id}`);
@@ -394,12 +394,12 @@ export const businessController = () => new Elysia({ prefix: "/business" })
 
           if (!business) {
             set.status = 404;
-            return { error: "Business not found" };
+            return { error: "Empresa não encontrada" };
           }
 
           if (business.ownerId !== user!.id && user!.role !== "SUPER_ADMIN") {
             set.status = 403;
-            return { error: "Unauthorized" };
+            return { error: "Não autorizado" };
           }
 
           const [updated] = await db
@@ -438,12 +438,12 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           if (!interval || !/^\d{2}:\d{2}$/.test(interval)) {
             set.status = 422;
             console.error("BUSINESS_SETTINGS_INTERVAL_INVALID", interval);
-            return { error: "Invalid interval format", field: "interval", expected: "HH:mm" };
+            return { error: "Formato de intervalo inválido", field: "interval", expected: "HH:mm" };
           }
           if (!Array.isArray(body?.weekly) || body.weekly.length !== 7) {
             set.status = 422;
             console.error("BUSINESS_SETTINGS_WEEKLY_LENGTH_INVALID", Array.isArray(body?.weekly) ? body.weekly.length : null);
-            return { error: "Weekly must have 7 days", field: "weekly.length", expected: 7 };
+            return { error: "O cronograma semanal deve ter 7 dias", field: "weekly.length", expected: 7 };
           }
           const useCase = new UpdateOperatingHoursUseCase(businessRepository);
           const normalizedBody = { ...(body as any), interval };
@@ -463,12 +463,12 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           if (!interval || !/^\d{2}:\d{2}$/.test(interval)) {
             set.status = 422;
             console.error("BUSINESS_SETTINGS_INTERVAL_INVALID", interval);
-            return { error: "Invalid interval format", field: "interval", expected: "HH:mm" };
+            return { error: "Formato de intervalo inválido", field: "interval", expected: "HH:mm" };
           }
           if (!Array.isArray(body?.weekly) || body.weekly.length !== 7) {
             set.status = 422;
             console.error("BUSINESS_SETTINGS_WEEKLY_LENGTH_INVALID", Array.isArray(body?.weekly) ? body.weekly.length : null);
-            return { error: "Weekly must have 7 days", field: "weekly.length", expected: 7 };
+            return { error: "O cronograma semanal deve ter 7 dias", field: "weekly.length", expected: 7 };
           }
           const useCase = new UpdateOperatingHoursUseCase(businessRepository);
           const normalizedBody = { ...(body as any), interval };
@@ -553,7 +553,7 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           console.error(`[BUSINESS_CONTROLLER] ❌ ERRO 404: Empresa não encontrada para o ID: '${id}'`);
           set.status = 404;
           return {
-            error: "Business not found",
+            error: "Empresa não encontrada",
             message: `Nenhum estúdio encontrado com o ID '${id}'.`
           };
         }
@@ -561,7 +561,7 @@ export const businessController = () => new Elysia({ prefix: "/business" })
         if (business.active === false && (!user || (user.id !== business.ownerId && user.role !== "SUPER_ADMIN"))) {
           set.status = 403;
           return {
-            error: "Business suspended",
+            error: "Empresa suspensa",
             message: "Este site está temporariamente indisponível."
           };
         }

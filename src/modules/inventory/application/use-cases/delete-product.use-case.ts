@@ -11,13 +11,13 @@ export class DeleteProductUseCase {
     const product = await this.inventoryRepository.findById(id);
 
     if (!product) {
-      throw new Error("Product not found");
+      throw new Error("Produto não encontrado");
     }
 
     const business = await this.businessRepository.findById(product.companyId);
 
     if (!business || business.ownerId !== userId) {
-      throw new Error("Unauthorized: You do not own this business");
+      throw new Error("Não autorizado: você não é o proprietário desta empresa");
     }
 
     await this.inventoryRepository.delete(id);

@@ -43,7 +43,7 @@ webpush.sendNotification = async (subscription: any, payload: any, options?: any
     
     if (!isConfigured) {
       console.error("[WEBPUSH] Cannot send notification: web-push is not configured (VAPID keys missing)");
-      throw new Error("Push notifications not configured on server");
+      throw new Error("Notificações push não configuradas no servidor");
     }
   }
   return originalSendNotification(subscription, payload, options);

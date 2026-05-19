@@ -13,7 +13,7 @@ export const expenseController = () => new Elysia({ prefix: "/expenses" })
     if (!user) {
       console.log(`>>> [AUTH_CHECK] Usuário NÃO autenticado (401)`);
       set.status = 401;
-      return { error: "Unauthorized" };
+      return { error: "Não autorizado" };
     }
     console.log(`>>> [AUTH_CHECK] Usuário autenticado: ${user.id}`);
   })
@@ -45,7 +45,7 @@ export const expenseController = () => new Elysia({ prefix: "/expenses" })
 
     if (!targetCompanyId) {
       set.status = 400;
-      return { error: "companyId is required" };
+      return { error: "ID da empresa é obrigatório" };
     }
 
     if (targetCompanyId !== businessId) {
@@ -75,11 +75,11 @@ export const expenseController = () => new Elysia({ prefix: "/expenses" })
     } catch (e: any) {
       if (e.message === "Expense not found") {
         set.status = 404;
-        return { error: e.message };
+        return { error: "Despesa não encontrada" };
       }
       if (e.message === "Unauthorized") {
         set.status = 403;
-        return { error: e.message };
+        return { error: "Não autorizado" };
       }
       throw e;
     }
@@ -92,7 +92,7 @@ export const expenseController = () => new Elysia({ prefix: "/expenses" })
 
     if (!existing) {
       set.status = 404;
-      return { error: "Expense not found" };
+      return { error: "Despesa não encontrada" };
     }
 
     if (existing.companyId !== businessId) {

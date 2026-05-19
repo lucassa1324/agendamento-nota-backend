@@ -914,7 +914,7 @@ export function appointmentController() {
             }));
           } catch (error: any) {
             set.status = 500;
-            return { error: "Internal Server Error", message: error.message };
+            return { error: "Erro Interno do Servidor", message: error.message };
           }
         }, {
           params: t.Object({ companyId: t.String() }),
@@ -949,7 +949,7 @@ export function appointmentController() {
 
             if (!companyId) {
               set.status = 400;
-              return { error: "Validation error", message: "Company ID is required" };
+              return { error: "Erro de Validação", message: "ID da empresa é obrigatório" };
             }
 
             const scheduledAt = new Date(body.scheduledAt);
@@ -958,7 +958,7 @@ export function appointmentController() {
             if (isNaN(scheduledAt.getTime())) {
               set.status = 400;
               return {
-                error: "Invalid date format",
+                error: "Formato de data inválido",
                 message: "A data de agendamento fornecida é inválida. Use o formato ISO (ex: 2025-12-24T10:00:00Z)"
               };
             }
@@ -989,23 +989,23 @@ export function appointmentController() {
 
             if (errorMessage.includes("Unauthorized")) {
               set.status = 403;
-              return { error: "Permission denied", message: errorMessage };
+              return { error: "Permissão negada", message: errorMessage };
             }
 
             if (errorMessage.includes("Service") || errorMessage.includes("not available")) {
               set.status = 400;
-              return { error: "Validation error", message: errorMessage };
+              return { error: "Erro de Validação", message: errorMessage };
             }
 
             if (errorMessage.includes("Business not found")) {
               set.status = 404;
-              return { error: "Not Found", message: errorMessage };
+              return { error: "Não Encontrado", message: errorMessage };
             }
 
             if (errorMessage.includes("ANTI_ABUSE:")) {
               set.status = 400;
               return {
-                error: "Validation error",
+                error: "Erro de Validação",
                 message: errorMessage.replace("ANTI_ABUSE:", "").trim(),
               };
             }
@@ -1019,12 +1019,12 @@ export function appointmentController() {
               errorMessage.includes("horário passado")
             ) {
               set.status = 400;
-              return { error: "Scheduling Error", message: errorMessage };
+              return { error: "Erro de Agendamento", message: errorMessage };
             }
 
             set.status = 500;
             return {
-              error: "Internal Server Error",
+              error: "Erro Interno do Servidor",
               message: errorMessage,
               detail: error.detail || error.toString()
             };
@@ -1062,7 +1062,7 @@ export function appointmentController() {
         .onBeforeHandle(({ user, set }) => {
           if (!user) {
             set.status = 401;
-            return { error: "Unauthorized" };
+            return { error: "Não autorizado" };
           }
         })
         .get("/admin/company/:companyId", async ({ params: { companyId }, query, appointmentRepository, businessRepository, user, set }) => {
@@ -1219,7 +1219,7 @@ export function appointmentController() {
           const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
           if (!isAllowed) {
             set.status = 403;
-            return { error: "Forbidden" };
+            return { error: "Acesso negado" };
           }
 
           const startDate = body.startDate ? new Date(body.startDate) : undefined;
@@ -1259,7 +1259,7 @@ export function appointmentController() {
           const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
           if (!isAllowed) {
             set.status = 403;
-            return { error: "Forbidden" };
+            return { error: "Acesso negado" };
           }
 
           const startTime = new Date(body.startTime);
@@ -1308,7 +1308,7 @@ export function appointmentController() {
           const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
           if (!isAllowed) {
             set.status = 403;
-            return { error: "Forbidden" };
+            return { error: "Acesso negado" };
           }
 
           const startDate = query.startDate ? new Date(query.startDate) : new Date();
@@ -1350,7 +1350,7 @@ export function appointmentController() {
           const isAllowed = await canManageCompanyAppointments(companyId, user!.id, user?.role);
           if (!isAllowed) {
             set.status = 403;
-            return { error: "Forbidden" };
+            return { error: "Acesso negado" };
           }
 
           await autoAssignPendingAppointments({ companyId });
@@ -1501,7 +1501,7 @@ export function appointmentController() {
           );
           if (!isAllowed) {
             set.status = 403;
-            return { error: "Forbidden" };
+            return { error: "Acesso negado" };
           }
 
           const nextScheduledAt = body.scheduledAt
@@ -1523,7 +1523,7 @@ export function appointmentController() {
           ) {
             set.status = 409;
             return {
-              error: "Version conflict",
+              error: "Conflito de versão",
               message:
                 "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
             };
@@ -1592,7 +1592,7 @@ export function appointmentController() {
           if (!updated[0]) {
             set.status = 409;
             return {
-              error: "Version conflict",
+              error: "Conflito de versão",
               message:
                 "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
             };
@@ -1626,7 +1626,7 @@ export function appointmentController() {
           );
           if (!isAllowed) {
             set.status = 403;
-            return { error: "Forbidden" };
+            return { error: "Acesso negado" };
           }
 
           if (
@@ -1635,7 +1635,7 @@ export function appointmentController() {
           ) {
             set.status = 409;
             return {
-              error: "Version conflict",
+              error: "Conflito de versão",
               message:
                 "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
             };
@@ -1667,7 +1667,7 @@ export function appointmentController() {
           if (!updated[0]) {
             set.status = 409;
             return {
-              error: "Version conflict",
+              error: "Conflito de versão",
               message:
                 "Esse agendamento foi alterado por outra pessoa. Atualize a tela e tente novamente.",
             };
@@ -1758,7 +1758,7 @@ export function appointmentController() {
           if (!updated[0]) {
             set.status = 409;
             return {
-              error: "Version conflict",
+              error: "Conflito de versão",
               message:
                 "Esse serviço foi alterado antes da confirmação. Atualize a lista e tente novamente.",
             };
@@ -1777,7 +1777,7 @@ export function appointmentController() {
             if (isNaN(scheduledAt.getTime())) {
               set.status = 400;
               return {
-                error: "Validation error",
+                error: "Erro de Validação",
                 message: "Data/hora inválida para reagendamento.",
               };
             }
@@ -1800,7 +1800,7 @@ export function appointmentController() {
             } else {
               set.status = 500;
             }
-            return { error: "Reschedule error", message };
+            return { error: "Erro ao reagendar", message };
           }
         }, {
           body: t.Object({
@@ -1813,7 +1813,7 @@ export function appointmentController() {
             const scheduledAt = new Date(body.scheduledAt);
             if (isNaN(scheduledAt.getTime())) {
               set.status = 400;
-              return { error: "Validation error", message: "Data/hora inválida para edição." };
+              return { error: "Erro de Validação", message: "Data/hora inválida para edição." };
             }
 
             const useCase = new UpdateAppointmentUseCase(
@@ -1852,7 +1852,7 @@ export function appointmentController() {
             } else {
               set.status = 500;
             }
-            return { error: "Update error", message };
+            return { error: "Erro ao atualizar", message };
           }
         }, {
           body: t.Object({

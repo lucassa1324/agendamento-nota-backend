@@ -7,7 +7,7 @@ export const storageController = () => new Elysia({ prefix: "/storage" })
       const path = params["*"];
       if (!path) {
         set.status = 400;
-        return "File path missing";
+        return "Caminho do arquivo ausente";
       }
 
       const { stream, contentType, contentLength } = await getFileStreamFromB2(path);
@@ -24,10 +24,10 @@ export const storageController = () => new Elysia({ prefix: "/storage" })
       
       if (error.Code === "NoSuchKey" || error.name === "NoSuchKey") {
         set.status = 404;
-        return "File not found";
+        return "Arquivo não encontrado";
       }
 
       set.status = 500;
-      return "Internal Server Error";
+      return "Erro Interno do Servidor";
     }
   });

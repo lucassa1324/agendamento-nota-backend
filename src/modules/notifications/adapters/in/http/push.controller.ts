@@ -9,7 +9,7 @@ export const pushController = () => new Elysia({ prefix: "/push" })
   .onBeforeHandle(({ user, set }) => {
     if (!user) {
       set.status = 401;
-      return { error: "Unauthorized" };
+      return { error: "Não autorizado" };
     }
   })
   .post("/subscriptions", async ({ user, body, pushSubscriptionRepository }) => {
@@ -21,7 +21,7 @@ export const pushController = () => new Elysia({ prefix: "/push" })
 
     if (!subscription || !subscription.endpoint) {
       console.error("[PUSH_CONTROLLER] Payload inválido recebido:", JSON.stringify(body));
-      throw new Error("Invalid subscription object");
+      throw new Error("Objeto de inscrição inválido");
     }
 
     const [existing] = await Promise.all([

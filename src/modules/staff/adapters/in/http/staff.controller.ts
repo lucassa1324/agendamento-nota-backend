@@ -476,7 +476,7 @@ export const staffController = () =>
     .onBeforeHandle(({ user, set }) => {
       if (!user) {
         set.status = 401;
-        return { error: "Unauthorized" };
+        return { error: "Não autorizado" };
       }
     })
     .get(
@@ -485,7 +485,7 @@ export const staffController = () =>
         const isAllowed = await canManageStaff(companyId, user!.id, user?.role);
         if (!isAllowed) {
           set.status = 403;
-          return { error: "Forbidden" };
+          return { error: "Acesso negado" };
         }
 
         const [company] = await db
@@ -598,10 +598,10 @@ export const staffController = () =>
           const normalizedEmail = normalizeEmail(body.email);
           const isAllowed = await canManageStaff(body.companyId, user!.id, user?.role);
 
-          if (!isAllowed) {
-            set.status = 403;
-            return { error: "Forbidden" };
-          }
+        if (!isAllowed) {
+          set.status = 403;
+          return { error: "Acesso negado" };
+        }
 
           const now = new Date();
 
@@ -847,7 +847,7 @@ export const staffController = () =>
         const isAllowed = await canManageStaff(body.companyId, user!.id, user?.role);
         if (!isAllowed) {
           set.status = 403;
-          return { error: "Forbidden" };
+          return { error: "Acesso negado" };
         }
 
         const [member] = await db
@@ -1095,7 +1095,7 @@ export const staffController = () =>
         const isAllowed = await canManageStaff(companyId, user!.id, user?.role);
         if (!isAllowed) {
           set.status = 403;
-          return { error: "Forbidden" };
+          return { error: "Acesso negado" };
         }
 
         if (!body.password || body.password.trim().length < 4) {
@@ -1143,7 +1143,7 @@ export const staffController = () =>
         const isAllowed = await canManageStaff(body.companyId, user!.id, user?.role);
         if (!isAllowed) {
           set.status = 403;
-          return { error: "Forbidden" };
+          return { error: "Acesso negado" };
         }
 
         if (id.startsWith("temp-")) {
@@ -1213,7 +1213,7 @@ export const staffController = () =>
         const isAllowed = await canManageStaff(body.companyId, user!.id, user?.role);
         if (!isAllowed) {
           set.status = 403;
-          return { error: "Forbidden" };
+          return { error: "Acesso negado" };
         }
 
         const isTemporaryId = id.startsWith("temp-");
@@ -1233,7 +1233,7 @@ export const staffController = () =>
 
         if (!existing && !isTemporaryId) {
           set.status = 404;
-          return { error: "Staff not found" };
+          return { error: "Colaborador não encontrado" };
         }
 
         const staffId = existing?.id || crypto.randomUUID();
@@ -1371,7 +1371,7 @@ export const staffController = () =>
         const isAllowed = await canManageStaff(query.companyId, user!.id, user?.role);
         if (!isAllowed) {
           set.status = 403;
-          return { error: "Forbidden" };
+          return { error: "Acesso negado" };
         }
 
         const [existing] = await db
@@ -1387,7 +1387,7 @@ export const staffController = () =>
 
         if (!existing) {
           set.status = 404;
-          return { error: "Staff not found" };
+          return { error: "Colaborador não encontrado" };
         }
 
         const [member] = await db

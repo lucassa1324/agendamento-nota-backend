@@ -1185,7 +1185,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             resolve({ user, set }) {
                 if (!user) {
                     set.status = 401;
-                    return { error: "Unauthorized" };
+                    return { error: "Não autorizado" };
                 }
             },
         },
@@ -1193,7 +1193,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             async resolve({ user, set, request }) {
                 if (!user) {
                     set.status = 401;
-                    return { error: "Unauthorized" };
+                    return { error: "Não autorizado" };
                 }
 
                 if (user.role === "SUPER_ADMIN" || user.role === "ADMIN") {
@@ -1203,7 +1203,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                 const companyId = await resolveCompanyIdForAuthorization(user, request);
                 if (!companyId) {
                     set.status = 403;
-                    return { error: "Forbidden: company context not found" };
+                    return { error: "Acesso negado: contexto da empresa não encontrado" };
                 }
 
                 const [company] = await db
@@ -1231,7 +1231,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                 if (!staffMember || !staffMember.isActive || !staffMember.isAdmin) {
                     set.status = 403;
-                    return { error: "Forbidden: admin access required" };
+                    return { error: "Acesso negado: acesso de administrador necessário" };
                 }
             },
         },
@@ -1239,7 +1239,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             async resolve({ user, set, request }) {
                 if (!user) {
                     set.status = 401;
-                    return { error: "Unauthorized" };
+                    return { error: "Não autorizado" };
                 }
 
                 if (user.role === "SUPER_ADMIN" || user.role === "ADMIN") {
@@ -1249,7 +1249,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                 const companyId = await resolveCompanyIdForAuthorization(user, request);
                 if (!companyId) {
                     set.status = 403;
-                    return { error: "Forbidden: company context not found" };
+                    return { error: "Acesso negado: contexto da empresa não encontrado" };
                 }
 
                 const [company] = await db
@@ -1282,7 +1282,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                     (!staffMember.isAdmin && !staffMember.isSecretary)
                 ) {
                     set.status = 403;
-                    return { error: "Forbidden: secretary access required" };
+                    return { error: "Acesso negado: acesso de secretária necessário" };
                 }
             },
         },
@@ -1290,13 +1290,13 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             async resolve({ user, set, request }) {
                 if (!user) {
                     set.status = 401;
-                    return { error: "Unauthorized" };
+                    return { error: "Não autorizado" };
                 }
 
                 const companyId = await resolveCompanyIdForAuthorization(user, request);
                 if (!companyId) {
                     set.status = 403;
-                    return { error: "Forbidden: company context not found" };
+                    return { error: "Acesso negado: contexto da empresa não encontrado" };
                 }
 
                 const [company] = await db
@@ -1310,7 +1310,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                 if (!company) {
                     set.status = 403;
-                    return { error: "Forbidden: company not found" };
+                    return { error: "Acesso negado: empresa não encontrada" };
                 }
 
                 if (company.ownerId === user.id || user.role === "SUPER_ADMIN" || user.role === "ADMIN") {
@@ -1324,7 +1324,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
                 const financialPasswordHeader = request.headers.get("x-financial-password");
                 if (!financialPasswordHeader) {
                     set.status = 403;
-                    return { error: "Forbidden: financial password required" };
+                    return { error: "Acesso negado: senha financeira necessária" };
                 }
 
                 const passwordMatches = await Bun.password.verify(
@@ -1334,7 +1334,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
 
                 if (!passwordMatches) {
                     set.status = 403;
-                    return { error: "Forbidden: invalid financial password" };
+                    return { error: "Acesso negado: senha financeira inválida" };
                 }
             },
         },
@@ -1342,7 +1342,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             resolve({ user, set }) {
                 if (!user || user.role !== "SUPER_ADMIN") {
                     set.status = 403;
-                    return { error: "Forbidden: Super Admin access required" };
+                    return { error: "Acesso negado: acesso de Super Admin necessário" };
                 }
             }
         }

@@ -32,7 +32,7 @@ export class CreateAppointmentUseCase {
     // Valida se a empresa existe
     const business = await this.businessRepository.findById(data.companyId);
     if (!business) {
-      throw new Error("Business not found");
+      throw new Error("Empresa não encontrada");
     }
 
     // Se houver usuário logado, precisa ter acesso à empresa (owner ou staff ativo)
@@ -40,7 +40,7 @@ export class CreateAppointmentUseCase {
       await assertUserHasCompanyAccess(
         data.companyId,
         userId,
-        "Unauthorized: User has no access to this company",
+        "Não autorizado: usuário não tem acesso a esta empresa",
       );
     }
 

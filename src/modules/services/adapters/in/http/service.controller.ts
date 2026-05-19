@@ -23,7 +23,7 @@ export const serviceController = () => new Elysia({ prefix: "/services" })
       console.error("\n[SERVICE_CONTROLLER_GET_ERROR]:", error);
       set.status = 500;
       return {
-        error: error.message || "Internal Server Error",
+        error: error.message || "Erro Interno do Servidor",
         details: error.detail || error.cause || null
       };
     }
@@ -33,7 +33,7 @@ export const serviceController = () => new Elysia({ prefix: "/services" })
     app.use(authPlugin).onBeforeHandle(({ user, set }) => {
       if (!user) {
         set.status = 401;
-        return { error: "Unauthorized" };
+        return { error: "Não autorizado" };
       }
     })
       .post("/", async ({ body, serviceRepository, user, set }) => {
@@ -66,7 +66,7 @@ export const serviceController = () => new Elysia({ prefix: "/services" })
           set.status = 500;
 
           // Captura detalhes específicos de erro de conexão ou banco
-          const errorMessage = error.message || "Internal Server Error";
+          const errorMessage = error.message || "Erro Interno do Servidor";
           const errorDetail = error.detail || error.cause || null;
 
           return {
@@ -87,7 +87,7 @@ export const serviceController = () => new Elysia({ prefix: "/services" })
 
           if (!existing) {
             set.status = 404;
-            return { error: "Service not found" };
+            return { error: "Serviço não encontrado" };
           }
 
           if (existing.companyId !== businessId) {
@@ -125,7 +125,7 @@ export const serviceController = () => new Elysia({ prefix: "/services" })
           console.error("\n[SERVICE_CONTROLLER_PUT_ERROR]:", error);
           set.status = 500;
           return {
-            error: error.message || "Internal Server Error",
+            error: error.message || "Erro Interno do Servidor",
             details: error.detail || error.cause || null
           };
         }
@@ -141,7 +141,7 @@ export const serviceController = () => new Elysia({ prefix: "/services" })
 
           if (!existing) {
             set.status = 404;
-            return { error: "Service not found" };
+            return { error: "Serviço não encontrado" };
           }
 
           if (existing.companyId !== businessId) {
@@ -169,7 +169,7 @@ export const serviceController = () => new Elysia({ prefix: "/services" })
           console.error("\n[SERVICE_CONTROLLER_DELETE_ERROR]:", error);
           set.status = 500;
           return {
-            error: error.message || "Internal Server Error"
+            error: error.message || "Erro Interno do Servidor"
           };
         }
       })
@@ -183,7 +183,7 @@ export const serviceController = () => new Elysia({ prefix: "/services" })
           console.error("\n[SERVICE_CONTROLLER_CHECK_EXISTS_ERROR]:", error);
           set.status = 500;
           return {
-            error: error.message || "Internal Server Error",
+            error: error.message || "Erro Interno do Servidor",
             details: error.detail || error.cause || null
           };
         }

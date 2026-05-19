@@ -7,12 +7,12 @@ export const stripeCheckoutController = new Elysia({ prefix: "/stripe" })
   .post("/create-checkout-session", async ({ user, body, set }) => {
     if (!user) {
       set.status = 401;
-      return { error: "Unauthorized" };
+      return { error: "Não autorizado" };
     }
 
     if (!user.businessId) {
       set.status = 400;
-      return { error: "User has no business associated" };
+      return { error: "O usuário não possui uma empresa associada" };
     }
 
     const { priceId } = body;

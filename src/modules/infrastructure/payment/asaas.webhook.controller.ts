@@ -57,7 +57,7 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
       if (process.env.ASAAS_WEBHOOK_TOKEN && asaasToken !== process.env.ASAAS_WEBHOOK_TOKEN) {
         console.warn("[ASAAS_WEBHOOK] Token de segurança inválido!");
         set.status = 401;
-        return { error: "Unauthorized" };
+        return { error: "Não autorizado" };
       }
 
       if (!event) {
@@ -431,9 +431,9 @@ export const asaasWebhookController = new Elysia({ prefix: "/webhook/asaas" })
       }
 
       return { received: true };
-    } catch (error: any) {
-      console.error("[ASAAS_WEBHOOK_ERROR]", error);
+    } catch (error) {
+      console.error("[ASAAS_WEBHOOK_ERROR]:", error);
       set.status = 500;
-      return { error: "Internal Server Error" };
+      return { error: "Erro Interno do Servidor" };
     }
   });

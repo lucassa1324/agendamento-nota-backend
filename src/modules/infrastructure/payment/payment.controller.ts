@@ -8,7 +8,7 @@ export const paymentController = () => new Elysia({ prefix: "/payment" })
     try {
       if (!user) {
         set.status = 401;
-        return { error: "Unauthorized" };
+        return { error: "Não autorizado" };
       }
 
       const {

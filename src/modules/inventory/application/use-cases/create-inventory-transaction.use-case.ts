@@ -36,7 +36,7 @@ export class CreateInventoryTransactionUseCase {
 
     const product = await this.inventoryRepository.findById(input.productId);
     if (!product) {
-      throw new Error("Product not found");
+      throw new Error("Produto não encontrado");
     }
 
     // Validação de Pertencimento (Segurança)
