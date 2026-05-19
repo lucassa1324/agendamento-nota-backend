@@ -643,6 +643,8 @@ export const staffController = () =>
 
         const memberId = existingMember?.id || crypto.randomUUID();
 
+        const isExistingMember = !!existingMember;
+
         if (existingMember) {
           await db
             .update(schema.staff)
@@ -803,6 +805,7 @@ export const staffController = () =>
             emailSent,
             emailError,
             temporaryPassword: temporaryPasswordForInvite,
+            alreadyExisted: isExistingMember,
           };
         }
 
@@ -815,6 +818,7 @@ export const staffController = () =>
           emailSent,
           emailError,
           temporaryPassword: temporaryPasswordForInvite,
+          alreadyExisted: isExistingMember,
         };
       } catch (e: any) {
         console.error("[STAFF_INVITE_ERROR]", e);
@@ -1221,6 +1225,7 @@ export const staffController = () =>
           .select({
             id: schema.staff.id,
             email: schema.staff.email,
+            userId: schema.staff.userId,
           })
           .from(schema.staff)
           .where(
@@ -1239,6 +1244,33 @@ export const staffController = () =>
         const staffId = existing?.id || crypto.randomUUID();
         const updatedEmail = normalizeEmail(body.email);
         const originalEmail = existing?.email || "";
+
+        // ── Validação: dono da conta não pode desativar a si mesmo ou remover admin ──
+        if (existing?.userId) {
+          const [company] = await db
+            .select({ ownerId: schema.companies.ownerId })
+            .from(schema.companies)
+            .where(eq(schema.companies.id, body.companyId))
+            .limit(1);
+
+          const isOwner = company?.ownerId === existing.userId;
+          if (isOwner) {
+            if (body.isActive === false) {
+              set.status = 403;
+              return {
+                error: "O dono da conta não pode desativar a si mesmo",
+                code: "CANNOT_DEACTIVATE_OWNER",
+              };
+            }
+            if (body.isAdmin === false) {
+              set.status = 403;
+              return {
+                error: "O dono da conta não pode remover seus próprios privilégios de administrador",
+                code: "CANNOT_REMOVE_OWNER_ADMIN",
+              };
+            }
+          }
+        }
 
         // ── Validação de e-mail na edição ─────────────────────────────────────
         // Só valida se o e-mail está sendo alterado (evita falso positivo ao
@@ -1399,6 +1431,23 @@ export const staffController = () =>
           .from(schema.staff)
           .where(eq(schema.staff.id, id))
           .limit(1);
+
+        // ── Validação: dono da conta não pode excluir a si mesmo ──
+        if (member?.userId) {
+          const [company] = await db
+            .select({ ownerId: schema.companies.ownerId })
+            .from(schema.companies)
+            .where(eq(schema.companies.id, query.companyId))
+            .limit(1);
+
+          if (company?.ownerId === member.userId) {
+            set.status = 403;
+            return {
+              error: "O dono da conta não pode excluir a si mesmo",
+              code: "CANNOT_DELETE_OWNER",
+            };
+          }
+        }
 
         const normalizedEmail = normalizeEmail(member?.email || "");
         const inviteIdentifier = normalizedEmail
