@@ -15,7 +15,7 @@ export const DNSController = () => new Elysia({ prefix: '/dns' })
   .onBeforeHandle(({ user, set }) => {
     if (!user) {
       set.status = 401;
-      return { error: "Unauthorized" };
+      return { error: "Não autorizado" };
     }
   })
   .get('', async ({ user, set, dnsRepository, dnsService }) => {
@@ -23,7 +23,7 @@ export const DNSController = () => new Elysia({ prefix: '/dns' })
     
     if (!company) {
       set.status = 403;
-      return { error: "Company not found" };
+      return { error: "Empresa não encontrada" };
     }
 
     const localDomain = await dnsRepository.findByCompanyId(company.id);
@@ -48,14 +48,14 @@ export const DNSController = () => new Elysia({ prefix: '/dns' })
 
     if (!company) {
       set.status = 403;
-      return { error: "Company not found" };
+      return { error: "Empresa não encontrada" };
     }
 
     const existing = await dnsRepository.findByCompanyId(company.id);
 
     if (existing) {
       set.status = 400;
-      return { error: "Company already has a custom domain" };
+      return { error: "A empresa já possui um domínio customizado" };
     }
 
     if (forbiddenDomains.some(domain => body.name.includes(domain))) {
@@ -84,14 +84,14 @@ export const DNSController = () => new Elysia({ prefix: '/dns' })
 
     if (!company) {
       set.status = 403;
-      return { error: "Company not found" };
+      return { error: "Empresa não encontrada" };
     }
 
     const record = await dnsRepository.findByCompanyId(company.id);
 
     if (!record || record.domain !== domain) {
       set.status = 403;
-      return { error: "Permission denied" };
+      return { error: "Permissão negada" };
     }
 
     await dnsService.removeDomain(domain);

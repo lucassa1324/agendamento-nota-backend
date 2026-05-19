@@ -2,8 +2,8 @@ console.log("[STARTUP] Inicializando Back-end com Try-Catch Global");
 
 // Validação CRÍTICA de variáveis de ambiente antes de qualquer coisa
 if (!process.env.DATABASE_URL) {
-  console.error("FATAL: DATABASE_URL IS MISSING");
-  throw new Error("DATABASE_URL IS MISSING");
+  console.error("FATAL: DATABASE_URL NÃO ENCONTRADA");
+  throw new Error("DATABASE_URL NÃO ENCONTRADA");
 }
 
 if (!process.env.BETTER_AUTH_SECRET) {
@@ -382,8 +382,11 @@ const startServer = () => {
         } catch (e: any) {
           console.error(`!!! [AUTH_HANDLER_ERROR] ${ctx.path}:`, e.message, e.stack);
           return new Response(
-            JSON.stringify({ error: e.message || "Erro no handler de autenticação." }),
-            { status: 500, headers: { "Content-Type": "application/json" } },
+            JSON.stringify({ error: "Falha no manipulador de autenticação", message: e?.message || "desconhecido" }),
+            {
+              status: 500,
+              headers: { "Content-Type": "application/json" }
+            },
           );
         }
       })
@@ -615,7 +618,7 @@ const startServer = () => {
               .onBeforeHandle(({ user, set }) => {
                 if (!user) {
                   set.status = 401;
-                  return { error: "Unauthorized" };
+                  return { error: "Não autorizado" };
                 }
               })
               .patch("/complete-onboarding", async ({ user }) => {
@@ -634,7 +637,7 @@ const startServer = () => {
 
                 if (!reason) {
                   set.status = 422;
-                  return { error: "Missing reason" };
+                  return { error: "Motivo ausente" };
                 }
 
                 await db.insert(schema.accountCancellationFeedback).values({
@@ -948,7 +951,7 @@ const startServer = () => {
         } catch (e) { }
 
         return {
-          error: "INTERNAL_SERVER_ERROR",
+          error: "ERRO_INTERNO_DO_SERVIDOR",
           message: error.message,
           code: code,
           stack: process.env.NODE_ENV === "development" ? error.stack : undefined
@@ -971,10 +974,10 @@ const startServer = () => {
     }
     // Retorna uma instância mínima de erro para não derrubar o processo sem logs
     return new Elysia()
-      .get("/api/health", () => ({ status: "startup_failed", error: String(error) }))
+      .get("/api/health", () => ({ status: "falha_na_inicializacao", error: String(error) }))
       .get("/*", () => {
         return {
-          error: "STARTUP_FAILED",
+          error: "FALHA_NA_INICIALIZACAO",
           details: String(error),
           stack: error instanceof Error ? error.stack : undefined
         };

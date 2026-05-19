@@ -10,7 +10,7 @@ export const notificationsController = () => new Elysia({ prefix: "/notification
   .onBeforeHandle(({ user, set }) => {
     if (!user) {
       set.status = 401;
-      return { error: "Unauthorized" };
+      return { error: "Não autorizado" };
     }
   })
   .post("/test", async ({ user, pushSubscriptionRepository }) => {
@@ -35,7 +35,7 @@ export const notificationsController = () => new Elysia({ prefix: "/notification
     const { subscription } = body as { subscription: any };
 
     if (!subscription || !subscription.endpoint) {
-      throw new Error("Invalid subscription object");
+      throw new Error("Objeto de inscrição inválido");
     }
 
     await pushSubscriptionRepository.upsert(

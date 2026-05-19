@@ -11,7 +11,7 @@ export const reportController = () => new Elysia({ prefix: "/reports" })
     if (!user) {
       console.log(`>>> [AUTH_CHECK] Usuário NÃO autenticado (401)`);
       set.status = 401;
-      return { error: "Unauthorized" };
+      return { error: "Não autorizado" };
     }
     console.log(`>>> [AUTH_CHECK] Usuário autenticado: ${user.id}`);
   })
@@ -21,7 +21,7 @@ export const reportController = () => new Elysia({ prefix: "/reports" })
 
     if (!companyId) {
       set.status = 400;
-      return { error: "companyId is required" };
+      return { error: "ID da empresa é obrigatório" };
     }
 
     if (companyId !== businessId) {

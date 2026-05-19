@@ -28,7 +28,7 @@ const getB2Config = (): B2Config => {
   const endpoint = normalizeEnvValue(process.env.B2_ENDPOINT);
 
   if (!keyId || !applicationKey || !bucketName || !endpoint) {
-    throw new Error("B2_STORAGE_MISSING_ENV");
+    throw new Error("VARIÁVEIS_DE_AMBIENTE_B2_STORAGE_AUSENTES");
   }
 
   return {

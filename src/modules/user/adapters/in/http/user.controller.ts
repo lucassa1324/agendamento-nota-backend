@@ -31,11 +31,11 @@ export class UserController {
           } catch (err: any) {
             if (err instanceof UserAlreadyExistsError) {
               set.status = 409;
-              return { error: "USER_ALREADY_EXISTS", message: err.message };
+              return { error: "USUÁRIO_JÁ_EXISTE", message: err.message };
             }
 
             set.status = 400;
-            return { error: "REGISTRATION_FAILED", message: err.message };
+            return { error: "FALHA_NO_REGISTRO", message: err.message };
           }
         },
         {
@@ -47,7 +47,7 @@ export class UserController {
             
             set.status = 400;
             return {
-              error: "VALIDATION_ERROR",
+              error: "ERRO_DE_VALIDAÇÃO",
               message: error.message || "Erro de validação nos dados enviados",
               details: error.all || error
             };
@@ -59,7 +59,7 @@ export class UserController {
         async ({ body, user: currentUser, set }) => {
           if (!currentUser?.id) {
             set.status = 401;
-            return { error: "Unauthorized" };
+            return { error: "Não autorizado" };
           }
 
           const normalizedCpfCnpj = body.cpfCnpj.replace(/\D/g, "");

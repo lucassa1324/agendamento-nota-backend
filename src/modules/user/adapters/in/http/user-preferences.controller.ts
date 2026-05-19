@@ -8,13 +8,13 @@ export const userPreferencesController = () => new Elysia({ prefix: "/user" })
   .onBeforeHandle(({ user, set }) => {
     if (!user) {
       set.status = 401;
-      return { error: "Unauthorized" };
+      return { error: "Não autorizado" };
     }
   })
   .get("/preferences", async ({ user, userRepository }) => {
     const currentUser = await userRepository.find(user!.id);
     if (!currentUser) {
-      throw new Error("User not found");
+      throw new Error("Usuário não encontrado");
     }
 
     return {

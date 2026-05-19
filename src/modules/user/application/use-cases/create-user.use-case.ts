@@ -36,7 +36,7 @@ export class CreateUserUseCase {
 
     if (!response || !response.user) {
       console.error(`[USER_REGISTER_USE_CASE] Falha no signUpEmail:`, response);
-      throw new Error("Failed to create user");
+      throw new Error("Falha ao criar usuário");
     }
     console.log(`[USER_REGISTER_USE_CASE] signUpEmail concluído com sucesso para: ${response.user.email}`);
 

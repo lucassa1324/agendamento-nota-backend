@@ -7,11 +7,11 @@ export class UpdateExpenseUseCase {
     const existing = await this.expenseRepository.findById(id);
 
     if (!existing) {
-      throw new Error("Expense not found");
+      throw new Error("Despesa não encontrada");
     }
 
     if (existing.companyId !== businessId) {
-      throw new Error("Unauthorized");
+      throw new Error("Não autorizado");
     }
 
     const updated = await this.expenseRepository.update(id, data);

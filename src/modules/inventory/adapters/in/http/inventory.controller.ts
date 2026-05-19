@@ -14,7 +14,7 @@ export const inventoryController = () => new Elysia({ prefix: "/inventory" })
   .onBeforeHandle(({ user, set }) => {
     if (!user) {
       set.status = 401;
-      return { error: "Unauthorized" };
+      return { error: "Não autorizado" };
     }
   })
   .post("/", async ({ body, inventoryRepository, businessRepository, user, set }) => {
@@ -80,13 +80,13 @@ export const inventoryController = () => new Elysia({ prefix: "/inventory" })
       const product = await inventoryRepository.findById(id);
       if (!product) {
         set.status = 404;
-        return { error: "Product not found" };
+        return { error: "Produto não encontrado" };
       }
 
       const subtractQty = parseFloat(body.quantity.toString());
       if (isNaN(subtractQty) || subtractQty <= 0) {
         set.status = 400;
-        return { error: "Invalid quantity" };
+        return { error: "Quantidade inválida" };
       }
 
       const useCase = new CreateInventoryTransactionUseCase(

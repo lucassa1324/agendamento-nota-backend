@@ -9,7 +9,7 @@ export const companyController = new Elysia({ prefix: "/company" })
   .onBeforeHandle(({ user, set }) => {
     if (!user) {
       set.status = 401;
-      return { error: "Unauthorized" };
+      return { error: "Não autorizado" };
     }
   })
   .post("/customizer", async ({ user, body, set, businessRepository }) => {
@@ -47,7 +47,7 @@ export const companyController = new Elysia({ prefix: "/company" })
 
       if (!companyId) {
         set.status = 400;
-        return { error: "companyId is required" };
+        return { error: "ID da empresa é obrigatório" };
       }
 
       const updateBusinessConfigUseCase = new UpdateBusinessConfigUseCase(businessRepository);
