@@ -36,6 +36,13 @@
       "when": 1776984014180,
       "tag": "0004_polite_blindfold",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779152400600,
+      "tag": "0005_colorful_puck",
+      "breakpoints": true
     }
   ]
 }

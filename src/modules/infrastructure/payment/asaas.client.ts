@@ -141,6 +141,64 @@ export class AsaasClient {
     }
   }
 
+  async createPaymentLink(data: {
+    name: string;
+    description: string;
+    value: number;
+    billingType: string;
+    chargeType: string;
+    endDate?: string;
+    externalReference?: string;
+    remoteIp?: string;
+    dueDateLimitDays?: number;
+    period?: string;
+    subscriptionCycle?: string;
+  }) {
+    if (!this.apiKey) {
+      console.warn("[ASAAS_CLIENT] Sem API Key. Retornando mock.");
+      return { url: "https://sandbox.asaas.com/mock-link" };
+    }
+
+    try {
+      console.log(`[ASAAS_CLIENT] Criando link de pagamento para ${data.name}...`);
+
+      const payload = {
+        name: data.name,
+        description: data.description,
+        value: data.value,
+        billingType: data.billingType,
+        chargeType: data.chargeType,
+        endDate: data.endDate,
+        externalReference: data.externalReference,
+        dueDateLimitDays: data.dueDateLimitDays,
+        period: data.period,
+        subscriptionCycle: data.subscriptionCycle
+      };
+
+      const response = await fetch(`${this.apiUrl}/paymentLinks`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "access_token": this.apiKey,
+          "x-forwarded-for": data.remoteIp || "127.0.0.1",
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        console.error("[ASAAS_CLIENT] Erro ao criar link de pagamento:", JSON.stringify(responseData));
+        throw new Error((responseData as any).errors?.[0]?.description || "Erro ao criar link de pagamento no Asaas");
+      }
+
+      return responseData;
+    } catch (error) {
+      console.error("[ASAAS_CLIENT] Exception:", error);
+      throw error;
+    }
+  }
+
   async cancelSubscription(subscriptionId: string) {
     if (!subscriptionId) {
       console.warn("[ASAAS_CLIENT] SubscriptionId vazio. Ignorando cancelamento.");
