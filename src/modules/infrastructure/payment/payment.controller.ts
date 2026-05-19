@@ -101,8 +101,8 @@ export const paymentController = () => new Elysia({ prefix: "/payment" })
 
       let resolvedCustomerCpfCnpj = String(customerCpfCnpj || "").replace(/\D/g, "");
 
-      if (!resolvedCustomerCpfCnpj && user.document) {
-        resolvedCustomerCpfCnpj = String(user.document).replace(/\D/g, "");
+      if (!resolvedCustomerCpfCnpj && (user as any).cpfCnpj) {
+        resolvedCustomerCpfCnpj = String((user as any).cpfCnpj).replace(/\D/g, "");
       }
 
       const isValidCpfCnpj = resolvedCustomerCpfCnpj.length === 11 || resolvedCustomerCpfCnpj.length === 14;
