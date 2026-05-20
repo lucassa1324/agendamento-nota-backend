@@ -447,9 +447,6 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           }
           const useCase = new UpdateOperatingHoursUseCase(businessRepository);
           const normalizedBody = { ...(body as any), interval };
-<<<<<<< Updated upstream
-          return await useCase.execute(companyId, user!.id, normalizedBody as any);
-=======
           const result = await useCase.execute(companyId, user!.id, normalizedBody as any);
 
           // ── Persistir configuração de janela de agendamento (UPSERT) ────
@@ -484,7 +481,6 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           }
 
           return result;
->>>>>>> Stashed changes
         } catch (error: any) {
           set.status = error.message?.includes("Unauthorized") ? 403 : 400;
           return { error: error.message };
@@ -509,9 +505,6 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           }
           const useCase = new UpdateOperatingHoursUseCase(businessRepository);
           const normalizedBody = { ...(body as any), interval };
-<<<<<<< Updated upstream
-          return await useCase.execute(companyId, user!.id, normalizedBody as any);
-=======
           const result = await useCase.execute(companyId, user!.id, normalizedBody as any);
 
           // ── Persistir configuração de janela de agendamento (UPSERT) ────
@@ -546,7 +539,6 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           }
 
           return result;
->>>>>>> Stashed changes
         } catch (error: any) {
           set.status = error.message?.includes("Unauthorized") ? 403 : 400;
           return { error: error.message };
