@@ -447,7 +447,44 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           }
           const useCase = new UpdateOperatingHoursUseCase(businessRepository);
           const normalizedBody = { ...(body as any), interval };
+<<<<<<< Updated upstream
           return await useCase.execute(companyId, user!.id, normalizedBody as any);
+=======
+          const result = await useCase.execute(companyId, user!.id, normalizedBody as any);
+
+          // ── Persistir configuração de janela de agendamento (UPSERT) ────
+          const rawBody = body as any;
+          if (rawBody.bookingWindowType !== undefined || rawBody.bookingWindowDays !== undefined) {
+            const existingProfile = await db
+              .select({ id: schema.businessProfiles.id })
+              .from(schema.businessProfiles)
+              .where(eq(schema.businessProfiles.businessId, companyId))
+              .limit(1);
+
+            if (existingProfile.length > 0) {
+              await db
+                .update(schema.businessProfiles)
+                .set({
+                  bookingWindowType: rawBody.bookingWindowType ?? undefined,
+                  bookingWindowDays: rawBody.bookingWindowDays ?? undefined,
+                  updatedAt: new Date(),
+                })
+                .where(eq(schema.businessProfiles.businessId, companyId));
+            } else {
+              await db
+                .insert(schema.businessProfiles)
+                .values({
+                  id: crypto.randomUUID(),
+                  businessId: companyId,
+                  bookingWindowType: rawBody.bookingWindowType ?? "UNLIMITED",
+                  bookingWindowDays: rawBody.bookingWindowDays ?? 30,
+                  updatedAt: new Date(),
+                });
+            }
+          }
+
+          return result;
+>>>>>>> Stashed changes
         } catch (error: any) {
           set.status = error.message?.includes("Unauthorized") ? 403 : 400;
           return { error: error.message };
@@ -472,7 +509,44 @@ export const businessController = () => new Elysia({ prefix: "/business" })
           }
           const useCase = new UpdateOperatingHoursUseCase(businessRepository);
           const normalizedBody = { ...(body as any), interval };
+<<<<<<< Updated upstream
           return await useCase.execute(companyId, user!.id, normalizedBody as any);
+=======
+          const result = await useCase.execute(companyId, user!.id, normalizedBody as any);
+
+          // ── Persistir configuração de janela de agendamento (UPSERT) ────
+          const rawBody = body as any;
+          if (rawBody.bookingWindowType !== undefined || rawBody.bookingWindowDays !== undefined) {
+            const existingProfile = await db
+              .select({ id: schema.businessProfiles.id })
+              .from(schema.businessProfiles)
+              .where(eq(schema.businessProfiles.businessId, companyId))
+              .limit(1);
+
+            if (existingProfile.length > 0) {
+              await db
+                .update(schema.businessProfiles)
+                .set({
+                  bookingWindowType: rawBody.bookingWindowType ?? undefined,
+                  bookingWindowDays: rawBody.bookingWindowDays ?? undefined,
+                  updatedAt: new Date(),
+                })
+                .where(eq(schema.businessProfiles.businessId, companyId));
+            } else {
+              await db
+                .insert(schema.businessProfiles)
+                .values({
+                  id: crypto.randomUUID(),
+                  businessId: companyId,
+                  bookingWindowType: rawBody.bookingWindowType ?? "UNLIMITED",
+                  bookingWindowDays: rawBody.bookingWindowDays ?? 30,
+                  updatedAt: new Date(),
+                });
+            }
+          }
+
+          return result;
+>>>>>>> Stashed changes
         } catch (error: any) {
           set.status = error.message?.includes("Unauthorized") ? 403 : 400;
           return { error: error.message };
