@@ -733,6 +733,10 @@ export const businessProfiles = pgTable("business_profiles", {
   email: text("email"),
   address: text("address"),
 
+  // Configuração de Janela de Agendamento
+  bookingWindowType: text("booking_window_type").default("UNLIMITED").notNull(),
+  bookingWindowDays: integer("booking_window_days").default(30),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
