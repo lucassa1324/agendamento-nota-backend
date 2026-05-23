@@ -31,6 +31,11 @@ export const createAgendaBlockDTO = t.Object({
   reason: t.Optional(t.String()),
 });
 
+const bookingWindowFields = {
+  bookingWindowType: t.Optional(t.Union([t.Literal("UNLIMITED"), t.Literal("FIXED_DAYS")])),
+  bookingWindowDays: t.Optional(t.Number()),
+};
+
 export const updateOperatingHoursDTO = t.Union([
   t.Object({
     interval: t.String(),
@@ -38,6 +43,7 @@ export const updateOperatingHoursDTO = t.Union([
     companyId: t.Optional(t.String()),
     blocks: t.Optional(t.Array(createAgendaBlockDTO)),
     minimumBookingLeadMinutes: t.Optional(t.Number()),
+    ...bookingWindowFields,
   }),
   t.Object({
     timeInterval: t.String(),
@@ -45,6 +51,7 @@ export const updateOperatingHoursDTO = t.Union([
     companyId: t.Optional(t.String()),
     blocks: t.Optional(t.Array(createAgendaBlockDTO)),
     minimumBookingLeadMinutes: t.Optional(t.Number()),
+    ...bookingWindowFields,
   })
 ]);
 

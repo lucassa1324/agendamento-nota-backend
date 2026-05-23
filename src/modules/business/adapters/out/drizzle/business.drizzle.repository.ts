@@ -1,5 +1,5 @@
 import { db } from "../../../../infrastructure/drizzle/database";
-import { companies, companySiteCustomizations, operatingHours, agendaBlocks } from "../../../../../db/schema";
+import { companies, companySiteCustomizations, operatingHours, agendaBlocks, businessProfiles } from "../../../../../db/schema";
 import { and, eq, ilike } from "drizzle-orm";
 import { IBusinessRepository } from "../../../domain/ports/business.repository";
 import { Business, BusinessSummary, CreateBusinessInput, BusinessSiteCustomization } from "../../../domain/entities/business.entity";
@@ -294,6 +294,16 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
       reason: block.reason
     }));
 
+    // Buscar configuração de janela de agendamento
+    const [profile] = await db
+      .select({
+        bookingWindowType: businessProfiles.bookingWindowType,
+        bookingWindowDays: businessProfiles.bookingWindowDays,
+      })
+      .from(businessProfiles)
+      .where(eq(businessProfiles.businessId, companyId))
+      .limit(1);
+
     const appointmentFlow = (company.siteCustomization?.appointmentFlow as any) || {};
     // Suportar tanto a chave antiga quanto a nova (plural) e as variações de snake/camel case
     const step3 = appointmentFlow.step3Times || appointmentFlow.step3Time || appointmentFlow.step_3_time || {};
@@ -323,6 +333,8 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
       minimumBookingLeadMinutes: Number.isFinite(minimumBookingLeadMinutes)
         ? minimumBookingLeadMinutes
         : 0,
+      bookingWindowType: profile?.bookingWindowType ?? null,
+      bookingWindowDays: profile?.bookingWindowDays ?? null,
       blocks
     };
   }

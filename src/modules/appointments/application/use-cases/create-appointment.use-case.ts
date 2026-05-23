@@ -273,6 +273,21 @@ export class CreateAppointmentUseCase {
     const appTimeTotalMin = (appH * 60) + appM;
 
     if (!userId) {
+      // ── Validação da Janela de Agendamento (Booking Window) ──────────────
+      const bookingWindowType = (settings as any).bookingWindowType;
+      const bookingWindowDays = Number((settings as any).bookingWindowDays ?? 0);
+      if (bookingWindowType === "FIXED_DAYS" && bookingWindowDays > 0) {
+        const nowInBrt = new Date();
+        const scheduledDateInBrt = new Date(data.scheduledAt);
+        const diffMs = scheduledDateInBrt.getTime() - nowInBrt.getTime();
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        if (diffDays > bookingWindowDays) {
+          throw new Error(
+            `Só é possível agendar com até ${bookingWindowDays} dias de antecedência.`,
+          );
+        }
+      }
+
       const minimumBookingLeadMinutes = Math.max(
         0,
         Number((settings as any).minimumBookingLeadMinutes ?? 0),
