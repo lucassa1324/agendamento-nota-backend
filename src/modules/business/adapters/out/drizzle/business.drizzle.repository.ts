@@ -227,6 +227,8 @@ export class DrizzleBusinessRepository implements IBusinessRepository {
     slotInterval: string;
     interval: string;
     minimumBookingLeadMinutes: number;
+    bookingWindowType?: string | null;
+    bookingWindowDays?: number | null;
     blocks: Array<{
       id: string;
       type: string;
