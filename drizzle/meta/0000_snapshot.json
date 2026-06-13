@@ -1,5 +1,5 @@
 {
-  "id": "4bbd19b5-1d3b-4119-aadb-8ba5688c9a49",
+  "id": "0a062555-b469-4b68-8742-bb7b9f6e5e3b",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -392,8 +392,20 @@
           "primaryKey": false,
           "notNull": true
         },
+        "staff_id": {
+          "name": "staff_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "customer_id": {
           "name": "customer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -447,6 +459,34 @@
           "notNull": true,
           "default": "'PENDING'"
         },
+        "assigned_by": {
+          "name": "assigned_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'staff'"
+        },
+        "validation_status": {
+          "name": "validation_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'confirmed'"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "audit_log": {
+          "name": "audit_log",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "notes": {
           "name": "notes",
           "type": "text",
@@ -496,12 +536,213 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
+        "appointments_staff_id_staff_id_fk": {
+          "name": "appointments_staff_id_staff_id_fk",
+          "tableFrom": "appointments",
+          "tableTo": "staff",
+          "columnsFrom": [
+            "staff_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
         "appointments_customer_id_user_id_fk": {
           "name": "appointments_customer_id_user_id_fk",
           "tableFrom": "appointments",
           "tableTo": "user",
           "columnsFrom": [
             "customer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "appointments_created_by_user_id_fk": {
+          "name": "appointments_created_by_user_id_fk",
+          "tableFrom": "appointments",
+          "tableTo": "user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.bug_reports": {
+      "name": "bug_reports",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "reporter_user_id": {
+          "name": "reporter_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'BUG'"
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "screenshot_url": {
+          "name": "screenshot_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "page_url": {
+          "name": "page_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accept_language": {
+          "name": "accept_language",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'NEW'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "bug_reports_created_at_idx": {
+          "name": "bug_reports_created_at_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bug_reports_status_idx": {
+          "name": "bug_reports_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bug_reports_type_idx": {
+          "name": "bug_reports_type_idx",
+          "columns": [
+            {
+              "expression": "type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "bug_reports_reporter_user_id_user_id_fk": {
+          "name": "bug_reports_reporter_user_id_user_id_fk",
+          "tableFrom": "bug_reports",
+          "tableTo": "user",
+          "columnsFrom": [
+            "reporter_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "bug_reports_company_id_companies_id_fk": {
+          "name": "bug_reports_company_id_companies_id_fk",
+          "tableFrom": "bug_reports",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
           ],
           "columnsTo": [
             "id"
@@ -652,6 +893,20 @@
           "primaryKey": false,
           "notNull": false
         },
+        "booking_window_type": {
+          "name": "booking_window_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'UNLIMITED'"
+        },
+        "booking_window_days": {
+          "name": "booking_window_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 30
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -725,6 +980,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "contact": {
           "name": "contact",
           "type": "text",
@@ -758,6 +1019,37 @@
           "notNull": false,
           "default": "now()"
         },
+        "first_subscription_at": {
+          "name": "first_subscription_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "blocked_at": {
+          "name": "blocked_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "billing_anchor_day": {
+          "name": "billing_anchor_day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 27
+        },
+        "billing_grace_ends_at": {
+          "name": "billing_grace_ends_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "billing_day_last_changed_at": {
+          "name": "billing_day_last_changed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "stripe_customer_id": {
           "name": "stripe_customer_id",
           "type": "text",
@@ -766,6 +1058,18 @@
         },
         "stripe_subscription_id": {
           "name": "stripe_subscription_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "asaas_subscription_id": {
+          "name": "asaas_subscription_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "financial_password": {
+          "name": "financial_password",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -850,7 +1154,7 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
-          "default": "'{\"heroBanner\":{\"visibility\":true,\"title\":{\"text\":\"Sua beleza, nossa prioridade\",\"color\":\"#000000\",\"font\":\"Inter\",\"sizeMobile\":\"32px\",\"sizeDesktop\":\"48px\"},\"subtitle\":{\"text\":\"Agende seu horário e realce o que você tem de melhor\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"18px\"},\"ctaButton\":{\"text\":\"Agendar Agora\",\"backgroundColor\":\"#000000\",\"textColor\":\"#ffffff\",\"borderRadius\":\"8px\",\"borderColor\":\"transparent\",\"destinationLink\":\"/agendamento\"},\"appearance\":{\"bgType\":\"image\",\"backgroundColor\":\"#ffffff\",\"backgroundImageUrl\":\"\",\"glassEffect\":{\"active\":false,\"intensity\":0},\"overlay\":{\"color\":\"#000000\",\"opacity\":0},\"verticalAlignment\":\"center\",\"horizontalAlignment\":\"center\",\"sectionHeight\":\"medium\"},\"bgColor\":\"#ffffff\"},\"servicesSection\":{\"visibility\":true,\"orderOnHome\":1,\"header\":{\"title\":{\"text\":\"Nossos Serviços\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"Escolha o tratamento ideal para si\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"},\"alignment\":\"center\"},\"cardConfig\":{\"showImage\":true,\"showCategory\":true,\"priceStyle\":{\"visible\":true,\"color\":\"#000000\",\"font\":\"Inter\"},\"durationStyle\":{\"visible\":true,\"color\":\"#666666\"},\"cardBackgroundColor\":\"#ffffff\",\"borderAndShadow\":{\"borderSize\":\"1px\",\"shadowIntensity\":\"small\"},\"borderRadius\":\"12px\"},\"bookingButtonStyle\":{\"text\":\"Agendar\",\"backgroundColor\":\"#000000\",\"textColor\":\"#ffffff\",\"borderRadius\":\"6px\"}},\"valuesSection\":{\"visibility\":true,\"orderOnHome\":2,\"header\":{\"title\":{\"text\":\"Nossos Valores\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"O que nos move todos os dias\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"}},\"itemsStyle\":{\"layout\":\"grid\",\"itemBackgroundColor\":\"#f9f9f9\",\"borderRadius\":\"8px\",\"internalAlignment\":\"center\"},\"items\":[]},\"galleryPreview\":{\"visibility\":true,\"orderOnHome\":3,\"header\":{\"title\":{\"text\":\"Nossa Galeria\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"Confira nossos últimos trabalhos\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"}},\"displayLogic\":{\"selectionMode\":\"automatic_recent\",\"photoCount\":6,\"gridLayout\":\"mosaic\"},\"photoStyle\":{\"aspectRatio\":\"1:1\",\"spacing\":\"16px\",\"borderRadius\":\"8px\",\"hoverEffect\":\"zoom\"},\"viewMoreButton\":{\"visible\":true,\"text\":\"Ver Galeria Completa\",\"style\":{\"backgroundColor\":\"transparent\",\"textColor\":\"#000000\",\"borderRadius\":\"4px\"}}},\"ctaSection\":{\"visibility\":true,\"orderOnHome\":4,\"title\":{\"text\":\"Pronto para transformar seu olhar?\",\"color\":\"#ffffff\",\"font\":\"Inter\",\"size\":{\"desktop\":\"42px\",\"mobile\":\"28px\"}},\"subtitle\":{\"text\":\"Reserve seu horário em menos de 1 minuto.\",\"color\":\"#f0f0f0\",\"font\":\"Inter\",\"size\":\"18px\"},\"conversionButton\":{\"text\":\"Agendar Agora\",\"style\":{\"backgroundColor\":\"#ffffff\",\"textColor\":\"#000000\",\"borderColor\":\"transparent\"},\"borderRadius\":\"8px\"},\"designConfig\":{\"backgroundType\":\"solid_color\",\"colorOrImageUrl\":\"#000000\",\"glassEffect\":{\"active\":false,\"intensity\":0},\"borders\":{\"top\":false,\"bottom\":false},\"padding\":\"60px\",\"alignment\":\"center\"}}}'::jsonb"
+          "default": "'{\"heroBanner\":{\"visibility\":true,\"title\":{\"text\":\"Sua beleza, nossa prioridade\",\"color\":\"#000000\",\"font\":\"Inter\",\"sizeMobile\":\"32px\",\"sizeDesktop\":\"48px\"},\"badge\":{\"text\":\"ESPECIALISTA EM BELEZA\",\"backgroundColor\":\"#000000\",\"textColor\":\"#ffffff\",\"font\":\"Inter\"},\"subtitle\":{\"text\":\"Agende seu horário e realce o que você tem de melhor\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"18px\"},\"ctaButton\":{\"text\":\"Agendar Agora\",\"backgroundColor\":\"#000000\",\"textColor\":\"#ffffff\",\"borderRadius\":\"8px\",\"borderColor\":\"transparent\",\"destinationLink\":\"/agendamento\"},\"appearance\":{\"bgType\":\"image\",\"backgroundColor\":\"#ffffff\",\"backgroundImageUrl\":\"\",\"glassEffect\":{\"active\":false,\"intensity\":0},\"overlay\":{\"color\":\"#000000\",\"opacity\":0},\"verticalAlignment\":\"center\",\"horizontalAlignment\":\"center\",\"sectionHeight\":\"medium\"},\"bgColor\":\"#ffffff\"},\"servicesSection\":{\"visibility\":true,\"orderOnHome\":1,\"header\":{\"title\":{\"text\":\"Nossos Serviços\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"Escolha o tratamento ideal para si\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"},\"alignment\":\"center\"},\"cardConfig\":{\"showImage\":true,\"showCategory\":true,\"priceStyle\":{\"visible\":true,\"color\":\"#000000\",\"font\":\"Inter\"},\"durationStyle\":{\"visible\":true,\"color\":\"#666666\"},\"cardBackgroundColor\":\"#ffffff\",\"borderAndShadow\":{\"borderSize\":\"1px\",\"shadowIntensity\":\"small\"},\"borderRadius\":\"12px\"},\"bookingButtonStyle\":{\"text\":\"Agendar\",\"backgroundColor\":\"#000000\",\"textColor\":\"#ffffff\",\"borderRadius\":\"6px\"}},\"valuesSection\":{\"visibility\":true,\"orderOnHome\":2,\"header\":{\"title\":{\"text\":\"Nossos Valores\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"O que nos move todos os dias\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"}},\"itemsStyle\":{\"layout\":\"grid\",\"itemBackgroundColor\":\"#f9f9f9\",\"borderRadius\":\"8px\",\"internalAlignment\":\"center\"},\"items\":[]},\"galleryPreview\":{\"visibility\":true,\"orderOnHome\":3,\"header\":{\"title\":{\"text\":\"Nossa Galeria\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"Confira nossos últimos trabalhos\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"}},\"displayLogic\":{\"selectionMode\":\"automatic_recent\",\"photoCount\":6,\"gridLayout\":\"mosaic\"},\"photoStyle\":{\"aspectRatio\":\"1:1\",\"spacing\":\"16px\",\"borderRadius\":\"8px\",\"hoverEffect\":\"zoom\"},\"viewMoreButton\":{\"visible\":true,\"text\":\"Ver Galeria Completa\",\"style\":{\"backgroundColor\":\"transparent\",\"textColor\":\"#000000\",\"borderRadius\":\"4px\"}}},\"ctaSection\":{\"visibility\":true,\"orderOnHome\":4,\"title\":{\"text\":\"Pronto para transformar seu olhar?\",\"color\":\"#ffffff\",\"font\":\"Inter\",\"size\":{\"desktop\":\"42px\",\"mobile\":\"28px\"}},\"subtitle\":{\"text\":\"Reserve seu horário em menos de 1 minuto.\",\"color\":\"#f0f0f0\",\"font\":\"Inter\",\"size\":\"18px\"},\"conversionButton\":{\"text\":\"Agendar Agora\",\"style\":{\"backgroundColor\":\"#ffffff\",\"textColor\":\"#000000\",\"borderColor\":\"transparent\"},\"borderRadius\":\"8px\"},\"designConfig\":{\"backgroundType\":\"solid_color\",\"colorOrImageUrl\":\"#000000\",\"glassEffect\":{\"active\":false,\"intensity\":0},\"borders\":{\"top\":false,\"bottom\":false},\"padding\":\"60px\",\"alignment\":\"center\"}}}'::jsonb"
         },
         "gallery": {
           "name": "gallery",
@@ -871,7 +1175,7 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
-          "default": "'{\"colors\":{\"primary\":\"#000000\",\"secondary\":\"#333333\",\"background\":\"#ffffff\",\"text\":\"#000000\"},\"step1Services\":{\"title\":\"Selecione o Serviço\",\"showPrices\":true,\"showDurations\":true,\"cardConfig\":{\"backgroundColor\":\"TRANSPARENT_DEFAULT\"}},\"step2Date\":{\"title\":\"Escolha a Data\",\"calendarStyle\":\"modern\"},\"step3Times\":{\"title\":\"Escolha o Horário\",\"timeSlotStyle\":\"grid\",\"timeSlotSize\":30},\"step4Confirmation\":{\"title\":\"Confirme seu Agendamento\",\"requireLogin\":false}}'::jsonb"
+          "default": "'{\"colors\":{\"primary\":\"#000000\",\"secondary\":\"#333333\",\"background\":\"#ffffff\",\"text\":\"#000000\"},\"step1Services\":{\"title\":\"Selecione o Serviço\",\"showPrices\":true,\"showDurations\":true,\"cardConfig\":{\"backgroundColor\":\"TRANSPARENT_DEFAULT\"}},\"step2Date\":{\"title\":\"Escolha a Data\",\"calendarStyle\":\"modern\"},\"step3Times\":{\"title\":\"Escolha o Horário\",\"timeSlotStyle\":\"grid\",\"timeSlotSize\":30,\"minimumBookingLeadMinutes\":0},\"step4Confirmation\":{\"title\":\"Confirme seu Agendamento\",\"requireLogin\":false}}'::jsonb"
         },
         "created_at": {
           "name": "created_at",
@@ -911,6 +1215,93 @@
           "nullsNotDistinct": false,
           "columns": [
             "company_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.custom_domains": {
+      "name": "custom_domains",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "domain": {
+          "name": "domain",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING'"
+        },
+        "verification_data": {
+          "name": "verification_data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "custom_domains_company_id_companies_id_fk": {
+          "name": "custom_domains_company_id_companies_id_fk",
+          "tableFrom": "custom_domains",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "custom_domains_company_id_unique": {
+          "name": "custom_domains_company_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "company_id"
+          ]
+        },
+        "custom_domains_domain_unique": {
+          "name": "custom_domains_domain_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "domain"
           ]
         }
       },
@@ -1377,6 +1768,227 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.master_template_variations": {
+      "name": "master_template_variations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "template_id": {
+          "name": "template_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "variation_key": {
+          "name": "variation_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "variation_name": {
+          "name": "variation_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "niche": {
+          "name": "niche",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "section_type": {
+          "name": "section_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config": {
+          "name": "config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "master_template_variations_template_id_idx": {
+          "name": "master_template_variations_template_id_idx",
+          "columns": [
+            {
+              "expression": "template_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "master_template_variations_section_type_idx": {
+          "name": "master_template_variations_section_type_idx",
+          "columns": [
+            {
+              "expression": "section_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "master_template_variations_unique_section_per_variation": {
+          "name": "master_template_variations_unique_section_per_variation",
+          "columns": [
+            {
+              "expression": "template_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "variation_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "section_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "master_template_variations_template_id_master_templates_id_fk": {
+          "name": "master_template_variations_template_id_master_templates_id_fk",
+          "tableFrom": "master_template_variations",
+          "tableTo": "master_templates",
+          "columnsFrom": [
+            "template_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.master_templates": {
+      "name": "master_templates",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "template_key": {
+          "name": "template_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "master_templates_template_key_unique": {
+          "name": "master_templates_template_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "template_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.operating_hours": {
       "name": "operating_hours",
       "schema": "",
@@ -1635,6 +2247,84 @@
           ]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.schedule_blocks": {
+      "name": "schedule_blocks",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "staff_id": {
+          "name": "staff_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_time": {
+          "name": "start_time",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_time": {
+          "name": "end_time",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_overrideable": {
+          "name": "is_overrideable",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "schedule_blocks_staff_id_staff_id_fk": {
+          "name": "schedule_blocks_staff_id_staff_id_fk",
+          "tableFrom": "schedule_blocks",
+          "tableTo": "staff",
+          "columnsFrom": [
+            "staff_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1963,7 +2653,7 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
-          "default": "'{\"heroBanner\":{\"visibility\":true,\"title\":{\"text\":\"Sua beleza, nossa prioridade\",\"color\":\"#000000\",\"font\":\"Inter\",\"sizeMobile\":\"32px\",\"sizeDesktop\":\"48px\"},\"subtitle\":{\"text\":\"Agende seu horário e realce o que você tem de melhor\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"18px\"},\"ctaButton\":{\"text\":\"Agendar Agora\",\"backgroundColor\":\"#000000\",\"textColor\":\"#ffffff\",\"borderRadius\":\"8px\",\"borderColor\":\"transparent\",\"destinationLink\":\"/agendamento\"},\"appearance\":{\"bgType\":\"image\",\"backgroundColor\":\"#ffffff\",\"backgroundImageUrl\":\"\",\"glassEffect\":{\"active\":false,\"intensity\":0},\"overlay\":{\"color\":\"#000000\",\"opacity\":0},\"verticalAlignment\":\"center\",\"horizontalAlignment\":\"center\",\"sectionHeight\":\"medium\"},\"bgColor\":\"#ffffff\"},\"servicesSection\":{\"visibility\":true,\"orderOnHome\":1,\"header\":{\"title\":{\"text\":\"Nossos Serviços\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"Escolha o tratamento ideal para si\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"},\"alignment\":\"center\"},\"cardConfig\":{\"showImage\":true,\"showCategory\":true,\"priceStyle\":{\"visible\":true,\"color\":\"#000000\",\"font\":\"Inter\"},\"durationStyle\":{\"visible\":true,\"color\":\"#666666\"},\"cardBackgroundColor\":\"#ffffff\",\"borderAndShadow\":{\"borderSize\":\"1px\",\"shadowIntensity\":\"small\"},\"borderRadius\":\"12px\"},\"bookingButtonStyle\":{\"text\":\"Agendar\",\"backgroundColor\":\"#000000\",\"textColor\":\"#ffffff\",\"borderRadius\":\"6px\"}},\"valuesSection\":{\"visibility\":true,\"orderOnHome\":2,\"header\":{\"title\":{\"text\":\"Nossos Valores\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"O que nos move todos os dias\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"}},\"itemsStyle\":{\"layout\":\"grid\",\"itemBackgroundColor\":\"#f9f9f9\",\"borderRadius\":\"8px\",\"internalAlignment\":\"center\"},\"items\":[]},\"galleryPreview\":{\"visibility\":true,\"orderOnHome\":3,\"header\":{\"title\":{\"text\":\"Nossa Galeria\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"Confira nossos últimos trabalhos\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"}},\"displayLogic\":{\"selectionMode\":\"automatic_recent\",\"photoCount\":6,\"gridLayout\":\"mosaic\"},\"photoStyle\":{\"aspectRatio\":\"1:1\",\"spacing\":\"16px\",\"borderRadius\":\"8px\",\"hoverEffect\":\"zoom\"},\"viewMoreButton\":{\"visible\":true,\"text\":\"Ver Galeria Completa\",\"style\":{\"backgroundColor\":\"transparent\",\"textColor\":\"#000000\",\"borderRadius\":\"4px\"}}},\"ctaSection\":{\"visibility\":true,\"orderOnHome\":4,\"title\":{\"text\":\"Pronto para transformar seu olhar?\",\"color\":\"#ffffff\",\"font\":\"Inter\",\"size\":{\"desktop\":\"42px\",\"mobile\":\"28px\"}},\"subtitle\":{\"text\":\"Reserve seu horário em menos de 1 minuto.\",\"color\":\"#f0f0f0\",\"font\":\"Inter\",\"size\":\"18px\"},\"conversionButton\":{\"text\":\"Agendar Agora\",\"style\":{\"backgroundColor\":\"#ffffff\",\"textColor\":\"#000000\",\"borderColor\":\"transparent\"},\"borderRadius\":\"8px\"},\"designConfig\":{\"backgroundType\":\"solid_color\",\"colorOrImageUrl\":\"#000000\",\"glassEffect\":{\"active\":false,\"intensity\":0},\"borders\":{\"top\":false,\"bottom\":false},\"padding\":\"60px\",\"alignment\":\"center\"}}}'::jsonb"
+          "default": "'{\"heroBanner\":{\"visibility\":true,\"title\":{\"text\":\"Sua beleza, nossa prioridade\",\"color\":\"#000000\",\"font\":\"Inter\",\"sizeMobile\":\"32px\",\"sizeDesktop\":\"48px\"},\"badge\":{\"text\":\"ESPECIALISTA EM BELEZA\",\"backgroundColor\":\"#000000\",\"textColor\":\"#ffffff\",\"font\":\"Inter\"},\"subtitle\":{\"text\":\"Agende seu horário e realce o que você tem de melhor\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"18px\"},\"ctaButton\":{\"text\":\"Agendar Agora\",\"backgroundColor\":\"#000000\",\"textColor\":\"#ffffff\",\"borderRadius\":\"8px\",\"borderColor\":\"transparent\",\"destinationLink\":\"/agendamento\"},\"appearance\":{\"bgType\":\"image\",\"backgroundColor\":\"#ffffff\",\"backgroundImageUrl\":\"\",\"glassEffect\":{\"active\":false,\"intensity\":0},\"overlay\":{\"color\":\"#000000\",\"opacity\":0},\"verticalAlignment\":\"center\",\"horizontalAlignment\":\"center\",\"sectionHeight\":\"medium\"},\"bgColor\":\"#ffffff\"},\"servicesSection\":{\"visibility\":true,\"orderOnHome\":1,\"header\":{\"title\":{\"text\":\"Nossos Serviços\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"Escolha o tratamento ideal para si\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"},\"alignment\":\"center\"},\"cardConfig\":{\"showImage\":true,\"showCategory\":true,\"priceStyle\":{\"visible\":true,\"color\":\"#000000\",\"font\":\"Inter\"},\"durationStyle\":{\"visible\":true,\"color\":\"#666666\"},\"cardBackgroundColor\":\"#ffffff\",\"borderAndShadow\":{\"borderSize\":\"1px\",\"shadowIntensity\":\"small\"},\"borderRadius\":\"12px\"},\"bookingButtonStyle\":{\"text\":\"Agendar\",\"backgroundColor\":\"#000000\",\"textColor\":\"#ffffff\",\"borderRadius\":\"6px\"}},\"valuesSection\":{\"visibility\":true,\"orderOnHome\":2,\"header\":{\"title\":{\"text\":\"Nossos Valores\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"O que nos move todos os dias\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"}},\"itemsStyle\":{\"layout\":\"grid\",\"itemBackgroundColor\":\"#f9f9f9\",\"borderRadius\":\"8px\",\"internalAlignment\":\"center\"},\"items\":[]},\"galleryPreview\":{\"visibility\":true,\"orderOnHome\":3,\"header\":{\"title\":{\"text\":\"Nossa Galeria\",\"color\":\"#000000\",\"font\":\"Inter\",\"size\":\"36px\"},\"subtitle\":{\"text\":\"Confira nossos últimos trabalhos\",\"color\":\"#666666\",\"font\":\"Inter\",\"size\":\"16px\"}},\"displayLogic\":{\"selectionMode\":\"automatic_recent\",\"photoCount\":6,\"gridLayout\":\"mosaic\"},\"photoStyle\":{\"aspectRatio\":\"1:1\",\"spacing\":\"16px\",\"borderRadius\":\"8px\",\"hoverEffect\":\"zoom\"},\"viewMoreButton\":{\"visible\":true,\"text\":\"Ver Galeria Completa\",\"style\":{\"backgroundColor\":\"transparent\",\"textColor\":\"#000000\",\"borderRadius\":\"4px\"}}},\"ctaSection\":{\"visibility\":true,\"orderOnHome\":4,\"title\":{\"text\":\"Pronto para transformar seu olhar?\",\"color\":\"#ffffff\",\"font\":\"Inter\",\"size\":{\"desktop\":\"42px\",\"mobile\":\"28px\"}},\"subtitle\":{\"text\":\"Reserve seu horário em menos de 1 minuto.\",\"color\":\"#f0f0f0\",\"font\":\"Inter\",\"size\":\"18px\"},\"conversionButton\":{\"text\":\"Agendar Agora\",\"style\":{\"backgroundColor\":\"#ffffff\",\"textColor\":\"#000000\",\"borderColor\":\"transparent\"},\"borderRadius\":\"8px\"},\"designConfig\":{\"backgroundType\":\"solid_color\",\"colorOrImageUrl\":\"#000000\",\"glassEffect\":{\"active\":false,\"intensity\":0},\"borders\":{\"top\":false,\"bottom\":false},\"padding\":\"60px\",\"alignment\":\"center\"}}}'::jsonb"
         },
         "gallery": {
           "name": "gallery",
@@ -1984,7 +2674,7 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
-          "default": "'{\"colors\":{\"primary\":\"#000000\",\"secondary\":\"#333333\",\"background\":\"#ffffff\",\"text\":\"#000000\"},\"step1Services\":{\"title\":\"Selecione o Serviço\",\"showPrices\":true,\"showDurations\":true,\"cardConfig\":{\"backgroundColor\":\"TRANSPARENT_DEFAULT\"}},\"step2Date\":{\"title\":\"Escolha a Data\",\"calendarStyle\":\"modern\"},\"step3Times\":{\"title\":\"Escolha o Horário\",\"timeSlotStyle\":\"grid\",\"timeSlotSize\":30},\"step4Confirmation\":{\"title\":\"Confirme seu Agendamento\",\"requireLogin\":false}}'::jsonb"
+          "default": "'{\"colors\":{\"primary\":\"#000000\",\"secondary\":\"#333333\",\"background\":\"#ffffff\",\"text\":\"#000000\"},\"step1Services\":{\"title\":\"Selecione o Serviço\",\"showPrices\":true,\"showDurations\":true,\"cardConfig\":{\"backgroundColor\":\"TRANSPARENT_DEFAULT\"}},\"step2Date\":{\"title\":\"Escolha a Data\",\"calendarStyle\":\"modern\"},\"step3Times\":{\"title\":\"Escolha o Horário\",\"timeSlotStyle\":\"grid\",\"timeSlotSize\":30,\"minimumBookingLeadMinutes\":0},\"step4Confirmation\":{\"title\":\"Confirme seu Agendamento\",\"requireLogin\":false}}'::jsonb"
         },
         "created_at": {
           "name": "created_at",
@@ -2031,6 +2721,699 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.staff": {
+      "name": "staff",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_admin": {
+          "name": "is_admin",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "is_secretary": {
+          "name": "is_secretary",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "is_professional": {
+          "name": "is_professional",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "calendar_color": {
+          "name": "calendar_color",
+          "type": "varchar(7)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "commission_rate": {
+          "name": "commission_rate",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "staff_email_company_unique": {
+          "name": "staff_email_company_unique",
+          "columns": [
+            {
+              "expression": "email",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "staff_email_idx": {
+          "name": "staff_email_idx",
+          "columns": [
+            {
+              "expression": "email",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "staff_company_id_companies_id_fk": {
+          "name": "staff_company_id_companies_id_fk",
+          "tableFrom": "staff",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "staff_user_id_user_id_fk": {
+          "name": "staff_user_id_user_id_fk",
+          "tableFrom": "staff",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.staff_absences": {
+      "name": "staff_absences",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "staff_id": {
+          "name": "staff_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_time": {
+          "name": "start_time",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_time": {
+          "name": "end_time",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "staff_absences_company_idx": {
+          "name": "staff_absences_company_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "staff_absences_staff_idx": {
+          "name": "staff_absences_staff_idx",
+          "columns": [
+            {
+              "expression": "staff_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "staff_absences_time_idx": {
+          "name": "staff_absences_time_idx",
+          "columns": [
+            {
+              "expression": "start_time",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "end_time",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "staff_absences_company_id_companies_id_fk": {
+          "name": "staff_absences_company_id_companies_id_fk",
+          "tableFrom": "staff_absences",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "staff_absences_staff_id_staff_id_fk": {
+          "name": "staff_absences_staff_id_staff_id_fk",
+          "tableFrom": "staff_absences",
+          "tableTo": "staff",
+          "columnsFrom": [
+            "staff_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "staff_absences_created_by_user_id_fk": {
+          "name": "staff_absences_created_by_user_id_fk",
+          "tableFrom": "staff_absences",
+          "tableTo": "user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.staff_services": {
+      "name": "staff_services",
+      "schema": "",
+      "columns": {
+        "staff_id": {
+          "name": "staff_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "staff_services_staff_service_unique": {
+          "name": "staff_services_staff_service_unique",
+          "columns": [
+            {
+              "expression": "staff_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "service_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "staff_services_staff_id_staff_id_fk": {
+          "name": "staff_services_staff_id_staff_id_fk",
+          "tableFrom": "staff_services",
+          "tableTo": "staff",
+          "columnsFrom": [
+            "staff_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "staff_services_service_id_services_id_fk": {
+          "name": "staff_services_service_id_services_id_fk",
+          "tableFrom": "staff_services",
+          "tableTo": "services",
+          "columnsFrom": [
+            "service_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.staff_services_competency": {
+      "name": "staff_services_competency",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "staff_id": {
+          "name": "staff_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "priority_score": {
+          "name": "priority_score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 5
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "staff_services_competency_staff_service_unique": {
+          "name": "staff_services_competency_staff_service_unique",
+          "columns": [
+            {
+              "expression": "staff_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "service_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "staff_services_competency_staff_idx": {
+          "name": "staff_services_competency_staff_idx",
+          "columns": [
+            {
+              "expression": "staff_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "staff_services_competency_service_idx": {
+          "name": "staff_services_competency_service_idx",
+          "columns": [
+            {
+              "expression": "service_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "staff_services_competency_active_idx": {
+          "name": "staff_services_competency_active_idx",
+          "columns": [
+            {
+              "expression": "is_active",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "staff_services_competency_staff_id_staff_id_fk": {
+          "name": "staff_services_competency_staff_id_staff_id_fk",
+          "tableFrom": "staff_services_competency",
+          "tableTo": "staff",
+          "columnsFrom": [
+            "staff_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "staff_services_competency_service_id_services_id_fk": {
+          "name": "staff_services_competency_service_id_services_id_fk",
+          "tableFrom": "staff_services_competency",
+          "tableTo": "services",
+          "columnsFrom": [
+            "service_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.system_logs": {
+      "name": "system_logs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "details": {
+          "name": "details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "level": {
+          "name": "level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'INFO'"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "system_logs_user_id_user_id_fk": {
+          "name": "system_logs_user_id_user_id_fk",
+          "tableFrom": "system_logs",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "system_logs_company_id_companies_id_fk": {
+          "name": "system_logs_company_id_companies_id_fk",
+          "tableFrom": "system_logs",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.system_settings": {
+      "name": "system_settings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "system_settings_key_unique": {
+          "name": "system_settings_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.user": {
       "name": "user",
       "schema": "",
@@ -2052,6 +3435,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "cpf_cnpj": {
+          "name": "cpf_cnpj",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "email_verified": {
           "name": "email_verified",
@@ -2132,6 +3521,19 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "accepted_terms": {
+          "name": "accepted_terms",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "accepted_terms_at": {
+          "name": "accepted_terms_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",

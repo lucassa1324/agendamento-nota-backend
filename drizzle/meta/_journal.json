@@ -5,50 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1772726182630,
-      "tag": "0000_init_baseline",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1775777652168,
-      "tag": "0001_lively_vanisher",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1776284670566,
-      "tag": "0002_large_sunset_bain",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1776897729049,
-      "tag": "0003_serious_beyonder",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1776984014180,
-      "tag": "0004_polite_blindfold",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1779152400600,
-      "tag": "0005_colorful_puck",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1747939200000,
-      "tag": "0006_booking_window_columns",
+      "when": 1779581271347,
+      "tag": "0000_goofy_purple_man",
       "breakpoints": true
     }
   ]
