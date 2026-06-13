@@ -76,15 +76,6 @@ export class CreateUserUseCase {
       return { newCompany: created, slug };
     });
 
-    if (!response.user.emailVerified) {
-      await auth.api.sendVerificationEmail({
-        body: {
-          email: data.email,
-        },
-      });
-      console.log(`[USER_REGISTER_USE_CASE] E-mail de verificação disparado via Better Auth`);
-    }
-
     return {
       ...response,
       business: result.newCompany,
