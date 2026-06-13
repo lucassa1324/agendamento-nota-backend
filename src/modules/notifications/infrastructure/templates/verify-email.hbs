@@ -1,21 +1,23 @@
-<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-  <h2 style="color: #333; text-align: center;">Bem-vindo ao Agendamento Nota!</h2>
-  <p style="color: #666; font-size: 16px; line-height: 1.5;">
-    Olá, {{name}}! Obrigado por se cadastrar. Para começar a usar todas as funcionalidades, por favor confirme seu endereço de e-mail clicando no botão abaixo:
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px; color: #444; line-height: 1.6;">
+  <h2 style="color: #333; text-align: center;">Olá, {{name}} 👋 Bem-vindo(a)!</h2>
+  <p style="font-size: 16px; text-align: center;">
+    Sua conta foi criada com sucesso e seu teste gratuito de 14 dias já está ativo.
   </p>
-  <div style="text-align: center; margin: 30px 0;">
-    <a href="{{verificationUrl}}" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
-      Verificar E-mail
+  
+  <div style="margin: 30px 0; padding: 20px; background-color: #f9f9f9; border-radius: 8px; border: 1px solid #eee; text-align: center;">
+    <h3 style="color: #333; margin-top: 0;">Falta apenas um passo!</h3>
+    <p style="color: #666;">Para ativar sua conta e publicar seu site, confirme seu e-mail clicando no botão abaixo:</p>
+    <a href="{{verificationUrl}}" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin-top: 10px;">
+      Confirmar meu E-mail
     </a>
+    <p style="color: #999; font-size: 12px; margin-top: 15px;">Se o botão não funcionar, copie este link: <br/><span style="color: #007bff; word-break: break-all;">{{verificationUrl}}</span></p>
   </div>
-  <p style="color: #999; font-size: 14px; text-align: center;">
-    Se o botão acima não funcionar, copie e cole o link abaixo no seu navegador:
+
+  <p style="font-size: 16px; text-align: center;">
+    Agora você pode configurar seus serviços, montar sua vitrine e começar a receber agendamentos.
   </p>
-  <p style="color: #007bff; font-size: 12px; text-align: center; word-break: break-all;">
-    {{verificationUrl}}
-  </p>
-  <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-  <p style="color: #999; font-size: 12px; text-align: center;">
-    Se você não criou esta conta, por favor ignore este e-mail.
-  </p>
+  <p style="font-size: 16px; text-align: center; font-weight: bold;">Bom trabalho e boas vendas!</p>
+  
+  <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
+  <p style="font-size: 12px; color: #999; text-align: center;">Este é um e-mail automático da Aura. Se você não solicitou este cadastro, por favor ignore.</p>
 </div>
