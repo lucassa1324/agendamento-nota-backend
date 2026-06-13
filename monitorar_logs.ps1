@@ -1,1 +1,0 @@
-vercel logs agendamento-nota-backend.vercel.app
