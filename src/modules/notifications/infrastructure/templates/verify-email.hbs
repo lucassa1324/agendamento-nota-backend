@@ -1,28 +1,32 @@
-<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px; color: #444; line-height: 1.6;">
+<div style="font-family: Georgia, 'Times New Roman', Times, serif; max-width: 600px; margin: 0 auto; padding: 40px 20px; color: #333; line-height: 1.6; background-color: #ffffff;">
   
-  <div style="text-align: center; margin-bottom: 20px;">
-    <img src="https://raster-bucket.s3.us-east-005.backblazeb2.com/Aura-Logo-sem-fundo.png" alt="Aura Logo" style="max-height: 60px;" />
+  <div style="text-align: center; margin-bottom: 40px;">
+    <img src="https://raster-bucket.s3.us-east-005.backblazeb2.com/Aura-Logo-sem-fundo.png" alt="Aura Logo" style="max-height: 50px;" />
   </div>
 
-  <h2 style="color: #333; text-align: center;">Olá, {{name}} 👋 Bem-vindo(a)!</h2>
-  <p style="font-size: 16px; text-align: center;">
-    Sua conta foi criada com sucesso e seu teste gratuito de 14 dias já está ativo.
+  <h2 style="color: #111; text-align: center; font-weight: normal; margin-bottom: 20px; font-size: 24px;">Olá, {{name}}.</h2>
+  
+  <p style="font-size: 16px; text-align: center; color: #555; margin-bottom: 40px;">
+    Sua conta foi criada com sucesso. Para começar a configurar seu espaço, por favor, confirme seu e-mail.
   </p>
   
-  <div style="margin: 30px 0; padding: 20px; background-color: #f9f9f9; border-radius: 8px; border: 1px solid #eee; text-align: center;">
-    <h3 style="color: #333; margin-top: 0;">Falta apenas um passo!</h3>
-    <p style="color: #666;">Para ativar sua conta e publicar seu site, confirme seu e-mail clicando no botão abaixo:</p>
-    <a href="{{verificationUrl}}" style="background-color: #F97316; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin-top: 10px;">
-      Confirmar meu E-mail
+  <div style="text-align: center; margin-bottom: 40px;">
+    <a href="{{verificationUrl}}" style="background-color: #9b6c6f; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 0; font-size: 16px; display: inline-block; letter-spacing: 0.5px;">
+      Confirmar E-mail
     </a>
-    <p style="color: #999; font-size: 12px; margin-top: 15px;">Se o botão não funcionar, copie este link: <br/><span style="color: #F97316; word-break: break-all;">{{verificationUrl}}</span></p>
   </div>
 
-  <p style="font-size: 16px; text-align: center;">
-    Agora você pode configurar seus serviços, montar sua vitrine e começar a receber agendamentos.
+  <p style="color: #777; font-size: 13px; text-align: center; margin-bottom: 30px;">
+    Ou copie e cole o link abaixo em seu navegador:<br/>
+    <a href="{{verificationUrl}}" style="color: #9b6c6f; word-break: break-all; text-decoration: none; margin-top: 10px; display: inline-block;">{{verificationUrl}}</a>
   </p>
-  <p style="font-size: 16px; text-align: center; font-weight: bold;">Bom trabalho e boas vendas!</p>
   
-  <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
-  <p style="font-size: 12px; color: #999; text-align: center;">Este é um e-mail automático da Aura. Se você não solicitou este cadastro, por favor ignore.</p>
+  <hr style="border: 0; border-top: 1px solid #eaeaea; margin: 40px 0 30px;">
+  
+  <p style="font-size: 12px; color: #999; text-align: center; margin: 0;">
+    Aura &copy; Todos os direitos reservados.
+  </p>
+  <p style="font-size: 12px; color: #999; text-align: center; margin: 5px 0 0 0;">
+    Se você não solicitou este cadastro, desconsidere este e-mail.
+  </p>
 </div>
