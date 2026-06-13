@@ -60,3 +60,4 @@ monitorar_logs.ps1
 # Launch Checklist
 /LAUNCH_CHECKLIST.md
 ../LAUNCH_CHECKLIST.md
+/dist
