@@ -174,11 +174,16 @@ const startServer = () => {
 
           // ── GET SESSION (já existente) ─────────────────────────────────────
           if (ctx.request.method === "GET" && (path === "/api/auth/session" || path === "/api/auth/get-session")) {
+            const cookieHeader = ctx.request.headers.get("cookie");
+            const hasTokenCookie = cookieHeader?.includes("better-auth.session_token") ?? false;
+            console.log(`>>> [GET_SESSION] Cookie presente=${!!cookieHeader}, has_token=${hasTokenCookie}, cookie_len=${cookieHeader?.length ?? 0}, cookie_prefix=${cookieHeader?.substring(0, 30) ?? "NONE"}`);
+
             let sessionData: unknown = null;
             try {
               sessionData = await auth.api.getSession({
                 headers: ctx.request.headers,
               });
+              console.log(`>>> [GET_SESSION] Resultado: ${sessionData ? "sessão encontrada" : "sessão NULA"}`);
             } catch (sessionError: any) {
               console.warn(
                 `>>> [AUTH_SESSION_FALLBACK] getSession falhou (${sessionError?.message || "erro desconhecido"}). Retornando null.`,
