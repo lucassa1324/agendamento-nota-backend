@@ -63,6 +63,8 @@ export class UserController {
               return { error: "USUARIO_NAO_ENCONTRADO", message: "Usuário vinculado ao link não encontrado." };
             }
 
+            console.log(`>>> [MAGIC_LINK] Validando link para userId=${userRow.id} email=${userRow.email} role=${userRow.role}`);
+
             const rawToken = crypto.randomUUID();
             const sessionId = crypto.randomUUID();
             const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -78,7 +80,9 @@ export class UserController {
               expiresAt,
             });
 
-            set.headers["Set-Cookie"] = `better-auth.session_token=${signedCookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}`;
+            const isProduction = process.env.NODE_ENV === "production";
+            const secureFlag = isProduction ? "; Secure" : "";
+            set.headers["Set-Cookie"] = `better-auth.session_token=${signedCookie}; Path=/; HttpOnly; SameSite=Lax${secureFlag}; Max-Age=${7 * 24 * 60 * 60}`;
 
             return {
               success: true,
