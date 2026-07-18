@@ -82,7 +82,8 @@ export class UserController {
 
             const isProduction = process.env.NODE_ENV === "production";
             const secureFlag = isProduction ? "; Secure" : "";
-            set.headers["Set-Cookie"] = `better-auth.session_token=${signedCookie}; Path=/; HttpOnly; SameSite=Lax${secureFlag}; Max-Age=${7 * 24 * 60 * 60}`;
+            const cookieName = isProduction ? "__Secure-better-auth.session_token" : "better-auth.session_token";
+            set.headers["Set-Cookie"] = `${cookieName}=${signedCookie}; Path=/; HttpOnly; SameSite=Lax${secureFlag}; Max-Age=${7 * 24 * 60 * 60}`;
 
             return {
               success: true,
