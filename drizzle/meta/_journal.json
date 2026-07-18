@@ -8,6 +8,20 @@
       "when": 1779581271347,
       "tag": "0000_goofy_purple_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783395026181,
+      "tag": "0001_majestic_titanium_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784390877103,
+      "tag": "0002_broad_captain_universe",
+      "breakpoints": true
     }
   ]
 }

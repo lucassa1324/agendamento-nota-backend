@@ -973,3 +973,22 @@ export const customDomainsRelations = relations(customDomains, ({ one }) => ({
     references: [companies.id],
   }),
 }));
+
+export const magicLinks = pgTable(
+  "magic_links",
+  {
+    id: text("id").primaryKey(),
+    tokenHash: text("token_hash").notNull().unique(),
+    companyId: text("company_id").references(() => companies.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at").notNull(),
+    consumedAt: timestamp("consumed_at"),
+    expirationHours: integer("expiration_hours").notNull().default(24),
+    singleUse: boolean("single_use").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("magic_links_token_hash_idx").on(table.tokenHash),
+    index("magic_links_expires_at_idx").on(table.expiresAt),
+  ],
+);

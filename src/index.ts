@@ -36,6 +36,8 @@ const startServer = () => {
     const { UserController } = require("./modules/user/adapters/in/http/user.controller");
     const { ListUsersUseCase } = require("./modules/user/application/use-cases/list-users.use-case");
     const { CreateUserUseCase } = require("./modules/user/application/use-cases/create-user.use-case");
+    const { GenerateMagicLinkUseCase } = require("./modules/user/application/use-cases/magic-link/generate-magic-link.use-case");
+    const { ValidateMagicLinkUseCase } = require("./modules/user/application/use-cases/magic-link/validate-magic-link.use-case");
     const { UserRepository } = require("./modules/user/adapters/out/user.repository");
 
     const { businessController } = require("./modules/business/adapters/in/http/business.controller");
@@ -65,7 +67,14 @@ const startServer = () => {
     const userRepository = new UserRepository();
     const createUserUseCase = new CreateUserUseCase(userRepository);
     const listUsersUseCase = new ListUsersUseCase(userRepository);
-    const userController = new UserController(createUserUseCase, listUsersUseCase);
+    const generateMagicLinkUseCase = new GenerateMagicLinkUseCase();
+    const validateMagicLinkUseCase = new ValidateMagicLinkUseCase();
+    const userController = new UserController(
+      createUserUseCase,
+      listUsersUseCase,
+      generateMagicLinkUseCase,
+      validateMagicLinkUseCase,
+    );
 
     console.log("[STARTUP] Criando instância do Elysia...");
 

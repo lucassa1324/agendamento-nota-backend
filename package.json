@@ -21,6 +21,7 @@
     "drizzle-orm": "^0.45.1",
     "elysia": "latest",
     "handlebars": "^4.7.9",
+    "pg": "^8.22.0",
     "postgres": "^3.4.8",
     "resend": "^6.9.2",
     "stripe": "^20.3.1",
@@ -29,7 +30,7 @@
   "devDependencies": {
     "@playwright/test": "^1.58.2",
     "@types/handlebars": "^4.1.0",
-    "@types/pg": "^8.16.0",
+    "@types/pg": "^8.20.0",
     "bun-types": "latest",
     "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.8"
