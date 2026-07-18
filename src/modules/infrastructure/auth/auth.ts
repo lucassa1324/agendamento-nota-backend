@@ -70,6 +70,7 @@ const resolveBusinessAccessForUser = async (
     .limit(1);
 
   if (ownedBusiness) {
+    console.log(`>>> [BUSINESS_RESOLVE] userId=${userId}: found OWNED business slug=${ownedBusiness.slug}`);
     return {
       ...ownedBusiness,
       subscriptionStatus: ownedBusiness.subscriptionStatus ?? null,
@@ -79,6 +80,8 @@ const resolveBusinessAccessForUser = async (
       staffIsAdmin: true,
     };
   }
+
+  console.log(`>>> [BUSINESS_RESOLVE] userId=${userId}: no owned company found, checking staff...`);
 
   const [staffBusiness] = await db
     .select({
@@ -94,8 +97,12 @@ const resolveBusinessAccessForUser = async (
     .where(and(eq(schema.staff.userId, userId), eq(schema.staff.isActive, true)))
     .limit(1);
 
-  if (!staffBusiness) return null;
+  if (!staffBusiness) {
+    console.log(`>>> [BUSINESS_RESOLVE] userId=${userId}: no staff record found either => returning null`);
+    return null;
+  }
 
+  console.log(`>>> [BUSINESS_RESOLVE] userId=${userId}: found STAFF business slug=${staffBusiness.slug}`);
   return {
     id: staffBusiness.id,
     slug: staffBusiness.slug,
