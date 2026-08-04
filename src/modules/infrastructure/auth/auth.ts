@@ -184,7 +184,9 @@ export const auth = betterAuth({
       domain: undefined,
       path: "/",
       sameSite: "lax",
-      httpOnly: true,
+      // ponytail: httpOnly=false para o frontend ler o token via document.cookie
+      // e enviar como Bearer (fluxo de autorização "normal"). Tradeoff: exposto a XSS.
+      httpOnly: false,
       secure: process.env.NODE_ENV === "production"
     },
   },
