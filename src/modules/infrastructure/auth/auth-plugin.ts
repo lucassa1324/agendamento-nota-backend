@@ -1339,7 +1339,7 @@ export const authPlugin = new Elysia({ name: "auth-plugin" })
             },
         },
         isMaster: {
-            resolve({ user, set }) {
+            beforeHandle({ user, set }) {
                 if (!user || user.role !== "SUPER_ADMIN") {
                     set.status = 403;
                     return { error: "Acesso negado: acesso de Super Admin necessário" };
