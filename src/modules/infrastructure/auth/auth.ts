@@ -340,7 +340,7 @@ export const auth = betterAuth({
               const authSession = await auth.api.getSession({
                 headers: ctx.request.headers
               });
-              if (authSession?.user) {
+              if (authSession) {
                 session = authSession;
                 console.log(`[CHANGE_PASSWORD] Sessão recuperada manualmente para: ${session.user.email}`);
               }
