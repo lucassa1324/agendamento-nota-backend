@@ -76,11 +76,75 @@ const startServer = () => {
       validateMagicLinkUseCase,
     );
 
+    const applyCors = (response: Response, request: Request): Response => {
+      const origin = request.headers.get("origin");
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:3002',
+        'http://127.0.0.1:3000',
+        'https://app.aurasistema.com.br',
+        'https://app.staging.aurasistema.com.br',
+        'https://aurasistema.com.br'
+      ];
+
+      const isAllowed = allowedOrigins.includes(origin!) ||
+        (origin && origin.match(/http:\/\/.*\.localhost:\d+$/)) ||
+        (origin && (origin.endsWith('.aurasistema.com.br') || origin === 'https://aurasistema.com.br')) ||
+        (origin && origin.endsWith('.vercel.app'));
+
+      if (isAllowed && origin) {
+        const newHeaders = new Headers(response.headers);
+        newHeaders.set("Access-Control-Allow-Origin", origin);
+        newHeaders.set("Access-Control-Allow-Credentials", "true");
+        newHeaders.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+        newHeaders.set("Access-Control-Allow-Headers", "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control");
+        newHeaders.set("Access-Control-Expose-Headers", "Set-Cookie, set-cookie, Authorization, Cache-Control");
+
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: newHeaders
+        });
+      }
+
+      return response;
+    };
+
     console.log("[STARTUP] Criando instância do Elysia...");
 
     const app = new Elysia({
       name: 'AgendamentoNota'
     })
+      .onBeforeHandle(({ request, set }) => {
+        const origin = request.headers.get("origin");
+        const allowedOrigins = [
+          'http://localhost:3000',
+          'http://localhost:3001',
+          'http://localhost:3002',
+          'http://127.0.0.1:3000',
+          'https://app.aurasistema.com.br',
+          'https://app.staging.aurasistema.com.br',
+          'https://aurasistema.com.br'
+        ];
+
+        const isAllowed = allowedOrigins.includes(origin!) ||
+          (origin && origin.match(/http:\/\/.*\.localhost:\d+$/)) ||
+          (origin && (origin.endsWith('.aurasistema.com.br') || origin === 'https://aurasistema.com.br')) ||
+          (origin && origin.endsWith('.vercel.app'));
+
+        if (isAllowed && origin) {
+          set.headers["Access-Control-Allow-Origin"] = origin;
+          set.headers["Access-Control-Allow-Credentials"] = "true";
+          set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control";
+          set.headers["Access-Control-Expose-Headers"] = "Set-Cookie, set-cookie, Authorization, Cache-Control";
+        }
+
+        set.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate";
+        set.headers["Pragma"] = "no-cache";
+        set.headers["Expires"] = "0";
+      })
       .get("/email-verified", async ({ query, set }) => {
         const { token, callbackURL } = query;
         const frontendBaseUrl =
@@ -441,35 +505,6 @@ const startServer = () => {
             });
           }
         }
-      })
-      .onBeforeHandle(({ request, set }) => {
-        const origin = request.headers.get("origin");
-        const allowedOrigins = [
-          'http://localhost:3000',
-          'http://localhost:3001',
-          'http://localhost:3002',
-          'http://127.0.0.1:3000',
-          'https://app.aurasistema.com.br',
-          'https://app.staging.aurasistema.com.br',
-          'https://aurasistema.com.br'
-        ];
-
-        const isAllowed = allowedOrigins.includes(origin!) ||
-          (origin && origin.match(/http:\/\/.*\.localhost:\d+$/)) ||
-          (origin && (origin.endsWith('.aurasistema.com.br') || origin === 'https://aurasistema.com.br')) ||
-          (origin && origin.endsWith('.vercel.app'));
-
-        if (isAllowed && origin) {
-          set.headers["Access-Control-Allow-Origin"] = origin;
-          set.headers["Access-Control-Allow-Credentials"] = "true";
-          set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-            set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie, X-Requested-With, Cache-Control";
-          set.headers["Access-Control-Expose-Headers"] = "Set-Cookie, set-cookie, Authorization, Cache-Control";
-        }
-
-        set.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate";
-        set.headers["Pragma"] = "no-cache";
-        set.headers["Expires"] = "0";
       })
       .use(authPlugin)
       .use(repositoriesPlugin)
